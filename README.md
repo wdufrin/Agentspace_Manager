@@ -35,7 +35,7 @@ This method is recommended for development and uses the standard Node.js ecosyst
     ```
 2.  **Start the Development Server**: Once installation is complete, start the server:
     ```sh
-    npm start
+    npm run dev
     ```
     This command will launch a development server and should automatically open the application in your default browser (usually at `http://localhost:3000` or a similar address).
 3.  **Configure the App**:
