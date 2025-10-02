@@ -79,7 +79,8 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
             <input
               type="file"
               accept=".json"
-              ref={el => restoreFileInputRefs.current[section] = el}
+              // FIX: Corrected the ref callback to return void by using a block statement, resolving a TypeScript type error.
+              ref={el => { restoreFileInputRefs.current[section] = el; }}
               onChange={(e) => onFileChange(section, e.target.files ? e.target.files[0] : null)}
               disabled={isGloballyLoading}
               className="block w-full text-xs text-gray-400 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-gray-700 file:text-gray-300 hover:file:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"

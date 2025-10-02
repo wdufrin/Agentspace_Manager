@@ -7,6 +7,7 @@ import AgentForm from '../components/agents/AgentForm';
 import AgentDetails from '../components/agents/AgentDetails';
 import ChatWindow from '../components/agents/ChatWindow';
 import ProjectInput from '../components/ProjectInput';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 type ViewMode = 'list' | 'form' | 'details' | 'chat';
 
@@ -45,6 +46,10 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ accessToken, projectNumber, set
   const [togglingAgentId, setTogglingAgentId] = useState<string | null>(null);
   const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
   
+  // State for delete confirmation modal
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [agentToDelete, setAgentToDelete] = useState<Agent | null>(null);
+
   // Configuration state
   const [config, setConfig] = useState(getInitialConfig);
   const [sortConfig, setSortConfig] = useState<{ key: SortableAgentKey; direction: SortDirection }>({ key: 'displayName', direction: 'asc' });
@@ -247,17 +252,26 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ accessToken, projectNumber, set
     }
   };
 
-  const handleDelete = async (agent: Agent) => {
-    const agentId = agent.name.split('/').pop() || '';
+  const requestDelete = (agent: Agent) => {
+    setAgentToDelete(agent);
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!agentToDelete) return;
+
+    const agentId = agentToDelete.name.split('/').pop() || '';
     setDeletingAgentId(agentId);
+    setIsDeleteModalOpen(false);
     setError(null);
     try {
-      await api.deleteResource(agent.name, apiConfig);
+      await api.deleteResource(agentToDelete.name, apiConfig);
       fetchAgents(); // Refresh the list
     } catch (err: any) {
       setError(err.message || `Failed to delete agent ${agentId}.`);
     } finally {
       setDeletingAgentId(null);
+      setAgentToDelete(null);
     }
   };
 
@@ -331,7 +345,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ accessToken, projectNumber, set
               agents={sortedAgents}
               onSelectAgent={handleSelectAgent}
               onEditAgent={handleEditAgent}
-              onDeleteAgent={handleDelete}
+              onDeleteAgent={requestDelete}
               onRegisterNew={() => { setSelectedAgent(null); setViewMode('form'); }}
               onToggleAgentStatus={handleToggleStatus}
               togglingAgentId={togglingAgentId}
@@ -405,6 +419,24 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ accessToken, projectNumber, set
         </div>
       </div>
       {renderContent()}
+
+      {agentToDelete && (
+        <ConfirmationModal
+            isOpen={isDeleteModalOpen}
+            onClose={() => setIsDeleteModalOpen(false)}
+            onConfirm={confirmDelete}
+            title="Confirm Agent Deletion"
+            confirmText="Delete"
+            isConfirming={!!deletingAgentId}
+        >
+            <p>Are you sure you want to permanently delete this agent?</p>
+            <div className="mt-2 p-3 bg-gray-700/50 rounded-md border border-gray-600">
+                <p className="font-bold text-white">{agentToDelete.displayName}</p>
+                <p className="text-xs font-mono text-gray-400 mt-1">{agentToDelete.name.split('/').pop()}</p>
+            </div>
+            <p className="mt-4 text-sm text-yellow-300">This action cannot be undone.</p>
+        </ConfirmationModal>
+      )}
     </div>
   );
 };

@@ -4,6 +4,7 @@ import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
 import AuthList from '../components/authorizations/AuthList';
 import AuthForm from '../components/authorizations/AuthForm';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 interface AuthorizationsPageProps {
   accessToken: string;
@@ -16,6 +17,11 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ accessToken, pr
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'form'>('list');
   const [authToEdit, setAuthToEdit] = useState<Authorization | null>(null);
+  
+  // State for delete confirmation modal
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [authToDelete, setAuthToDelete] = useState<Authorization | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const apiConfig: Config = {
       accessToken,
@@ -54,15 +60,25 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ accessToken, pr
     }
   }, [fetchAuthorizations, projectNumber]);
   
-  const handleDelete = async (authId: string) => {
+  const requestDelete = (auth: Authorization) => {
+    setAuthToDelete(auth);
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!authToDelete) return;
+    
+    const authId = authToDelete.name.split('/').pop() || '';
+    setIsDeleting(true);
+    setIsDeleteModalOpen(false);
     setError(null);
+
     try {
         await api.deleteAuthorization(authId, apiConfig);
         fetchAuthorizations(); // Refresh list
     } catch (err: any) {
         let errorMessage = err.message || `Failed to delete authorization ${authId}.`;
 
-        // Check for the specific FAILED_PRECONDITION error for linked resources
         if (errorMessage.includes("is used by another agent") || errorMessage.includes("is linked to a resource")) {
             const agentNameMatch = errorMessage.match(/(projects\/[^\s]+\/agents\/[^\s]+)/);
             if (agentNameMatch && agentNameMatch[0]) {
@@ -74,6 +90,9 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ accessToken, pr
             }
         }
         setError(errorMessage);
+    } finally {
+        setIsDeleting(false);
+        setAuthToDelete(null);
     }
   };
 
@@ -128,7 +147,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ accessToken, pr
     return (
       <AuthList
         authorizations={authorizations}
-        onDelete={handleDelete}
+        onDelete={requestDelete}
         onEdit={handleEdit}
         onCreateNew={handleShowCreateForm}
       />
@@ -156,6 +175,24 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ accessToken, pr
             )}
         </div>
       {renderContent()}
+
+      {authToDelete && (
+        <ConfirmationModal
+            isOpen={isDeleteModalOpen}
+            onClose={() => setIsDeleteModalOpen(false)}
+            onConfirm={confirmDelete}
+            title="Confirm Authorization Deletion"
+            confirmText="Delete"
+            isConfirming={isDeleting}
+        >
+            <p>Are you sure you want to permanently delete this authorization?</p>
+            <div className="mt-2 p-3 bg-gray-700/50 rounded-md border border-gray-600">
+                <p className="font-bold text-white font-mono">{authToDelete.name.split('/').pop()}</p>
+                 <p className="text-xs text-gray-400 mt-1">Client ID: {authToDelete.serverSideOauth2.clientId}</p>
+            </div>
+            <p className="mt-4 text-sm text-yellow-300">This action cannot be undone and may break agents that rely on it.</p>
+        </ConfirmationModal>
+      )}
     </div>
   );
 };

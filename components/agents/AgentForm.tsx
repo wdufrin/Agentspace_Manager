@@ -18,7 +18,7 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
     toolDescription: 'A tool that can do amazing things.',
     reasoningEngineLocation: 'us-central1',
     reasoningEngineId: '901164128171720704',
-    authId: 'discovery-engine-api-03fj',
+    authId: '',
     starterPrompts: [''],
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -235,7 +235,10 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
 
   return (
     <div className={`bg-gray-800 shadow-xl rounded-lg p-6 ${agentToEdit ? 'max-w-7xl' : 'max-w-2xl'} mx-auto`}>
-      <h2 className="text-2xl font-bold text-white mb-6">{agentToEdit ? 'Update Agent' : 'Register New Agent'}</h2>
+      <div className="flex justify-between items-start mb-6">
+        <h2 className="text-2xl font-bold text-white">{agentToEdit ? 'Update Agent' : 'Register New Agent'}</h2>
+        <button type="button" onClick={onCancel} className="text-gray-400 hover:text-white">&larr; Back to list</button>
+      </div>
       
       {isEditingDisabled && (
         <div className="bg-yellow-900/30 border border-yellow-700 text-yellow-300 text-sm rounded-md p-3 mb-6" role="alert">

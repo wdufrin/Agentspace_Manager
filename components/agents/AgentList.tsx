@@ -27,13 +27,6 @@ const SortIcon: React.FC<{ direction: 'asc' | 'desc' }> = ({ direction }) => {
 
 const AgentList: React.FC<AgentListProps> = ({ agents, onSelectAgent, onEditAgent, onDeleteAgent, onRegisterNew, onToggleAgentStatus, togglingAgentId, deletingAgentId, onSort, sortConfig }) => {
 
-  const handleConfirmDelete = (agent: Agent) => {
-    const agentId = agent.name.split('/').pop() || '';
-    if (window.confirm(`Are you sure you want to delete agent "${agent.displayName}" (${agentId})?`)) {
-      onDeleteAgent(agent);
-    }
-  };
-
   const SortableHeader: React.FC<{ sortKey: SortableAgentKey; children: React.ReactNode; className?: string }> = ({ sortKey, children, className = '' }) => {
     const isSorted = sortConfig?.key === sortKey;
     return (
@@ -136,7 +129,7 @@ const AgentList: React.FC<AgentListProps> = ({ agents, onSelectAgent, onEditAgen
                                                     Edit
                                                 </button>
                                             )}
-                                            <button onClick={() => handleConfirmDelete(agent)} disabled={isToggling} className="font-semibold text-red-400 hover:text-red-300 disabled:text-gray-500">
+                                            <button onClick={() => onDeleteAgent(agent)} disabled={isToggling} className="font-semibold text-red-400 hover:text-red-300 disabled:text-gray-500">
                                                 Delete
                                             </button>
                                         </>

@@ -4,7 +4,7 @@ import { Authorization } from '../../types';
 
 interface AuthListProps {
   authorizations: Authorization[];
-  onDelete: (authId: string) => void;
+  onDelete: (auth: Authorization) => void;
   onEdit: (authId: string) => void;
   onCreateNew: () => void;
 }
@@ -46,7 +46,7 @@ const AuthList: React.FC<AuthListProps> = ({ authorizations, onDelete, onEdit, o
                       <button onClick={() => onEdit(authId)} className="font-semibold text-indigo-400 hover:text-indigo-300">
                         Edit
                       </button>
-                      <button onClick={() => onDelete(authId)} className="font-semibold text-red-400 hover:text-red-300">
+                      <button onClick={() => onDelete(auth)} className="font-semibold text-red-400 hover:text-red-300">
                         Delete
                       </button>
                     </td>
