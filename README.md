@@ -27,12 +27,21 @@ Before using this application, ensure you have the following:
 
 ## How to Run
 
-1.  Download or clone the project files.
-2.  Serve the `index.html` file using a simple local web server (e.g., `python3 -m http.server` or the Live Server extension in VS Code).
-3.  Open the application in your web browser.
-4.  Paste the access token generated from the `gcloud` command into the "Paste GCP Access Token" field.
-5.  Enter your GCP Project ID or Project Number into the configuration section on the "Agents" page and click "Set".
-6.  You can now use the application to manage your Agentspace resources.
+This method is recommended for development and uses the standard Node.js ecosystem.
+
+1.  **Install Dependencies**: Open your terminal in the project's root directory and run:
+    ```sh
+    npm install
+    ```
+2.  **Start the Development Server**: Once installation is complete, start the server:
+    ```sh
+    npm start
+    ```
+    This command will launch a development server and should automatically open the application in your default browser (usually at `http://localhost:3000` or a similar address).
+3.  **Configure the App**:
+    -   Paste the access token generated from the `gcloud` command into the **"Paste GCP Access Token"** field.
+    -   Enter your GCP Project ID or Project Number into the configuration section on the **"Agents"** page and click **"Set"**.
+4.  **Ready to Use**: You can now use the application to manage your Agentspace resources.
 
 ## API Documentation & Examples
 
