@@ -7,6 +7,7 @@ A web interface to manage Google Cloud Agentspace resources, including agents, a
 -   **Manage Agents**: List, create, update, delete, enable/disable, and chat with agents.
 -   **Manage Authorizations**: List, create, update, and delete OAuth client authorizations.
 -   **Manage Reasoning Engines**: List engines, view agent dependencies, and delete unused engines.
+-   **Explore Data Stores**: List data stores within a collection, view their details, and inspect individual documents and their content.
 -   **Comprehensive Backup & Restore**: Backup and restore agents, assistants, data stores, authorizations, and entire Discovery Engine configurations.
 -   **Dynamic Configuration**: Automatically resolves Project IDs to Project Numbers and populates dropdowns for collections, apps, and assistants.
 
@@ -104,6 +105,44 @@ curl -X POST \
         }
       }' \
   "https://discoveryengine.googleapis.com/v1alpha/projects/$PROJECT_ID/locations/$LOCATION/collections/$COLLECTION_ID/engines/$ENGINE_ID/assistants/$ASSISTANT_ID/agents"
+```
+
+#### Example: List Documents
+
+This command retrieves a list of all documents within a specific data store branch.
+
+```sh
+curl -X GET \
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "Content-Type: application/json" \
+  -H "X-Goog-User-Project: YOUR_PROJECT_ID" \
+  "https://discoveryengine.googleapis.com/v1alpha/projects/YOUR_PROJECT_ID/locations/YOUR_LOCATION/collections/YOUR_COLLECTION_ID/dataStores/YOUR_DATASTORE_ID/branches/0/documents"
+```
+
+You'll need to replace these placeholders:
+
+-   `YOUR_PROJECT_ID`: Your Google Cloud Project ID.
+-   `YOUR_LOCATION`: The location of your datastore (e.g., global, us).
+-   `YOUR_COLLECTION_ID`: The collection that contains your datastore.
+-   `YOUR_DATASTORE_ID`: The specific ID of the datastore whose documents you want to list.
+
+#### Example: Get Document
+
+This command retrieves the details for a single document.
+
+```sh
+ACCESS_TOKEN="[YOUR_ACCESS_TOKEN]"
+PROJECT_ID="[YOUR_PROJECT_ID]"
+LOCATION="[YOUR_LOCATION]"
+COLLECTION_ID="[YOUR_COLLECTION_ID]"
+DATASTORE_ID="[YOUR_DATASTORE_ID]"
+DOCUMENT_ID="[YOUR_DOCUMENT_ID]"
+
+curl -X GET \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "X-Goog-User-Project: $PROJECT_ID" \
+  "https://discoveryengine.googleapis.com/v1alpha/projects/$PROJECT_ID/locations/$LOCATION/collections/$COLLECTION_ID/dataStores/$DATASTORE_ID/branches/0/documents/$DOCUMENT_ID"
 ```
 
 ---

@@ -3,6 +3,7 @@ export enum Page {
   AGENTS = 'Agents',
   AUTHORIZATIONS = 'Authorizations',
   AGENT_ENGINES = 'Agent Engines',
+  DATA_STORES = 'Data Stores',
   BACKUP_RECOVERY = 'Backup & Recovery',
 }
 
@@ -113,4 +114,15 @@ export interface DataStore {
     industryVertical: string;
     solutionTypes: string[];
     contentConfig: string;
+}
+
+export interface Document {
+    name: string;
+    id: string;
+    displayName?: string;
+    content?: {
+        uri: string;
+    };
+    jsonData?: string;
+    structData?: Record<string, any>;
 }

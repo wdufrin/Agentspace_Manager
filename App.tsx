@@ -5,6 +5,7 @@ import AuthorizationsPage from './pages/AuthorizationsPage';
 import { Page } from './types';
 import AccessTokenInput from './components/AccessTokenInput';
 import AgentEnginesPage from './pages/AgentEnginesPage';
+import DataStoresPage from './pages/DataStoresPage';
 import BackupPage from './pages/BackupPage';
 
 const App: React.FC = () => {
@@ -33,6 +34,8 @@ const App: React.FC = () => {
         return <AuthorizationsPage accessToken={accessToken} projectNumber={projectNumber} />;
       case Page.AGENT_ENGINES:
         return <AgentEnginesPage accessToken={accessToken} projectNumber={projectNumber} />;
+      case Page.DATA_STORES:
+        return <DataStoresPage accessToken={accessToken} projectNumber={projectNumber} />;
       case Page.BACKUP_RECOVERY:
         return <BackupPage accessToken={accessToken} projectNumber={projectNumber} setProjectNumber={handleSetProjectNumber} />;
       default:

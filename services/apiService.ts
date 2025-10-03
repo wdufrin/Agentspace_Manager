@@ -1,4 +1,4 @@
-import { Agent, AppEngine, Assistant, Authorization, Config, ReasoningEngine } from '../types';
+import { Agent, AppEngine, Assistant, Authorization, Config, DataStore, Document, ReasoningEngine } from '../types';
 
 // Helper functions to get correct base URLs
 const getDiscoveryEngineUrl = (location: string): string => {
@@ -380,6 +380,45 @@ export const deleteAuthorization = (authId: string, config: Config) => {
         headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Goog-User-Project': projectId },
     });
 };
+
+// --- Data Store APIs ---
+export async function getDataStore(dataStoreName: string, config: Config): Promise<DataStore> {
+    const { accessToken, projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/v1beta/${dataStoreName}`;
+    return apiRequest<DataStore>(url, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Goog-User-Project': projectId },
+    });
+}
+
+export async function getDocument(documentName: string, config: Config): Promise<Document> {
+    const { accessToken, projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/v1alpha/${documentName}`;
+
+    return apiRequest<Document>(url, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Goog-User-Project': projectId },
+    });
+}
+
+export async function listDocuments(dataStoreName: string, config: Config): Promise<any> {
+    const { accessToken, projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    // Documents are under the 'default_branch' of a data store
+    const parent = `${dataStoreName}/branches/default_branch`;
+    const url = `${baseUrl}/v1alpha/${parent}/documents`;
+
+    return apiRequest(url, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'X-Goog-User-Project': projectId,
+        },
+    });
+}
+
 
 // --- Discovery Resource Creation APIs ---
 export const createCollection = async (collectionId: string, payload: { displayName: string }, config: Config) => {
