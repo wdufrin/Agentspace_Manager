@@ -47,11 +47,12 @@ async function apiRequest<T>(url: string, options: RequestInit): Promise<T> {
 
 // --- Generic Resource Management ---
 
-// FIX: Added 'dataStores' and 'documents' to the list of resource types and implemented their API paths to resolve a type error on the Discovery page.
-export async function listResources(resourceType: 'agents' | 'engines' | 'collections' | 'assistants' | 'dataStores' | 'documents', config: Config): Promise<any> {
-    const { projectId, appLocation, collectionId, appId, accessToken, dataStoreId } = config;
+// FIX: Added 'dataStores' to the resourceType to support listing them, which is required by the Backup page.
+export async function listResources(resourceType: 'agents' | 'engines' | 'collections' | 'assistants' | 'dataStores', config: Config): Promise<any> {
+    const { projectId, appLocation, collectionId, appId, accessToken } = config;
     let parent = '';
-    const apiVersion = 'v1alpha';
+    // FIX: Data Stores list API is on v1beta, while others are on v1alpha.
+    const apiVersion = resourceType === 'dataStores' ? 'v1beta' : 'v1alpha';
 
     switch(resourceType) {
         case 'agents':
@@ -72,21 +73,15 @@ export async function listResources(resourceType: 'agents' | 'engines' | 'collec
             if (!collectionId) throw new Error("Collection ID is required to list assistants.");
             parent = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}`;
             break;
+        // FIX: Added case for 'dataStores' to build the correct parent path.
         case 'dataStores':
             if (!collectionId) throw new Error("Collection ID is required to list data stores.");
             parent = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}`;
             break;
-        case 'documents':
-            if (!collectionId) throw new Error("Collection ID is required to list documents.");
-            if (!dataStoreId) throw new Error("Data Store ID is required to list documents.");
-            parent = `projects/${projectId}/locations/${collectionId}/dataStores/${dataStoreId}/branches/0`;
-            break;
     }
 
     const baseUrl = getDiscoveryEngineUrl(appLocation);
-    // Note: resourceType for documents is 'documents', which is correct for the final URL segment.
-    const finalResourceType = resourceType === 'dataStores' ? 'dataStores' : resourceType;
-    const url = `${baseUrl}/${apiVersion}/${parent}/${finalResourceType}`;
+    const url = `${baseUrl}/${apiVersion}/${parent}/${resourceType}`;
     
     return apiRequest(url, {
         method: 'GET',

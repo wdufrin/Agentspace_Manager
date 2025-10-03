@@ -26,7 +26,7 @@ const DiscoveryPage: React.FC<DiscoveryPageProps> = ({ accessToken, projectNumbe
         setConfig({ ...config, [e.target.name]: e.target.value });
     };
 
-    const handleAction = async (resource: 'agents' | 'dataStores' | 'engines' | 'documents', title: string) => {
+    const handleAction = async (resource: 'agents' | 'engines', title: string) => {
         if (!accessToken) {
             setError("Please set your GCP Access Token to begin.");
             return;

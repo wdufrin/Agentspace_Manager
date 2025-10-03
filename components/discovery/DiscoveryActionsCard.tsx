@@ -1,8 +1,10 @@
 import React from 'react';
-import { DataStoreIcon, EngineIcon, DocumentIcon, AgentIcon } from './icons';
+import { EngineIcon, AgentIcon } from './icons';
+
+type ActionableResource = 'agents' | 'engines';
 
 interface DiscoveryActionsCardProps {
-    onAction: (resource: string, title: string) => void;
+    onAction: (resource: ActionableResource, title: string) => void;
     isLoading: boolean;
 }
 
@@ -20,24 +22,12 @@ const Button: React.FC<React.PropsWithChildren<{ onClick: () => void; disabled: 
 
 const DiscoveryActionsCard: React.FC<DiscoveryActionsCardProps> = ({ onAction, isLoading }) => {
     
-    const actions = [
-        {
-            label: "List Data Stores",
-            resource: "dataStores",
-            icon: <DataStoreIcon className="w-5 h-5" />,
-            tooltip: "Fetches all data stores within the specified Collection ID."
-        },
+    const actions: { label: string, resource: ActionableResource, icon: React.ReactElement, tooltip: string }[] = [
         {
             label: "List Engines",
             resource: "engines",
             icon: <EngineIcon className="w-5 h-5" />,
             tooltip: "Fetches all engines within the specified Collection ID."
-        },
-        {
-            label: "List Documents",
-            resource: "documents",
-            icon: <DocumentIcon className="w-5 h-5" />,
-            tooltip: "Fetches all documents from the specified Data Store ID."
         },
         {
             label: "List Agents",

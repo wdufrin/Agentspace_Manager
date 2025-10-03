@@ -1,5 +1,4 @@
 
-
 import React, { useState, useCallback, useMemo } from 'react';
 import { ReasoningEngine, Config, Agent } from '../types';
 import * as api from '../services/apiService';
@@ -66,37 +65,38 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
     setAllAgents([]);
 
     try {
-      // 1. Fetch reasoning engines from the selected GCP location (e.g., us-central1)
+      // Step 1: Fetch the primary resource list (Reasoning Engines). This is critical.
       const enginesResponse = await api.listReasoningEngines(apiConfig);
       const fetchedEngines = enginesResponse.reasoningEngines || [];
       setEngines(fetchedEngines);
 
       if (fetchedEngines.length === 0) {
-          setError(`No agent engines found in location "${location}".`);
-          setIsLoading(false);
-          return;
+        setError(`No agent engines found in location "${location}".`);
+        return; // The finally block will handle isLoading
       }
 
-      // 2. Fetch ALL agents from ALL discovery engine locations ('global', 'us', 'eu') to build the cross-reference.
-      // This is a more robust approach that explicitly queries each location.
-      const agentsList: Agent[] = [];
-      const discoveryLocations = ['global', 'us', 'eu'];
+      // Step 2: Attempt to fetch agent usage data. This is non-critical and best-effort.
+      try {
+        const agentsList: Agent[] = [];
+        const discoveryLocations = ['global', 'us', 'eu'];
 
-      for (const discoveryLocation of discoveryLocations) {
+        for (const discoveryLocation of discoveryLocations) {
           console.log(`Searching for agents in Discovery Engine location: ${discoveryLocation}`);
           const locationConfig = { ...apiConfig, appLocation: discoveryLocation };
           
-          const collectionsResponse = await api.listResources('collections', locationConfig);
-          const collections = collectionsResponse.collections || [];
+          try {
+            const collectionsResponse = await api.listResources('collections', locationConfig);
+            const collections = collectionsResponse.collections || [];
 
-          for (const collection of collections) {
+            for (const collection of collections) {
               const collectionId = collection.name.split('/').pop()!;
               const collectionConfig = { ...locationConfig, collectionId };
               
-              const appEnginesResponse = await api.listResources('engines', collectionConfig);
-              const appEngines = appEnginesResponse.engines || [];
+              try {
+                const appEnginesResponse = await api.listResources('engines', collectionConfig);
+                const appEngines = appEnginesResponse.engines || [];
 
-              for (const appEngine of appEngines) {
+                for (const appEngine of appEngines) {
                   const appId = appEngine.name.split('/').pop()!;
                   const appConfig = { ...collectionConfig, appId };
                   
@@ -104,25 +104,37 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
                   const assistants = assistantsResponse.assistants || [];
 
                   for (const assistant of assistants) {
-                      const assistantId = assistant.name.split('/').pop()!;
-                      const assistantConfig = { ...appConfig, assistantId };
-                      
-                      const agentsResponse = await api.listResources('agents', assistantConfig);
-                      if (agentsResponse.agents) {
-                          agentsList.push(...agentsResponse.agents);
-                      }
+                    const assistantId = assistant.name.split('/').pop()!;
+                    const assistantConfig = { ...appConfig, assistantId };
+                    
+                    const agentsResponse = await api.listResources('agents', assistantConfig);
+                    if (agentsResponse.agents) {
+                      agentsList.push(...agentsResponse.agents);
+                    }
                   }
+                }
+              } catch (enginesError: any) {
+                console.warn(`Could not fetch app engines for collection '${collection.name}' in location '${discoveryLocation}': ${enginesError.message}`);
               }
+            }
+          } catch (collectionsError: any) {
+              console.warn(`Could not fetch collections for location '${discoveryLocation}': ${collectionsError.message}`);
           }
+        }
+        setAllAgents(agentsList);
+      } catch (agentFetchError: any) {
+        console.error("A general error occurred while fetching agent usage data:", agentFetchError);
+        setError("Successfully fetched agent engines, but failed to determine agent usage. The 'Used By Agents' column may be incomplete or empty.");
+        setAllAgents([]); // Ensure it's empty on failure
       }
-      setAllAgents(agentsList);
 
-    } catch (err: any) {
-        setError(err.message || 'Failed to fetch resources.');
-        setEngines([]);
-        setAllAgents([]);
+    } catch (enginesError: any) {
+      // This is a fatal error for this page, as we can't get the primary list.
+      setError(enginesError.message || 'Failed to fetch agent engines.');
+      setEngines([]);
+      setAllAgents([]);
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
   }, [apiConfig, location, accessToken, projectNumber]);
 
