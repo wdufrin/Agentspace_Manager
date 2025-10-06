@@ -2,15 +2,6 @@
 
 A web interface to manage Google Cloud Agentspace resources, including agents, authorizations, and reasoning engines. This UI provides a user-friendly way to perform operations similar to the `gcloud` CLI tool for Agentspace.
 
-## Screenshots
-
-**Agents Page**
-![Agents Page Screenshot](photos/agents-page.png)
-
-**Backup & Recovery Page**
-![Backup & Recovery Page Screenshot](photos/backup-page.png)
-
-
 ## Key Features
 
 -   **Manage Agents**: List, create, update, delete, enable/disable, and chat with agents.
