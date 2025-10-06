@@ -25,36 +25,42 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ agent, config, onBack }) => {
         if (!input.trim()) return;
 
         const userMessage: ChatMessage = { role: 'user', content: input };
-        setMessages(prev => [...prev, userMessage]);
+        const historyForApi = [...messages, userMessage];
+
+        // Update UI with user message and empty assistant placeholder
+        setMessages([...historyForApi, { role: 'assistant', content: '' }]);
+        
         setInput('');
         setIsLoading(true);
         setError(null);
-        
-        const assistantMessage: ChatMessage = { role: 'assistant', content: ''};
-        setMessages(prev => [...prev, assistantMessage]);
 
         try {
             await api.streamChat(
                 agent.name,
-                input,
+                historyForApi, // Pass the conversation history
                 config,
                 (chunk) => {
-                    setMessages(prev => prev.map((msg, index) => {
-                        if (index === prev.length - 1) {
-                            return { ...msg, content: msg.content + chunk };
+                    setMessages(prev => {
+                        const lastMessage = prev[prev.length - 1];
+                        if (lastMessage && lastMessage.role === 'assistant') {
+                            const updatedLastMessage = { ...lastMessage, content: lastMessage.content + chunk };
+                            return [...prev.slice(0, -1), updatedLastMessage];
                         }
-                        return msg;
-                    }));
+                        return prev;
+                    });
                 }
             );
         } catch (err: any) {
-            setError(err.message || "Failed to get response from agent.");
+            const errorMessage = `Error: ${err.message || "Failed to get response from agent."}`;
+            setError(errorMessage);
             setMessages(prev => {
                 const lastMsg = prev[prev.length - 1];
-                if (lastMsg && lastMsg.role === 'assistant') {
-                    return prev.slice(0, -1).concat({role: 'assistant', content: `Error: ${err.message}`});
+                if (lastMsg?.role === 'assistant') {
+                    // Update the placeholder with the error message
+                    return prev.slice(0, -1).concat({role: 'assistant', content: errorMessage});
                 }
-                return [...prev, {role: 'assistant', content: `Error: ${err.message}`}];
+                // If for some reason there's no placeholder, add a new error message
+                return [...prev, {role: 'assistant', content: errorMessage}];
             });
         } finally {
             setIsLoading(false);
@@ -93,7 +99,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ agent, config, onBack }) => {
                 <div ref={messagesEndRef} />
             </div>
 
-            {error && <p className="text-red-400 px-4 pb-2">{error}</p>}
+            {error && !messages.some(m => m.content.includes(error)) && <p className="text-red-400 px-4 pb-2">{error}</p>}
 
             <div className="p-4 border-t border-gray-700">
                 <div className="flex items-center space-x-2">

@@ -5,11 +5,10 @@ import Spinner from '../components/Spinner';
 import AgentList from '../components/agents/AgentList';
 import AgentForm from '../components/agents/AgentForm';
 import AgentDetails from '../components/agents/AgentDetails';
-import ChatWindow from '../components/agents/ChatWindow';
 import ProjectInput from '../components/ProjectInput';
 import ConfirmationModal from '../components/ConfirmationModal';
 
-type ViewMode = 'list' | 'form' | 'details' | 'chat';
+type ViewMode = 'list' | 'form' | 'details';
 
 interface AgentsPageProps {
   accessToken: string;
@@ -327,15 +326,12 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ accessToken, projectNumber, set
             agent={selectedAgent} 
             config={apiConfig}
             onBack={() => { setViewMode('list'); setSelectedAgent(null); }} 
-            onChat={() => setViewMode('chat')}
             onEdit={() => setViewMode('form')}
             onDeleteSuccess={() => { setViewMode('list'); fetchAgents(); }}
             onToggleStatus={handleToggleStatus}
             togglingAgentId={togglingAgentId}
             error={error}
         /> : null;
-      case 'chat':
-          return selectedAgent ? <ChatWindow agent={selectedAgent} config={apiConfig} onBack={() => setViewMode('details')} /> : null;
       case 'list':
       default:
         return (

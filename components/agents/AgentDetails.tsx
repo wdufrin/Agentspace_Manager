@@ -8,7 +8,6 @@ interface AgentDetailsProps {
     agent: Agent;
     config: Config;
     onBack: () => void;
-    onChat: () => void;
     onEdit: () => void;
     onDeleteSuccess: () => void;
     onToggleStatus: (agent: Agent) => void;
@@ -23,7 +22,7 @@ const DetailItem: React.FC<{ label: string; value: string | undefined | null }> 
     </div>
 );
 
-const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onChat, onEdit, onDeleteSuccess, onToggleStatus, togglingAgentId, error: pageError }) => {
+const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEdit, onDeleteSuccess, onToggleStatus, togglingAgentId, error: pageError }) => {
     const [isDeleting, setIsDeleting] = useState(false);
     const [deleteError, setDeleteError] = useState<string | null>(null);
     const [agentViewData, setAgentViewData] = useState<any | null>(null);
@@ -144,12 +143,6 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onCh
 
 
             <div className="mt-8 flex flex-wrap gap-4 border-t border-gray-700 pt-6">
-                 {(agent.state === 'ENABLED' || agent.state === 'DISABLED') && (
-                    <button onClick={onChat} className="px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 inline" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.08-3.239A8.969 8.969 0 012 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM4.72 14.28A7 7 0 0010 16a7 7 0 007-7c0-2.828-2.239-5-5-5s-5 2.172-5 5c0 1.254.402 2.403 1.074 3.342L4.72 14.28z" clipRule="evenodd" /></svg>
-                        Chat
-                    </button>
-                 )}
                 {(agent.state === 'ENABLED' || agent.state === 'DISABLED') && (
                     <button 
                         onClick={onEdit} 

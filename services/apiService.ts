@@ -1,4 +1,4 @@
-import { Agent, AppEngine, Assistant, Authorization, Config, DataStore, Document, ReasoningEngine } from '../types';
+import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, ReasoningEngine } from '../types';
 
 // Helper functions to get correct base URLs
 const getDiscoveryEngineUrl = (location: string): string => {
@@ -262,17 +262,23 @@ export async function disableAgent(agentName: string, config: Config): Promise<A
 }
 
 
-export const streamChat = async (agentName: string, query: string, config: Config, onChunk: (chunk: string) => void) => {
+export const streamChat = async (agentName: string, messages: ChatMessage[], config: Config, onChunk: (chunk: string) => void) => {
     const { accessToken, projectId, appLocation, collectionId, appId, assistantId } = config;
     const assistantName = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}`;
-    const url = `${getDiscoveryEngineUrl(appLocation)}/v1alpha/${assistantName}:streamAssist`;
+    
+    const url = `${getDiscoveryEngineUrl(appLocation)}/v1alpha/${assistantName}:streamConverse`;
+    
+    const conversationMessages = messages.map(msg => {
+        if (msg.role === 'user') {
+            return { userMessage: { text: msg.content } };
+        } else {
+            return { modelResponseMessage: { text: msg.content } };
+        }
+    });
     
     const data = {
-        name: assistantName,
-        query: { text: query },
-        session: `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/sessions/-`,
-        assistSkippingMode: "REQUEST_ASSIST",
-        answerGenerationMode: "AGENT",
+        messages: conversationMessages,
+        session: `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/sessions/agentspace-manager-session`, // static session is fine for this tool
         agentsConfig: { agent: agentName },
     };
 
@@ -284,7 +290,12 @@ export const streamChat = async (agentName: string, query: string, config: Confi
 
     if (!response.ok || !response.body) {
         const errorText = await response.text();
-        throw new Error(`HTTP Error: ${response.status} ${response.statusText} - ${errorText}`);
+         try {
+            const errorJson = JSON.parse(errorText);
+            throw new Error(`API Error: ${errorJson.error?.message || errorText}`);
+        } catch(e) {
+            throw new Error(`HTTP Error: ${response.status} ${response.statusText} - ${errorText}`);
+        }
     }
 
     const reader = response.body.getReader();
@@ -293,39 +304,19 @@ export const streamChat = async (agentName: string, query: string, config: Confi
 
     while (true) {
         const { done, value } = await reader.read();
-        if (done) {
-            // Process any remaining data in the buffer when the stream is closed.
-            if (buffer.trim()) {
-                try {
-                    const parsed = JSON.parse(buffer);
-                    const results = Array.isArray(parsed) ? parsed : [parsed];
-                    results.forEach(result => {
-                        if (result.answer?.answerText) {
-                            onChunk(result.answer.answerText);
-                        }
-                    });
-                } catch (e) {
-                    console.warn("Failed to parse final stream buffer:", buffer);
-                }
-            }
-            break;
-        }
+        if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // Keep incomplete line
+        buffer = lines.pop() || ''; // Keep any incomplete line for the next chunk
 
         for (const line of lines) {
             if (line.trim() === '') continue;
             try {
                 const parsed = JSON.parse(line);
-                const results = Array.isArray(parsed) ? parsed : [parsed];
-                
-                results.forEach(result => {
-                    if (result.answer?.answerText) {
-                        onChunk(result.answer.answerText);
-                    }
-                });
+                if (parsed.reply?.text) {
+                    onChunk(parsed.reply.text);
+                }
             } catch (e) {
                 console.warn("Failed to parse stream line:", line);
             }

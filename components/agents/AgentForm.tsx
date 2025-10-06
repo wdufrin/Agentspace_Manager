@@ -2,6 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { Agent, ReasoningEngine, Config, Authorization } from '../../types';
 import * as api from '../../services/apiService';
 
+const getCompatibleReasoningEngineLocation = (appLocation: string): string => {
+    switch (appLocation) {
+        case 'us':
+        case 'global':
+            return 'us-central1';
+        case 'eu':
+            return 'europe-west1';
+        default:
+            // This case shouldn't be hit with the current dropdown, but as a fallback:
+            return 'us-central1'; 
+    }
+};
+
 interface AgentFormProps {
   config: Config;
   onSuccess: () => void;
@@ -38,6 +51,13 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
   const isEditingDisabled = agentToEdit && !agentToEdit.state;
 
   useEffect(() => {
+    // When the form loads or the config (appLocation) changes,
+    // automatically set the compatible reasoning engine location.
+    const compatibleLocation = getCompatibleReasoningEngineLocation(config.appLocation);
+    setFormData(prev => ({ ...prev, reasoningEngineLocation: compatibleLocation }));
+  }, [config.appLocation]);
+
+  useEffect(() => {
     if (agentToEdit) {
       const rePath = agentToEdit.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine || '';
       const reParts = rePath.split('/');
@@ -48,7 +68,7 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
         agentId: '', // Not used for editing
         iconUri: agentToEdit.icon?.uri || '',
         toolDescription: agentToEdit.adkAgentDefinition?.toolSettings?.toolDescription || '',
-        reasoningEngineLocation: reParts.length > 3 ? reParts[3] : 'us-central1',
+        reasoningEngineLocation: reParts.length > 3 ? reParts[3] : getCompatibleReasoningEngineLocation(config.appLocation),
         reasoningEngineId: reParts.length > 5 ? reParts[5] : '',
         authId: (agentToEdit.authorizations?.[0] || '').split('/').pop() || '',
         starterPrompts: agentToEdit.starterPrompts && agentToEdit.starterPrompts.length > 0
@@ -56,7 +76,7 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
             : [''],
       });
     }
-  }, [agentToEdit]);
+  }, [agentToEdit, config.appLocation]);
 
   // Effect to generate the JSON preview payload when editing
   useEffect(() => {
@@ -178,6 +198,8 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
         .map(text => text.trim())
         .filter(text => text)
         .map(text => ({ text }));
+    
+    const reasoningEnginePath = `projects/${config.projectId}/locations/${formData.reasoningEngineLocation}/reasoningEngines/${formData.reasoningEngineId}`;
 
     try {
       if (agentToEdit) {
@@ -190,7 +212,7 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
             adkAgentDefinition: {
                 toolSettings: { toolDescription: formData.toolDescription },
                 provisionedReasoningEngine: {
-                  reasoningEngine: `projects/${config.projectId}/locations/${formData.reasoningEngineLocation}/reasoningEngines/${formData.reasoningEngineId}`,
+                  reasoningEngine: reasoningEnginePath,
                 },
             },
         };
@@ -205,7 +227,7 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
             adkAgentDefinition: {
                 tool_settings: { tool_description: formData.toolDescription },
                 provisioned_reasoning_engine: {
-                  reasoning_engine: `projects/${config.projectId}/locations/${formData.reasoningEngineLocation}/reasoningEngines/${formData.reasoningEngineId}`,
+                  reasoning_engine: reasoningEnginePath,
                 },
             },
         };
@@ -354,7 +376,21 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
                 <div className="space-y-4 border-t border-gray-700 p-4 rounded-md">
                     <h3 className="text-lg font-semibold text-white">ADK Agent Details</h3>
                     <div><label htmlFor="toolDescription" className="block text-sm font-medium text-gray-300">Tool Description (Prompt)</label><textarea name="toolDescription" value={formData.toolDescription} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" required /></div>
-                    <div><label htmlFor="reasoningEngineLocation" className="block text-sm font-medium text-gray-300">Reasoning Engine Location</label><div className="flex items-center space-x-2 mt-1"><input type="text" name="reasoningEngineLocation" value={formData.reasoningEngineLocation} onChange={handleChange} className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" required /><button type="button" onClick={handleLoadEngines} disabled={isLoadingEngines || !formData.reasoningEngineLocation} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-500">{isLoadingEngines ? '...' : 'Load'}</button></div></div>
+                    <div>
+                        <label htmlFor="reasoningEngineLocation" className="block text-sm font-medium text-gray-300">Reasoning Engine Location</label>
+                        <div className="flex items-center space-x-2 mt-1">
+                            <input 
+                                type="text" 
+                                name="reasoningEngineLocation" 
+                                value={formData.reasoningEngineLocation} 
+                                className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-gray-400 cursor-not-allowed"
+                                disabled={isEditingDisabled}
+                                readOnly 
+                            />
+                            <button type="button" onClick={handleLoadEngines} disabled={isLoadingEngines || !formData.reasoningEngineLocation || isEditingDisabled} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-500">{isLoadingEngines ? '...' : 'Load'}</button>
+                        </div>
+                        <p className="mt-1 text-xs text-gray-400">This is automatically set based on the Agent's Location (`{config.appLocation}`) to ensure compatibility.</p>
+                    </div>
                     {engineLoadError && <p className="text-sm text-red-400">{engineLoadError}</p>}
                     {reasoningEngines.length > 0 && (
                         <div>
