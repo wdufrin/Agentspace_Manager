@@ -2,12 +2,22 @@
 
 A web interface to manage Google Cloud Agentspace resources, including agents, authorizations, and reasoning engines. This UI provides a user-friendly way to perform operations similar to the `gcloud` CLI tool for Agentspace.
 
+## Screenshots
+
+**Agents Page**
+![Agents Page Screenshot](https://storage.googleapis.com/aistudio-hosting/solution-gallery/agentspace-manager/agents-page.png)
+
+**Backup & Recovery Page**
+![Backup & Recovery Page Screenshot](https://storage.googleapis.com/aistudio-hosting/solution-gallery/agentspace-manager/backup-page.png)
+
+
 ## Key Features
 
 -   **Manage Agents**: List, create, update, delete, enable/disable, and chat with agents.
 -   **Manage Authorizations**: List, create, update, and delete OAuth client authorizations.
 -   **Manage Reasoning Engines**: List engines, view agent dependencies, and delete unused engines.
 -   **Explore Data Stores**: List data stores within a collection, view their details, and inspect individual documents and their content.
+-   **Model Armor Log Viewer**: Fetch and inspect safety policy violation logs from Cloud Logging, showing the verdict, reason, triggered filter, and source assistant for each event.
 -   **Comprehensive Backup & Restore**: Backup and restore agents, assistants, data stores, authorizations, and entire Discovery Engine configurations.
 -   **Dynamic Configuration**: Automatically resolves Project IDs to Project Numbers and populates dropdowns for collections, apps, and assistants.
 
@@ -20,6 +30,7 @@ Before using this application, ensure you have the following:
     -   Discovery Engine API
     -   AI Platform (Vertex AI) API
     -   Cloud Resource Manager API
+    -   Cloud Logging API
 3.  **`gcloud` CLI**: You need the Google Cloud CLI installed and authenticated to obtain an access token.
 4.  **Access Token**: Generate a temporary access token by running the following command in your terminal:
     ```sh
@@ -183,4 +194,30 @@ PROJECT_ID="[YOUR_PROJECT_ID]"
 curl -X GET \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   "https://cloudresourcemanager.googleapis.com/v1/projects/$PROJECT_ID"
+```
+
+---
+
+### 4. Cloud Logging API
+
+This API is used by the Model Armor page to fetch safety policy violation logs.
+
+-   **Official Documentation**: [cloud.google.com/logging/docs/reference/v2/rest/v2/entries/list](https://cloud.google.com/logging/docs/reference/v2/rest/v2/entries/list)
+
+#### Example: List Model Armor Violation Logs
+
+```sh
+ACCESS_TOKEN="[YOUR_ACCESS_TOKEN]"
+PROJECT_ID="[YOUR_PROJECT_ID]"
+
+curl -X POST \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "projectIds": ["'"$PROJECT_ID"'"],
+        "filter": "log_id(\"modelarmor.googleapis.com/sanitize_operations\")",
+        "orderBy": "timestamp desc",
+        "pageSize": 50
+      }' \
+  "https://logging.googleapis.com/v2/entries:list"
 ```

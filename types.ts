@@ -4,6 +4,7 @@ export enum Page {
   AUTHORIZATIONS = 'Authorizations',
   AGENT_ENGINES = 'Agent Engines',
   DATA_STORES = 'Data Stores',
+  MODEL_ARMOR = 'Model Armor',
   BACKUP_RECOVERY = 'Backup & Recovery',
 }
 
@@ -31,8 +32,7 @@ export interface StarterPrompt {
 }
 
 export interface AuthorizationConfig {
-  authorizationType: 'OAUTH_CLIENT_ID';
-  oauthClientId: string;
+  oauth2ClientId: string;
 }
 
 export interface Agent {
@@ -125,4 +125,17 @@ export interface Document {
     };
     jsonData?: string;
     structData?: Record<string, any>;
+}
+
+export interface LogEntry {
+  logName: string;
+  receiveTimestamp: string;
+  severity: 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG' | 'DEFAULT';
+  protoPayload?: any;
+  jsonPayload?: any;
+  resource: {
+    type: string;
+    labels: { [key: string]: string };
+  };
+  labels?: { [key: string]: string };
 }

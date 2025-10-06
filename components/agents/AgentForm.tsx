@@ -218,7 +218,8 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
         };
         await api.updateAgent(agentToEdit, agentPayload, config);
       } else {
-        // Build the payload for creation
+        // Build the payload for creation. Top-level keys are camelCase,
+        // but nested keys within adkAgentDefinition must be snake_case.
         const createPayload: any = {
             displayName: formData.displayName,
             description: formData.description,
@@ -231,21 +232,19 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
                 },
             },
         };
-        
-        // Add optional user-specified agent ID as 'name'
-        if (formData.agentId.trim()) {
-            createPayload.name = formData.agentId.trim();
-        }
     
         const finalAuthId = formData.authId?.split('/').pop()?.trim();
         if (finalAuthId) {
-            createPayload.authorizationConfig = {
-                authorization_type: 'OAUTH_CLIENT_ID',
-                oauth_client_id: `projects/${config.projectId}/locations/global/authorizations/${finalAuthId}`,
-            };
+            // Use the 'authorizations' field with the full resource name.
+            // This is more reliable than the problematic 'authorizationConfig' object.
+            createPayload.authorizations = [
+                `projects/${config.projectId}/locations/global/authorizations/${finalAuthId}`
+            ];
         }
         
-        await api.createAgent(createPayload, config);
+        // The agentId is passed as a query parameter via the apiService, not in the request body.
+        const agentId = formData.agentId.trim() || undefined;
+        await api.createAgent(createPayload, config, agentId);
       }
       onSuccess();
     } catch (err: any) {

@@ -60,6 +60,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage }) => {
           setCurrentPage={setCurrentPage}
           icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" /><path d="M3 8a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V8z" /><path d="M3 12a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" /></svg>}
         />
+        <NavItem
+          page={Page.MODEL_ARMOR}
+          currentPage={currentPage}
+          setCurrentPage={setCurrentPage}
+          icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2L3 5v6c0 3.55 3.14 6.84 7 7.93 3.86-1.09 7-4.38 7-7.93V5l-7-3z" /></svg>}
+        />
          <NavItem 
           page={Page.BACKUP_RECOVERY} 
           currentPage={currentPage} 

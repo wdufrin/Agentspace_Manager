@@ -7,6 +7,7 @@ import AccessTokenInput from './components/AccessTokenInput';
 import AgentEnginesPage from './pages/AgentEnginesPage';
 import DataStoresPage from './pages/DataStoresPage';
 import BackupPage from './pages/BackupPage';
+import ModelArmorPage from './pages/ModelArmorPage';
 
 const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>(Page.AGENTS);
@@ -36,6 +37,8 @@ const App: React.FC = () => {
         return <AgentEnginesPage accessToken={accessToken} projectNumber={projectNumber} />;
       case Page.DATA_STORES:
         return <DataStoresPage accessToken={accessToken} projectNumber={projectNumber} />;
+      case Page.MODEL_ARMOR:
+        return <ModelArmorPage accessToken={accessToken} projectNumber={projectNumber} setProjectNumber={handleSetProjectNumber} />;
       case Page.BACKUP_RECOVERY:
         return <BackupPage accessToken={accessToken} projectNumber={projectNumber} setProjectNumber={handleSetProjectNumber} />;
       default:

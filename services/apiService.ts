@@ -1,4 +1,4 @@
-import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, ReasoningEngine } from '../types';
+import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, LogEntry, ReasoningEngine } from '../types';
 
 // Helper functions to get correct base URLs
 const getDiscoveryEngineUrl = (location: string): string => {
@@ -9,6 +9,8 @@ const getDiscoveryEngineUrl = (location: string): string => {
 };
 
 const getAiPlatformUrl = (location: string) => `https://${location}-aiplatform.googleapis.com/v1beta1`;
+
+const getLoggingUrl = () => 'https://logging.googleapis.com';
 
 // A generic helper to handle all API requests and errors
 async function apiRequest<T>(url: string, options: RequestInit): Promise<T> {
@@ -566,3 +568,29 @@ export const deleteReasoningEngine = (engineName: string, config: Config) => {
         },
     });
 };
+
+// --- Cloud Logging APIs ---
+export async function fetchViolationLogs(config: Config, customFilter: string): Promise<{ entries?: LogEntry[] }> {
+    const { accessToken, projectId } = config;
+    const baseUrl = getLoggingUrl();
+    const url = `${baseUrl}/v2/entries:list`;
+
+    const baseFilter = `log_id("modelarmor.googleapis.com/sanitize_operations")`;
+    const finalFilter = customFilter ? `${baseFilter} AND (${customFilter})` : baseFilter;
+
+    const body = {
+        projectIds: [projectId],
+        filter: finalFilter,
+        orderBy: "timestamp desc",
+        pageSize: 100, // Fetch up to 100 logs
+    };
+
+    return apiRequest<{ entries?: LogEntry[] }>(url, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+    });
+}
