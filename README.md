@@ -5,10 +5,10 @@ A web interface to manage Google Cloud Agentspace resources, including agents, a
 ## Screenshots
 
 **Agents Page**
-![Agents Page Screenshot](https://storage.googleapis.com/aistudio-hosting/solution-gallery/agentspace-manager/agents-page.png)
+![Agents Page Screenshot](photos/agents-page.png)
 
 **Backup & Recovery Page**
-![Backup & Recovery Page Screenshot](https://storage.googleapis.com/aistudio-hosting/solution-gallery/agentspace-manager/backup-page.png)
+![Backup & Recovery Page Screenshot](photos/backup-page.png)
 
 
 ## Key Features
