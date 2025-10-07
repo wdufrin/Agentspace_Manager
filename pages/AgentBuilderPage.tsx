@@ -111,6 +111,92 @@ python-dotenv
 `.trim();
 };
 
+const generateCreatePickleFile = (): string => {
+    return `
+import pickle
+from agent import app
+
+# This script serializes the 'app' object from your agent.py file
+# into a pickle file named 'agent.pkl'.
+
+try:
+    with open('agent.pkl', 'wb') as f:
+        pickle.dump(app, f)
+    print("\\n✅ Successfully created agent.pkl\\n")
+except Exception as e:
+    print(f"\\n❌ Error creating pickle file: {e}\\n")
+`.trim();
+};
+
+const generateReadmeFile = (): string => {
+    return `
+# Agent Quickstart
+
+You have successfully generated the Python source code for your agent. Follow these steps to create the \`agent.pkl\` file required for deployment.
+
+## Prerequisites
+
+- Python 3.10 or later installed.
+- \`pip\` and \`venv\` (usually included with Python).
+
+## Steps
+
+### 1. Set Up Your Local Environment
+
+First, unzip the downloaded files (\`agent.py\`, \`.env\`, \`requirements.txt\`, \`create_pickle.py\`) into a new folder on your local machine.
+
+Open your terminal and navigate into that folder:
+
+\`\`\`sh
+cd /path/to/your/agent-folder
+\`\`\`
+
+Create and activate a Python virtual environment. This keeps your project dependencies isolated.
+
+\`\`\`sh
+# Create the virtual environment
+python3 -m venv venv
+
+# Activate it (on macOS/Linux)
+source venv/bin/activate
+
+# Activate it (on Windows)
+.\\venv\\Scripts\\activate
+\`\`\`
+
+### 2. Install Dependencies
+
+Install the required Python libraries using the \`requirements.txt\` file.
+
+\`\`\`sh
+pip install -r requirements.txt
+\`\`\`
+
+### 3. Create the \`agent.pkl\` File
+
+We have provided the \`create_pickle.py\` script to generate the required \`.pkl\` file.
+
+Run the script from your terminal:
+
+\`\`\`sh
+python create_pickle.py
+\`\`\`
+
+If successful, you will see a new file named \`agent.pkl\` in your folder.
+
+### 4. Next Steps: Upload and Deploy
+
+You are now ready to deploy your agent.
+
+1.  **Return to the Agentspace Manager UI.**
+2.  Go to the **"Stage Files in GCS"** section.
+3.  Select the \`agent.pkl\` file you just created.
+4.  Upload it to your chosen GCS bucket.
+5.  Proceed to the **"Deploy to Reasoning Engine"** step to complete the deployment.
+`.trim();
+};
+
+
 const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }> = ({ accessToken, projectNumber }) => {
     const [agentConfig, setAgentConfig] = useState<AgentConfig>({
         name: 'My Awesome Agent',
@@ -127,7 +213,9 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
     const [generatedAgentCode, setGeneratedAgentCode] = useState('');
     const [generatedEnvCode, setGeneratedEnvCode] = useState('');
     const [generatedRequirementsCode, setGeneratedRequirementsCode] = useState('');
-    const [activeTab, setActiveTab] = useState<'agent' | 'env' | 'requirements'>('agent');
+    const [generatedReadmeCode, setGeneratedReadmeCode] = useState('');
+    const [generatedCreatePickleCode, setGeneratedCreatePickleCode] = useState('');
+    const [activeTab, setActiveTab] = useState<'agent' | 'env' | 'requirements' | 'readme'>('agent');
     const [copySuccess, setCopySuccess] = useState('');
     
     // State for AI rewrite feature
@@ -174,9 +262,13 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
         const agentCode = generatePythonCode(agentConfig);
         const envCode = generateEnvFile(agentConfig, projectNumber, vertexLocation);
         const reqsCode = generateRequirementsFile();
+        const readmeCode = generateReadmeFile();
+        const createPickleCode = generateCreatePickleFile();
         setGeneratedAgentCode(agentCode);
         setGeneratedEnvCode(envCode);
         setGeneratedRequirementsCode(reqsCode);
+        setGeneratedReadmeCode(readmeCode);
+        setGeneratedCreatePickleCode(createPickleCode);
     }, [agentConfig, projectNumber, vertexLocation]);
 
     const handleAgentConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -330,6 +422,7 @@ Rewritten Instruction:`;
             case 'agent': codeToCopy = generatedAgentCode; break;
             case 'env': codeToCopy = generatedEnvCode; break;
             case 'requirements': codeToCopy = generatedRequirementsCode; break;
+            case 'readme': codeToCopy = generatedReadmeCode; break;
         }
         navigator.clipboard.writeText(codeToCopy).then(() => {
             setCopySuccess('Copied!');
@@ -345,6 +438,8 @@ Rewritten Instruction:`;
         zip.file('agent.py', generatedAgentCode);
         zip.file('.env', generatedEnvCode);
         zip.file('requirements.txt', generatedRequirementsCode);
+        zip.file('create_pickle.py', generatedCreatePickleCode);
+        zip.file('README.md', generatedReadmeCode);
 
         const blob = await zip.generateAsync({ type: 'blob' });
         const url = URL.createObjectURL(blob);
@@ -445,9 +540,10 @@ Rewritten Instruction:`;
             case 'agent': return generatedAgentCode;
             case 'env': return generatedEnvCode;
             case 'requirements': return generatedRequirementsCode;
+            case 'readme': return generatedReadmeCode;
             default: return '';
         }
-    }, [activeTab, generatedAgentCode, generatedEnvCode, generatedRequirementsCode]);
+    }, [activeTab, generatedAgentCode, generatedEnvCode, generatedRequirementsCode, generatedReadmeCode]);
 
     const handleLoadBuckets = useCallback(async () => {
         if (!projectNumber || !accessToken) return;
@@ -691,6 +787,7 @@ Rewritten Instruction:`;
                                 <button onClick={() => setActiveTab('agent')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'agent' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>agent.py</button>
                                 <button onClick={() => setActiveTab('env')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'env' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>.env</button>
                                 <button onClick={() => setActiveTab('requirements')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'requirements' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>requirements.txt</button>
+                                <button onClick={() => setActiveTab('readme')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'readme' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>README.md</button>
                             </div>
                         </div>
                         <div className="flex gap-2">
