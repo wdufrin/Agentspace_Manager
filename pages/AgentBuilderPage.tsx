@@ -46,10 +46,9 @@ const generatePythonCode = (config: AgentConfig): string => {
     });
 
     if (config.useGoogleSearch) {
-        toolImports.add('from google.adk.tools import GoogleSearchTool');
-        const variableName = 'google_search_tool';
-        toolInitializations.push(`${variableName} = GoogleSearchTool()`);
-        toolListForAgent.push(variableName);
+        toolImports.add('from google.adk.tools import google_search');
+        // No initialization needed, just add the imported object to the list
+        toolListForAgent.push('google_search');
     }
 
     const formatPythonString = (str: string) => {
@@ -109,22 +108,21 @@ python-dotenv
 
 const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }> = ({ accessToken, projectNumber }) => {
     const [agentConfig, setAgentConfig] = useState<AgentConfig>({
-        name: 'cosmere_agent',
-        description: "You are an agent who is experienced with Brandon Sanderson's Cosmere books and stories.",
+        name: '',
+        description: '',
         model: 'gemini-2.5-flash',
-        instruction: "You are a Cosmere expert specializing in Brandon Sanderson's books. You find connections in the cosmere that other miss and always help you came up with the answers to their questions.",
+        instruction: '',
         tools: [],
         useGoogleSearch: false,
     });
     
     // State for Vertex AI config
-    const [projectId, setProjectId] = useState('ancient-sandbox-322523');
     const [vertexLocation, setVertexLocation] = useState('us-central1');
 
     const [generatedAgentCode, setGeneratedAgentCode] = useState('');
     const [generatedEnvCode, setGeneratedEnvCode] = useState('');
     const [generatedRequirementsCode, setGeneratedRequirementsCode] = useState('');
-    const [activeTab, setActiveTab] = useState<'main' | 'env' | 'requirements'>('main');
+    const [activeTab, setActiveTab] = useState<'agent' | 'env' | 'requirements'>('agent');
     const [copySuccess, setCopySuccess] = useState('');
 
     // State for tool builder UI
@@ -170,7 +168,7 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
         setGeneratedAgentCode(agentCode);
         setGeneratedEnvCode(envCode);
         setGeneratedRequirementsCode(reqsCode);
-    }, [agentConfig, projectId, vertexLocation]);
+    }, [agentConfig, vertexLocation]);
 
     const handleAgentConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         setAgentConfig({ ...agentConfig, [e.target.name]: e.target.value });
@@ -202,7 +200,12 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
         setCollections([]);
         try {
           const res = await api.listResources('collections', apiConfig);
-          setCollections(res.collections || []);
+          const fetchedCollections = res.collections || [];
+          setCollections(fetchedCollections);
+          if (fetchedCollections.length === 1) {
+            const collectionId = fetchedCollections[0].name.split('/').pop() || '';
+            setToolBuilderConfig(prev => ({...prev, collectionId: collectionId}));
+          }
         } catch (err) {
           console.error("Failed to fetch collections", err);
         } finally {
@@ -220,7 +223,11 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
         setDataStores([]);
         try {
           const res = await api.listResources('dataStores', apiConfig);
-          setDataStores(res.dataStores || []);
+          const fetchedDataStores = res.dataStores || [];
+          setDataStores(fetchedDataStores);
+          if (fetchedDataStores.length === 1) {
+            setToolBuilderConfig(prev => ({...prev, dataStoreId: fetchedDataStores[0].name}));
+          }
         } catch (err) {
           console.error("Failed to fetch data stores", err);
         } finally {
@@ -259,7 +266,7 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
     const handleCopyCode = () => {
         let codeToCopy = '';
         switch (activeTab) {
-            case 'main': codeToCopy = generatedAgentCode; break;
+            case 'agent': codeToCopy = generatedAgentCode; break;
             case 'env': codeToCopy = generatedEnvCode; break;
             case 'requirements': codeToCopy = generatedRequirementsCode; break;
         }
@@ -274,7 +281,7 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
 
     const handleDownloadCode = async () => {
         const zip = new JSZip();
-        zip.file('main.py', generatedAgentCode);
+        zip.file('agent.py', generatedAgentCode);
         zip.file('.env', generatedEnvCode);
         zip.file('requirements.txt', generatedRequirementsCode);
 
@@ -282,7 +289,7 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${agentConfig.name}.zip`;
+        a.download = `${agentConfig.name || 'agent'}.zip`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -374,7 +381,7 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
     
     const codeToDisplay = useMemo(() => {
         switch (activeTab) {
-            case 'main': return generatedAgentCode;
+            case 'agent': return generatedAgentCode;
             case 'env': return generatedEnvCode;
             case 'requirements': return generatedRequirementsCode;
             default: return '';
@@ -420,11 +427,11 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
         try {
             const path = gcsUploadPath.endsWith('/') || gcsUploadPath === '' ? gcsUploadPath : `${gcsUploadPath}/`;
 
-            // Upload main.py
-            const mainObjectName = `${path}main.py`;
-            addUploadLog(`Uploading main.py to ${mainObjectName}...`);
-            await api.uploadToGcs(accessToken, gcsUploadBucket, mainObjectName, generatedAgentCode, 'text/x-python', projectNumber);
-            addUploadLog('  - main.py uploaded successfully.');
+            // Upload agent.py
+            const agentObjectName = `${path}agent.py`;
+            addUploadLog(`Uploading agent.py to ${agentObjectName}...`);
+            await api.uploadToGcs(accessToken, gcsUploadBucket, agentObjectName, generatedAgentCode, 'text/x-python', projectNumber);
+            addUploadLog('  - agent.py uploaded successfully.');
 
             // Upload requirements.txt
             const reqsObjectName = `${path}requirements.txt`;
@@ -473,15 +480,17 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
                 <div className="space-y-3 p-3 bg-gray-900/50 rounded-md">
                     <div>
                         <label className="block text-sm font-medium text-gray-400">Agent Name</label>
-                        <input type="text" name="name" value={agentConfig.name} onChange={handleAgentConfigChange} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" />
+                        <input type="text" name="name" value={agentConfig.name} onChange={handleAgentConfigChange} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" placeholder="e.g., my_agent" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-400">Description</label>
-                        <textarea name="description" value={agentConfig.description} onChange={handleAgentConfigChange} rows={3} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2"></textarea>
+                        <textarea name="description" value={agentConfig.description} onChange={handleAgentConfigChange} rows={3} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" placeholder="A brief description of the agent's purpose."></textarea>
                     </div>
                      <div>
-                        <label className="block text-sm font-medium text-gray-400">Google Cloud Project ID</label>
-                        <input type="text" value={projectId} onChange={(e) => setProjectId(e.target.value)} placeholder="e.g., my-gcp-project" className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" />
+                        <label className="block text-sm font-medium text-gray-400">Google Cloud Project</label>
+                        <div className="mt-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-300 font-mono h-[38px] flex items-center">
+                            {projectNumber || <span className="text-gray-500 italic">Not set (configure on Agents page)</span>}
+                        </div>
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-400">Google Cloud Location (Vertex AI)</label>
@@ -493,7 +502,7 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-400">System Instruction</label>
-                        <textarea name="instruction" value={agentConfig.instruction} onChange={handleAgentConfigChange} rows={5} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2"></textarea>
+                        <textarea name="instruction" value={agentConfig.instruction} onChange={handleAgentConfigChange} rows={5} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" placeholder="Instructions for the agent's behavior and personality."></textarea>
                     </div>
                 </div>
 
@@ -562,94 +571,122 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
                         ))}
                     </div>
                 }
-
-                {/* GCS Upload Section */}
-                <div className="space-y-3 p-3 bg-gray-900/50 rounded-md">
-                    <h3 className="text-lg font-semibold text-white">Stage Files in GCS</h3>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400">GCS Bucket</label>
-                        <div className="flex items-center gap-2 mt-1">
-                            <select 
-                                value={gcsUploadBucket} 
-                                onChange={(e) => setGcsUploadBucket(e.target.value)} 
-                                className="w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2 h-[38px]" 
-                                disabled={isUploading || isLoadingBuckets}
-                            >
-                                <option value="">{isLoadingBuckets ? 'Loading...' : '-- Select a Bucket --'}</option>
-                                {buckets.map(bucket => <option key={bucket.id} value={bucket.name}>{bucket.name}</option>)}
-                            </select>
-                            <button onClick={handleLoadBuckets} disabled={isLoadingBuckets || isUploading} className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-md hover:bg-indigo-700 h-[38px] shrink-0">
-                                {isLoadingBuckets ? '...' : 'Load'}
-                            </button>
-                        </div>
-                        {bucketLoadError && <p className="text-xs text-red-400 mt-1">{bucketLoadError}</p>}
-                    </div>
-                     <div>
-                        <label className="block text-sm font-medium text-gray-400">GCS Path (Optional)</label>
-                        <input 
-                            type="text" 
-                            value={gcsUploadPath} 
-                            onChange={(e) => setGcsUploadPath(e.target.value)} 
-                            placeholder="e.g., my-agent-code/" 
-                            className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" 
-                            disabled={isUploading} 
-                        />
-                    </div>
-                    <div className="mt-3">
-                        <label htmlFor="pickle-file-input" className="block text-sm font-medium text-gray-400">Agent Pickle File (Optional)</label>
-                        <p className="text-xs text-gray-500 mb-1">Select your locally generated `agent.pkl` file to upload it with the source code.</p>
-                        <input 
-                            id="pickle-file-input"
-                            type="file" 
-                            accept=".pkl"
-                            onChange={handlePickleFileChange}
-                            className="mt-1 block w-full text-xs text-gray-400 file:mr-2 file:py-1.5 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-gray-700 file:text-gray-300 hover:file:bg-gray-600"
-                            disabled={isUploading} 
-                        />
-                    </div>
-                    <button onClick={handleUploadToGcs} disabled={isUploading || !gcsUploadBucket} className="w-full px-4 py-2 bg-teal-600 text-white text-sm font-semibold rounded-md hover:bg-teal-700 disabled:bg-gray-500 flex items-center justify-center">
-                        {isUploading && <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>}
-                        {isUploading ? 'Uploading...' : 'Upload All Files'}
-                    </button>
-                    {uploadLogs.length > 0 && (
-                        <div className="mt-2">
-                            <h4 className="text-sm font-semibold text-gray-300">Upload Log</h4>
-                             <pre className="bg-gray-800 text-xs text-gray-300 p-2 mt-1 rounded-md h-24 overflow-y-auto font-mono">
-                                {uploadLogs.join('\n')}
-                             </pre>
-                        </div>
-                    )}
-                </div>
             </div>
 
-            {/* Right Panel: Code Preview */}
-            <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col">
-                <div className="flex justify-between items-center mb-2">
-                    <div>
-                        <div className="flex border-b border-gray-700">
-                            <button onClick={() => setActiveTab('main')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'main' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>main.py</button>
-                            <button onClick={() => setActiveTab('env')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'env' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>.env</button>
-                            <button onClick={() => setActiveTab('requirements')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'requirements' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>requirements.txt</button>
+            {/* Right Panel: Code Preview & Deploy */}
+            <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col overflow-y-auto gap-4">
+                 {/* Code Preview Section */}
+                 <div className="flex flex-col flex-1 min-h-0">
+                    <div className="flex justify-between items-center mb-2">
+                        <div>
+                            <div className="flex border-b border-gray-700">
+                                <button onClick={() => setActiveTab('agent')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'agent' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>agent.py</button>
+                                <button onClick={() => setActiveTab('env')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'env' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>.env</button>
+                                <button onClick={() => setActiveTab('requirements')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'requirements' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>requirements.txt</button>
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={handleCopyCode} className="px-3 py-1.5 bg-gray-600 text-white text-xs font-semibold rounded-md hover:bg-gray-500 w-24">
+                                {copySuccess || 'Copy'}
+                            </button>
                         </div>
                     </div>
-                    <div className="flex gap-2">
-                        <button onClick={handleCopyCode} className="px-3 py-1.5 bg-gray-600 text-white text-xs font-semibold rounded-md hover:bg-gray-500 w-24">
-                            {copySuccess || 'Copy'}
-                        </button>
-                        <button onClick={handleDownloadCode} className="px-3 py-1.5 bg-gray-600 text-white text-xs font-semibold rounded-md hover:bg-gray-500">
-                            Download
-                        </button>
-                         <button onClick={() => setIsDeployModalOpen(true)} className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-md hover:bg-green-700">
-                            Deploy
+                    <div className="bg-gray-900 rounded-md flex-1 overflow-auto">
+                        <pre className="p-4 text-xs text-gray-300 whitespace-pre-wrap">
+                            <code>
+                                {codeToDisplay}
+                            </code>
+                        </pre>
+                    </div>
+                </div>
+
+                {/* Export & Deploy Section */}
+                <div className="space-y-4 p-3 bg-gray-900/50 rounded-md">
+                    <h2 className="text-xl font-semibold text-white">Export & Deploy</h2>
+                    <p className="text-xs text-gray-400">
+                        The final steps are to stage your files in Google Cloud Storage and then deploy your agent to a Reasoning Engine.
+                    </p>
+
+                    {/* Download */}
+                    <div>
+                        <h3 className="text-lg font-semibold text-white mb-1">Download Code</h3>
+                        <p className="text-xs text-gray-400 mb-2">Download a .zip file with your generated code to create the <code className="bg-gray-800 p-1 rounded text-xs">agent.pkl</code> file locally.</p>
+                        <button onClick={handleDownloadCode} className="w-full px-4 py-2 bg-gray-600 text-white text-sm font-semibold rounded-md hover:bg-gray-500">
+                            Download Code (.zip)
                         </button>
                     </div>
-                 </div>
-                 <div className="bg-gray-900 rounded-md flex-1 overflow-auto">
-                    <pre className="p-4 text-xs text-gray-300 whitespace-pre-wrap">
-                        <code>
-                            {codeToDisplay}
-                        </code>
-                    </pre>
+
+                    <div className="border-t border-gray-700"></div>
+
+                    {/* Stage Files */}
+                    <div className="space-y-3">
+                        <h3 className="text-lg font-semibold text-white">1. Stage Files in GCS</h3>
+                        <p className="text-xs text-gray-400 -mt-2">Upload the generated source code and your local <code className="bg-gray-800 p-1 rounded text-xs">agent.pkl</code> file to a GCS bucket.</p>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400">GCS Bucket</label>
+                            <div className="flex items-center gap-2 mt-1">
+                                <select 
+                                    value={gcsUploadBucket} 
+                                    onChange={(e) => setGcsUploadBucket(e.target.value)} 
+                                    className="w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2 h-[38px]" 
+                                    disabled={isUploading || isLoadingBuckets}
+                                >
+                                    <option value="">{isLoadingBuckets ? 'Loading...' : '-- Select a Bucket --'}</option>
+                                    {buckets.map(bucket => <option key={bucket.id} value={bucket.name}>{bucket.name}</option>)}
+                                </select>
+                                <button onClick={handleLoadBuckets} disabled={isLoadingBuckets || isUploading} className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-md hover:bg-indigo-700 h-[38px] shrink-0">
+                                    {isLoadingBuckets ? '...' : 'Load'}
+                                </button>
+                            </div>
+                            {bucketLoadError && <p className="text-xs text-red-400 mt-1">{bucketLoadError}</p>}
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400">GCS Path (Optional)</label>
+                            <input 
+                                type="text" 
+                                value={gcsUploadPath} 
+                                onChange={(e) => setGcsUploadPath(e.target.value)} 
+                                placeholder="e.g., my-agent-code/" 
+                                className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" 
+                                disabled={isUploading} 
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="pickle-file-input" className="block text-sm font-medium text-gray-400">Agent Pickle File</label>
+                            <p className="text-xs text-gray-500 mb-1">Select your locally generated `agent.pkl` file.</p>
+                            <input 
+                                id="pickle-file-input"
+                                type="file" 
+                                accept=".pkl"
+                                onChange={handlePickleFileChange}
+                                className="mt-1 block w-full text-xs text-gray-400 file:mr-2 file:py-1.5 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-gray-700 file:text-gray-300 hover:file:bg-gray-600"
+                                disabled={isUploading} 
+                            />
+                        </div>
+                        <button onClick={handleUploadToGcs} disabled={isUploading || !gcsUploadBucket} className="w-full px-4 py-2 bg-teal-600 text-white text-sm font-semibold rounded-md hover:bg-teal-700 disabled:bg-gray-500 flex items-center justify-center">
+                            {isUploading && <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>}
+                            {isUploading ? 'Uploading...' : 'Upload All Files'}
+                        </button>
+                        {uploadLogs.length > 0 && (
+                            <div className="mt-2">
+                                <h4 className="text-sm font-semibold text-gray-300">Upload Log</h4>
+                                <pre className="bg-gray-800 text-xs text-gray-300 p-2 mt-1 rounded-md h-24 overflow-y-auto font-mono">
+                                    {uploadLogs.join('\n')}
+                                </pre>
+                            </div>
+                        )}
+                    </div>
+                    
+                    <div className="border-t border-gray-700"></div>
+
+                    {/* Deploy */}
+                    <div>
+                        <h3 className="text-lg font-semibold text-white">2. Deploy to Reasoning Engine</h3>
+                        <p className="text-xs text-gray-400 mb-2">Open the deployment wizard to use your staged files to update an existing engine or create a new one.</p>
+                        <button onClick={() => setIsDeployModalOpen(true)} className="w-full px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700">
+                            Deploy to Reasoning Engine
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

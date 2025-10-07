@@ -23,7 +23,7 @@ const Instructions: React.FC = () => (
         <p>The Reasoning Engine requires a Python "pickle" file to deploy. This cannot be created in the browser.</p>
         <ol className="list-decimal list-inside space-y-2">
             <li>
-                <strong>Download Your Agent Code:</strong> Use the "Download" button on the main page to get a <code>.zip</code> file containing <code>main.py</code> and <code>requirements.txt</code>.
+                <strong>Download Your Agent Code:</strong> Use the "Download" button on the main page to get a <code>.zip</code> file containing <code>agent.py</code> and <code>requirements.txt</code>.
             </li>
             <li>
                 <strong>Create the Pickle File:</strong>
@@ -32,7 +32,7 @@ const Instructions: React.FC = () => (
                     <li>Create a new file named <code>create_pickle.py</code> in the same folder with this content:
                         <pre className="bg-gray-800 p-2 rounded-md text-gray-300 mt-1 text-xs whitespace-pre-wrap">
 {`import pickle
-from main import app
+from agent import app
 
 with open('agent.pkl', 'wb') as f:
     pickle.dump(app, f)
