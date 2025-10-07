@@ -8,6 +8,7 @@ import AgentEnginesPage from './pages/AgentEnginesPage';
 import DataStoresPage from './pages/DataStoresPage';
 import BackupPage from './pages/BackupPage';
 import ModelArmorPage from './pages/ModelArmorPage';
+import AgentBuilderPage from './pages/AgentBuilderPage';
 
 const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>(Page.AGENTS);
@@ -35,6 +36,8 @@ const App: React.FC = () => {
         return <AuthorizationsPage accessToken={accessToken} projectNumber={projectNumber} />;
       case Page.AGENT_ENGINES:
         return <AgentEnginesPage accessToken={accessToken} projectNumber={projectNumber} />;
+      case Page.AGENT_BUILDER:
+        return <AgentBuilderPage accessToken={accessToken} projectNumber={projectNumber} />;
       case Page.DATA_STORES:
         return <DataStoresPage accessToken={accessToken} projectNumber={projectNumber} />;
       case Page.MODEL_ARMOR:

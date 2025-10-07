@@ -7,6 +7,11 @@ A web interface to manage Google Cloud Agentspace resources, including agents, a
 -   **Manage Agents**: List, create, update, delete, enable/disable, and chat with agents.
 -   **Manage Authorizations**: List, create, update, and delete OAuth client authorizations.
 -   **Manage Reasoning Engines**: List engines, view agent dependencies, and delete unused engines.
+-   **Agent Builder**: A powerful UI to construct and configure ADK-based agents from scratch. It automatically generates the necessary Python code (`main.py`), environment (`.env`), and dependency (`requirements.txt`) files. Features include:
+    -   A tool builder for easily adding Vertex AI Search tools.
+    -   Options to download the complete agent code as a `.zip` file.
+    -   An integrated uploader to stage agent files (`main.py`, `.env`, `requirements.txt`, and a user-provided `agent.pkl`) directly to a GCS bucket.
+    -   A deployment wizard to deploy the staged agent to a new or existing Reasoning Engine.
 -   **Explore Data Stores**: List data stores within a collection, view their details, and inspect individual documents and their content.
 -   **Model Armor Log Viewer**: Fetch and inspect safety policy violation logs from Cloud Logging, showing the verdict, reason, triggered filter, and source assistant for each event.
 -   **Comprehensive Backup & Restore**: Backup and restore agents, assistants, data stores, authorizations, and entire Discovery Engine configurations.
@@ -22,6 +27,7 @@ Before using this application, ensure you have the following:
     -   AI Platform (Vertex AI) API
     -   Cloud Resource Manager API
     -   Cloud Logging API
+    -   Cloud Storage API
 3.  **`gcloud` CLI**: You need the Google Cloud CLI installed and authenticated to obtain an access token.
 4.  **Access Token**: Generate a temporary access token by running the following command in your terminal:
     ```sh
@@ -72,7 +78,7 @@ curl -X GET \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -H "X-Goog-User-Project: $PROJECT_ID" \
-  "https://discoveryengine.googleapis.com/v1alpha/projects/$PROJECT_ID/locations/$LOCATION/collections/$COLLECTION_ID/engines/$ENGINE_ID/assistants/$ASSISTANT_ID/agents"
+  "https://discoveryengine.googleapis.com/v1alpha/projects/$PROJECT_ID/locations/$LOCATION/collections/$COLlection_ID/engines/$ENGINE_ID/assistants/$ASSISTANT_ID/agents"
 ```
 
 #### Example: Create an Agent

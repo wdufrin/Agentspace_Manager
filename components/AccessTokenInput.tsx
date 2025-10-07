@@ -10,7 +10,7 @@ const AccessTokenInput: React.FC<AccessTokenInputProps> = ({ accessToken, setAcc
   const [showTooltip, setShowTooltip] = useState(false);
 
   const handleSave = () => {
-    setAccessToken(tokenInput);
+    setAccessToken(tokenInput.trim());
   };
 
   return (

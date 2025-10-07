@@ -3,6 +3,7 @@ export enum Page {
   AGENTS = 'Agents',
   AUTHORIZATIONS = 'Authorizations',
   AGENT_ENGINES = 'Agent Engines',
+  AGENT_BUILDER = 'Agent Builder',
   DATA_STORES = 'Data Stores',
   MODEL_ARMOR = 'Model Armor',
   BACKUP_RECOVERY = 'Backup & Recovery',
@@ -138,4 +139,15 @@ export interface LogEntry {
     labels: { [key: string]: string };
   };
   labels?: { [key: string]: string };
+}
+
+// GCS Types
+export interface GcsBucket {
+    id: string;
+    name: string;
+}
+
+export interface GcsObject {
+    name: string;
+    bucket: string;
 }

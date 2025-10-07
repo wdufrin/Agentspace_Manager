@@ -522,7 +522,7 @@ export const listReasoningEngines = (config: Config) => {
     });
 };
 
-export const createReasoningEngine = async (engineData: { displayName: string }, config: Config): Promise<ReasoningEngine> => {
+export const createReasoningEngine = async (engineData: any, config: Config): Promise<ReasoningEngine> => {
     const { reasoningEngineLocation, projectId, accessToken } = config;
     if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
 
@@ -554,6 +554,24 @@ export const createReasoningEngine = async (engineData: { displayName: string },
     return currentOperation.response as ReasoningEngine;
 };
 
+export const updateReasoningEngine = async (engineName: string, payload: any, config: Config): Promise<any> => {
+    const { accessToken, projectId, reasoningEngineLocation } = config;
+    if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
+    // The API requires the update mask to point to the top-level key in the payload.
+    const updateMask = Object.keys(payload).join(',');
+    const url = `${getAiPlatformUrl(reasoningEngineLocation)}/${engineName}?updateMask=${updateMask}`;
+
+    return apiRequest<any>(url, {
+        method: 'PATCH',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Goog-User-Project': projectId,
+        },
+        body: JSON.stringify(payload),
+    });
+};
+
 export const deleteReasoningEngine = (engineName: string, config: Config) => {
     const { accessToken, projectId, reasoningEngineLocation } = config;
     if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
@@ -568,6 +586,98 @@ export const deleteReasoningEngine = (engineName: string, config: Config) => {
         },
     });
 };
+
+// --- GCS Storage API ---
+export async function listBuckets(projectId: string, accessToken: string): Promise<{ items: { id: string, name: string }[] }> {
+    const url = `https://storage.googleapis.com/storage/v1/b?project=${projectId}`;
+    return apiRequest(url, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'X-Goog-User-Project': projectId,
+        },
+    });
+}
+
+export async function listGcsObjects(bucketName: string, prefix: string, accessToken: string, projectId: string): Promise<{ items: { name: string, bucket: string }[] }> {
+    const encodedPrefix = encodeURIComponent(prefix);
+    const url = `https://storage.googleapis.com/storage/v1/b/${bucketName}/o?prefix=${encodedPrefix}`;
+    return apiRequest(url, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'X-Goog-User-Project': projectId,
+        },
+    });
+}
+
+export async function uploadToGcs(
+    accessToken: string,
+    bucketName: string,
+    objectName: string,
+    fileContent: string,
+    contentType: string,
+    projectId: string
+): Promise<void> {
+    const url = `https://storage.googleapis.com/upload/storage/v1/b/${bucketName}/o?uploadType=media&name=${encodeURIComponent(objectName)}`;
+    
+    // Cannot use generic apiRequest here as it expects JSON response and GCS can return non-JSON on success.
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': contentType,
+            'X-Goog-User-Project': projectId,
+        },
+        body: fileContent,
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        console.error("GCS Upload Error Response:", errorText);
+        try {
+            const errorData = JSON.parse(errorText);
+            const message = `GCS upload failed with status ${response.status}: ${errorData.error?.message || errorText}`;
+            throw new Error(message);
+        } catch(e) {
+            throw new Error(`GCS upload failed with status ${response.status}: ${errorText}`);
+        }
+    }
+}
+
+export async function uploadFileToGcs(
+    accessToken: string,
+    bucketName: string,
+    objectName: string,
+    file: File,
+    projectId: string
+): Promise<void> {
+    const url = `https://storage.googleapis.com/upload/storage/v1/b/${bucketName}/o?uploadType=media&name=${encodeURIComponent(objectName)}`;
+
+    // Cannot use generic apiRequest here as it expects JSON response and GCS can return non-JSON on success.
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': file.type || 'application/octet-stream',
+            'X-Goog-User-Project': projectId,
+        },
+        body: file,
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        console.error("GCS Upload Error Response:", errorText);
+        try {
+            const errorData = JSON.parse(errorText);
+            const message = `GCS upload failed with status ${response.status}: ${errorData.error?.message || errorText}`;
+            throw new Error(message);
+        } catch(e) {
+            throw new Error(`GCS upload failed with status ${response.status}: ${errorText}`);
+        }
+    }
+}
+
 
 // --- Cloud Logging APIs ---
 export async function fetchViolationLogs(config: Config, customFilter: string): Promise<{ entries?: LogEntry[] }> {
