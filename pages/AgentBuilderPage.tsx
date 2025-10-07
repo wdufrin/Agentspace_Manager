@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Config, Collection, DataStore, GcsBucket } from '../../types';
 import * as api from '../../services/apiService';
 import DeployModal from '../../components/agent-builder/DeployModal';
+import { GoogleGenAI } from "@google/genai";
 
 declare var JSZip: any;
 
@@ -29,6 +30,8 @@ export interface DeployInfo {
     newEngineDisplayName: string;
     pickleGcsUri: string;
 }
+
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
 
 const generatePythonCode = (config: AgentConfig): string => {
     const toolImports = new Set<string>();
@@ -82,7 +85,7 @@ ${toolInitializations.length > 0 ? toolInitializations.join('\n\n') : '# No tool
 root_agent = Agent(
     name=${formatPythonString(config.name)},
     description=${formatPythonString(config.description)},
-    model=os.getenv("MODEL", "gemini-2.5-flash"),
+    model=os.getenv("MODEL", ${formatPythonString(config.model)}),
     instruction=${formatPythonString(config.instruction)},
     tools=[${toolListForAgent.join(', ')}],
 )
@@ -92,11 +95,13 @@ app = AdkApp(agent=root_agent)
 `.trim();
 };
 
-const generateEnvFile = (config: AgentConfig): string => {
-    // GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are reserved and set by the runtime.
-    // We only need to set the variables our code explicitly loads.
+const generateEnvFile = (config: AgentConfig, projectNumber: string, location: string): string => {
+    // GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are often set by the runtime environment.
+    // Including them here helps with local execution and clarity.
     return `GOOGLE_GENAI_USE_VERTEXAI=TRUE
 MODEL="${config.model}"
+GOOGLE_CLOUD_PROJECT="${projectNumber}"
+GOOGLE_CLOUD_LOCATION="${location}"
 `.trim();
 };
 
@@ -108,10 +113,10 @@ python-dotenv
 
 const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }> = ({ accessToken, projectNumber }) => {
     const [agentConfig, setAgentConfig] = useState<AgentConfig>({
-        name: '',
-        description: '',
+        name: 'My Awesome Agent',
+        description: 'An agent that can do awesome things.',
         model: 'gemini-2.5-flash',
-        instruction: '',
+        instruction: 'You are an awesome and helpful agent.',
         tools: [],
         useGoogleSearch: false,
     });
@@ -124,6 +129,10 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
     const [generatedRequirementsCode, setGeneratedRequirementsCode] = useState('');
     const [activeTab, setActiveTab] = useState<'agent' | 'env' | 'requirements'>('agent');
     const [copySuccess, setCopySuccess] = useState('');
+    
+    // State for AI rewrite feature
+    const [rewritingField, setRewritingField] = useState<string | null>(null);
+    const [rewriteError, setRewriteError] = useState<string | null>(null);
 
     // State for tool builder UI
     const [toolBuilderConfig, setToolBuilderConfig] = useState({
@@ -163,12 +172,12 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
 
     useEffect(() => {
         const agentCode = generatePythonCode(agentConfig);
-        const envCode = generateEnvFile(agentConfig);
+        const envCode = generateEnvFile(agentConfig, projectNumber, vertexLocation);
         const reqsCode = generateRequirementsFile();
         setGeneratedAgentCode(agentCode);
         setGeneratedEnvCode(envCode);
         setGeneratedRequirementsCode(reqsCode);
-    }, [agentConfig, vertexLocation]);
+    }, [agentConfig, projectNumber, vertexLocation]);
 
     const handleAgentConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         setAgentConfig({ ...agentConfig, [e.target.name]: e.target.value });
@@ -262,6 +271,58 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
             tools: prev.tools.filter((_, i) => i !== index),
         }));
     };
+    
+    const handleRewrite = async (field: 'description' | 'instruction') => {
+        setRewritingField(field);
+        setRewriteError(null);
+        const currentValue = agentConfig[field];
+        if (!currentValue.trim()) {
+            setRewriteError('Please enter some text to rewrite.');
+            setRewritingField(null);
+            return;
+        }
+
+        const toolsInfo = agentConfig.tools.map(tool => `- A Vertex AI Search tool connected to data store: ${tool.dataStoreId.split('/').pop()}`).join('\n');
+        const googleSearchInfo = agentConfig.useGoogleSearch ? '- Google Search for real-time information.' : '';
+        const capabilities = [toolsInfo, googleSearchInfo].filter(Boolean).join('\n');
+
+        let prompt = '';
+        if (field === 'description') {
+            prompt = `Based on the agent's capabilities below, rewrite the following description to be a clear and compelling explanation of what this agent does for an end-user. The result should be a single, direct paragraph. Do not offer multiple options.
+
+Agent Capabilities:
+${capabilities || 'This agent has no special tools.'}
+
+Original Description: "${currentValue}"
+
+Rewritten Description:`;
+        } else { // instruction field
+            prompt = `Based on the agent's capabilities below, rewrite the following system instruction to effectively guide the agent's behavior and personality. The instruction should be clear, direct, and help the model understand its role. The result should be a single, direct paragraph. Do not offer multiple options.
+
+Agent Capabilities:
+${capabilities || 'This agent has no special tools.'}
+
+Original Instruction: "${currentValue}"
+
+Rewritten Instruction:`;
+        }
+
+        try {
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+            });
+            const rewrittenText = response.text.trim();
+            // Clean up if the model returns markdown or quotes
+            const cleanedText = rewrittenText.replace(/^["']|["']$/g, '').replace(/^```\w*\n?|\n?```$/g, '').trim();
+            setAgentConfig(prev => ({ ...prev, [field]: cleanedText }));
+        } catch (err: any) {
+            setRewriteError(`AI rewrite failed: ${err.message}`);
+        } finally {
+            setRewritingField(null);
+        }
+    };
+
 
     const handleCopyCode = () => {
         let codeToCopy = '';
@@ -461,6 +522,28 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
             setIsUploading(false);
         }
     };
+    
+    const AiRewriteButton: React.FC<{ field: 'description' | 'instruction' }> = ({ field }) => {
+        const isRewriting = rewritingField === field;
+        return (
+            <button
+                type="button"
+                onClick={() => handleRewrite(field)}
+                disabled={isRewriting}
+                className="p-1.5 text-gray-400 bg-gray-700 hover:bg-indigo-600 hover:text-white rounded-md transition-colors disabled:bg-gray-600"
+                title={`Rewrite ${field} with AI`}
+            >
+                {isRewriting ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+                        <path d="M12.736 3.97a6 6 0 014.243 4.243l2.022-2.022a1 1 0 10-1.414-1.414L15.56 6.8A6.002 6.002 0 0112.736 3.97zM3.97 12.736a6 6 0 01-1.243-5.222L4.75 9.536a1 1 0 001.414-1.414L4.142 6.1A6.002 6.002 0 013.97 12.736z" />
+                    </svg>
+                )}
+            </button>
+        );
+    };
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
@@ -478,12 +561,16 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
                 
                 {/* Agent Details */}
                 <div className="space-y-3 p-3 bg-gray-900/50 rounded-md">
+                    {rewriteError && <p className="text-red-400 text-sm mb-2">{rewriteError}</p>}
                     <div>
                         <label className="block text-sm font-medium text-gray-400">Agent Name</label>
                         <input type="text" name="name" value={agentConfig.name} onChange={handleAgentConfigChange} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" placeholder="e.g., my_agent" />
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-400">Description</label>
+                        <div className="flex justify-between items-center">
+                            <label className="block text-sm font-medium text-gray-400">Description</label>
+                            <AiRewriteButton field="description" />
+                        </div>
                         <textarea name="description" value={agentConfig.description} onChange={handleAgentConfigChange} rows={3} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" placeholder="A brief description of the agent's purpose."></textarea>
                     </div>
                      <div>
@@ -494,14 +581,35 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-400">Google Cloud Location (Vertex AI)</label>
-                        <input type="text" value={vertexLocation} onChange={(e) => setVertexLocation(e.target.value)} placeholder="e.g., us-central1" className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" />
+                        <select value={vertexLocation} onChange={(e) => setVertexLocation(e.target.value)} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2 h-[42px]">
+                            <option value="us-central1">us-central1</option>
+                            <option value="us-east1">us-east1</option>
+                            <option value="us-east4">us-east4</option>
+                            <option value="us-west1">us-west1</option>
+                            <option value="europe-west1">europe-west1</option>
+                            <option value="europe-west2">europe-west2</option>
+                            <option value="europe-west4">europe-west4</option>
+                            <option value="asia-east1">asia-east1</option>
+                            <option value="asia-southeast1">asia-southeast1</option>
+                        </select>
                     </div>
                      <div>
                         <label className="block text-sm font-medium text-gray-400">Model</label>
-                        <input type="text" name="model" value={agentConfig.model} onChange={handleAgentConfigChange} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" />
+                         <select 
+                            name="model" 
+                            value={agentConfig.model} 
+                            onChange={handleAgentConfigChange} 
+                            className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2 h-[42px]"
+                        >
+                            <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                            <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+                        </select>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-400">System Instruction</label>
+                        <div className="flex justify-between items-center">
+                            <label className="block text-sm font-medium text-gray-400">System Instruction</label>
+                            <AiRewriteButton field="instruction" />
+                        </div>
                         <textarea name="instruction" value={agentConfig.instruction} onChange={handleAgentConfigChange} rows={5} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" placeholder="Instructions for the agent's behavior and personality."></textarea>
                     </div>
                 </div>

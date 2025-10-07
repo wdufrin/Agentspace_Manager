@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Agent, ReasoningEngine, Config, Authorization } from '../../types';
 import * as api from '../../services/apiService';
+import { GoogleGenAI } from '@google/genai';
+
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
 
 const getCompatibleReasoningEngineLocation = (appLocation: string): string => {
     switch (appLocation) {
@@ -38,6 +41,9 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
   const [error, setError] = useState<string | null>(null);
   const [iconPreviewError, setIconPreviewError] = useState(false);
   const [previewPayload, setPreviewPayload] = useState<object | null>(null);
+
+  const [rewritingField, setRewritingField] = useState<string | null>(null);
+  const [rewriteError, setRewriteError] = useState<string | null>(null);
 
   const [reasoningEngines, setReasoningEngines] = useState<ReasoningEngine[]>([]);
   const [isLoadingEngines, setIsLoadingEngines] = useState(false);
@@ -110,6 +116,72 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
   useEffect(() => {
     setIconPreviewError(false);
   }, [formData.iconUri]);
+  
+  const handleRewrite = async (field: 'description' | 'toolDescription') => {
+    setRewritingField(field);
+    setRewriteError(null);
+    const currentValue = formData[field];
+    if (!currentValue.trim()) {
+        setRewriteError('Please enter some text to rewrite.');
+        setRewritingField(null);
+        return;
+    }
+
+    let prompt = '';
+
+    if (field === 'description') {
+        const toolDesc = formData.toolDescription;
+        prompt = `An agent has a tool with the following description: "${toolDesc}". 
+Based on this capability, rewrite the agent's main description to clearly explain what the agent does for an end-user. The new description should be a single paragraph. Do not offer multiple options.
+
+Original agent description: "${currentValue}"
+
+Rewritten agent description:`;
+    } else { // toolDescription
+        prompt = `You are an expert prompt engineer. Rewrite the following tool description to be more clear, concise, and effective for an LLM to understand and use. The description should accurately represent the tool's capabilities and be a single paragraph. Do not offer multiple options.
+
+Original tool description: "${currentValue}"
+
+Rewritten tool description:`;
+    }
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+        const rewrittenText = response.text.trim();
+        // Clean up if the model returns markdown or quotes
+        const cleanedText = rewrittenText.replace(/^["']|["']$/g, '').replace(/^```\w*\n?|\n?```$/g, '').trim();
+        setFormData(prev => ({ ...prev, [field]: cleanedText }));
+    } catch (err: any) {
+        setRewriteError(`AI rewrite failed: ${err.message}`);
+    } finally {
+        setRewritingField(null);
+    }
+  };
+
+  const AiRewriteButton: React.FC<{ field: 'description' | 'toolDescription' }> = ({ field }) => {
+        const isRewriting = rewritingField === field;
+        return (
+            <button
+                type="button"
+                onClick={() => handleRewrite(field)}
+                disabled={isRewriting || isEditingDisabled}
+                className="p-1.5 text-gray-400 bg-gray-700 hover:bg-indigo-600 hover:text-white rounded-md transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed"
+                title={`Rewrite ${field.replace('tool', 'tool ')} with AI`}
+            >
+                {isRewriting ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+                        <path d="M12.736 3.97a6 6 0 014.243 4.243l2.022-2.022a1 1 0 10-1.414-1.414L15.56 6.8A6.002 6.002 0 0112.736 3.97zM3.97 12.736a6 6 0 01-1.243-5.222L4.75 9.536a1 1 0 001.414-1.414L4.142 6.1A6.002 6.002 0 013.97 12.736z" />
+                    </svg>
+                )}
+            </button>
+        );
+    };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -267,13 +339,21 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
         </div>
       )}
 
+      {rewriteError && <p className="text-red-400 text-sm mb-4">{rewriteError}</p>}
+
       <div className={agentToEdit ? "grid grid-cols-1 lg:grid-cols-2 gap-8" : ""}>
         {/* Column 1: The Form */}
         <form id="agent-form" onSubmit={handleSubmit} className="space-y-4">
             <fieldset disabled={isEditingDisabled} className="space-y-4">
                 {/* Fields */}
                 <div><label htmlFor="displayName" className="block text-sm font-medium text-gray-300">Display Name</label><input type="text" name="displayName" value={formData.displayName} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" required /></div>
-                <div><label htmlFor="description" className="block text-sm font-medium text-gray-300">Description</label><textarea name="description" value={formData.description} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" required /></div>
+                <div>
+                    <div className="flex justify-between items-center">
+                        <label htmlFor="description" className="block text-sm font-medium text-gray-300">Description</label>
+                        <AiRewriteButton field="description" />
+                    </div>
+                    <textarea name="description" value={formData.description} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" required />
+                </div>
                 {!agentToEdit && (
                   <div>
                     <label htmlFor="agentId" className="block text-sm font-medium text-gray-300">Agent ID (Optional)</label>
@@ -374,7 +454,13 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
 
                 <div className="space-y-4 border-t border-gray-700 p-4 rounded-md">
                     <h3 className="text-lg font-semibold text-white">ADK Agent Details</h3>
-                    <div><label htmlFor="toolDescription" className="block text-sm font-medium text-gray-300">Tool Description (Prompt)</label><textarea name="toolDescription" value={formData.toolDescription} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" required /></div>
+                    <div>
+                        <div className="flex justify-between items-center">
+                            <label htmlFor="toolDescription" className="block text-sm font-medium text-gray-300">Tool Description (Prompt)</label>
+                            <AiRewriteButton field="toolDescription" />
+                        </div>
+                        <textarea name="toolDescription" value={formData.toolDescription} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" required />
+                    </div>
                     <div>
                         <label htmlFor="reasoningEngineLocation" className="block text-sm font-medium text-gray-300">Reasoning Engine Location</label>
                         <div className="flex items-center space-x-2 mt-1">

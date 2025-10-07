@@ -587,6 +587,20 @@ export const deleteReasoningEngine = (engineName: string, config: Config) => {
     });
 };
 
+// --- Vertex AI / AI Platform APIs (General) ---
+export async function listVertexAiModels(location: string, accessToken: string, projectId: string): Promise<{ models: any[] }> {
+    const url = `https://${location}-aiplatform.googleapis.com/v1/publishers/google/models`;
+    return apiRequest(url, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            // FIX: Removed 'X-Goog-User-Project' header. For the public model listing endpoint,
+            // this header is not strictly required and may cause CORS preflight failures in some environments,
+            // leading to the "Failed to fetch" error. The projectId parameter is kept for API signature consistency.
+        },
+    });
+}
+
 // --- GCS Storage API ---
 export async function listBuckets(projectId: string, accessToken: string): Promise<{ items: { id: string, name: string }[] }> {
     const url = `https://storage.googleapis.com/storage/v1/b?project=${projectId}`;
