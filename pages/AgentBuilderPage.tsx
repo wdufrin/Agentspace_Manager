@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Config, Collection, DataStore, GcsBucket } from '../../types';
-import * as api from '../../services/apiService';
-import DeployModal from '../../components/agent-builder/DeployModal';
+import { Config, Collection, DataStore, GcsBucket } from '../types';
+import * as api from '../services/apiService';
+import DeployModal from '../components/agent-builder/DeployModal';
 import { GoogleGenAI } from "@google/genai";
 
 declare var JSZip: any;
@@ -31,7 +31,14 @@ export interface DeployInfo {
     pickleGcsUri: string;
 }
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+// Defer AI client initialization to avoid crash on load
+let ai: GoogleGenAI | null = null;
+const getAiClient = () => {
+    if (!ai) {
+        ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+    }
+    return ai;
+};
 
 const generatePythonCode = (config: AgentConfig): string => {
     const toolImports = new Set<string>();
@@ -400,7 +407,7 @@ Rewritten Instruction:`;
         }
 
         try {
-            const response = await ai.models.generateContent({
+            const response = await getAiClient().models.generateContent({
                 model: 'gemini-2.5-flash',
                 contents: prompt,
             });

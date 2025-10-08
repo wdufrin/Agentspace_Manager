@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useCallback, useMemo } from 'react';
 import { ReasoningEngine, Config, Agent } from '../types';
 import * as api from '../services/apiService';
@@ -186,12 +187,15 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
     const failures: string[] = [];
     results.forEach((result, index) => {
         if (result.status === 'rejected') {
-            // FIX: Explicitly cast to string to prevent 'split' on 'unknown' error,
-            // addressing a potential type inference issue.
-            const engineName = String(enginesToDelete[index]).split('/').pop();
             // FIX: The rejection reason from Promise.allSettled is of type 'unknown'.
-            // Safely access the message property to avoid a type error.
-            failures.push(`- ${engineName}: ${(result.reason as Error).message}`);
+            // Safely access the message property and handle potential type issues.
+            const engineName = String(enginesToDelete[index]).split('/').pop();
+            // FIX: Safely handle the 'unknown' rejection reason to prevent a TypeScript error.
+            // Check if the reason is an Error instance to access its message property.
+            const reason = result.reason;
+            // FIX: Cast the 'unknown' rejection reason to 'any' to allow the String() constructor to process it.
+            const message = reason instanceof Error ? reason.message : String(reason as any);
+            failures.push(`- ${engineName}: ${message}`);
         }
     });
 

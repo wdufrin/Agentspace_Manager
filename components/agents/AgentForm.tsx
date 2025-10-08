@@ -3,7 +3,14 @@ import { Agent, ReasoningEngine, Config, Authorization } from '../../types';
 import * as api from '../../services/apiService';
 import { GoogleGenAI } from '@google/genai';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+// Defer AI client initialization to avoid crash on load
+let ai: GoogleGenAI | null = null;
+const getAiClient = () => {
+    if (!ai) {
+        ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+    }
+    return ai;
+};
 
 const getCompatibleReasoningEngineLocation = (appLocation: string): string => {
     switch (appLocation) {
@@ -146,7 +153,7 @@ Rewritten tool description:`;
     }
 
     try {
-        const response = await ai.models.generateContent({
+        const response = await getAiClient().models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
         });
