@@ -279,7 +279,14 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
     }, [agentConfig, projectNumber, vertexLocation]);
 
     const handleAgentConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-        setAgentConfig({ ...agentConfig, [e.target.name]: e.target.value });
+        const { name, value } = e.target;
+        if (name === 'name') {
+            // Replace spaces with hyphens and convert to lowercase to ensure a valid name.
+            const sanitizedValue = value.replace(/\s+/g, '-').toLowerCase();
+            setAgentConfig({ ...agentConfig, [name]: sanitizedValue });
+        } else {
+            setAgentConfig({ ...agentConfig, [name]: value });
+        }
     };
     
     const handleToolBuilderConfigChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -470,8 +477,8 @@ Rewritten Instruction:`;
             const bucketName = gcsMatch[1];
             const objectPrefix = gcsMatch[2];
 
-            addLog('Parsing environment variables...');
-            const envVars = generatedEnvCode
+            addLog('Parsing environment variables from generated .env file...');
+            const allEnvVars = generatedEnvCode
                 .split('\n')
                 .filter(line => line.trim() !== '' && !line.startsWith('#'))
                 .map(line => {
@@ -480,7 +487,13 @@ Rewritten Instruction:`;
                     const value = parts.join('=').trim().replace(/^"|"$/g, '');
                     return { name: key.trim(), value };
                 });
-            addLog(`  - Found ${envVars.length} environment variables to inject.`);
+
+            const reservedKeys = new Set(['GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION']);
+            const envVars = allEnvVars.filter(envVar => !reservedKeys.has(envVar.name));
+
+            addLog(`  - Found ${allEnvVars.length} total variables.`);
+            addLog(`  - Filtering out ${reservedKeys.size} reserved variables.`);
+            addLog(`  - Injecting ${envVars.length} variables into deployment spec.`);
 
 
             addLog('Uploading requirements.txt to GCS...');
@@ -667,7 +680,7 @@ Rewritten Instruction:`;
                     {rewriteError && <p className="text-red-400 text-sm mb-2">{rewriteError}</p>}
                     <div>
                         <label className="block text-sm font-medium text-gray-400">Agent Name</label>
-                        <input type="text" name="name" value={agentConfig.name} onChange={handleAgentConfigChange} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" placeholder="e.g., my_agent" />
+                        <input type="text" name="name" value={agentConfig.name} onChange={handleAgentConfigChange} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" placeholder="e.g., my-awesome-agent" />
                     </div>
                     <div>
                         <div className="flex justify-between items-center">
