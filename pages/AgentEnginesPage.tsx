@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useMemo } from 'react';
 import { ReasoningEngine, Config, Agent } from '../types';
 import * as api from '../services/apiService';
@@ -22,10 +23,10 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
   const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
   const [selectedEngine, setSelectedEngine] = useState<ReasoningEngine | null>(null);
   
-  // State for delete confirmation
-  const [deletingEngineId, setDeletingEngineId] = useState<string | null>(null);
+  // State for multi-select and delete confirmation
+  const [selectedEngines, setSelectedEngines] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [engineToDelete, setEngineToDelete] = useState<ReasoningEngine | null>(null);
 
   const apiConfig: Config = useMemo(() => ({
       accessToken,
@@ -63,6 +64,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
     setError(null);
     setEngines([]);
     setAllAgents([]);
+    setSelectedEngines(new Set()); // Clear selection on refresh
 
     try {
       // Step 1: Fetch the primary resource list (Reasoning Engines). This is critical.
@@ -71,7 +73,8 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
       setEngines(fetchedEngines);
 
       if (fetchedEngines.length === 0) {
-        setError(`No agent engines found in location "${location}".`);
+        // This is not an error, just an empty state.
+        // setError(`No agent engines found in location "${location}".`);
         return; // The finally block will handle isLoading
       }
 
@@ -137,36 +140,68 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
       setIsLoading(false);
     }
   }, [apiConfig, location, accessToken, projectNumber]);
-
-  const requestDeleteEngine = (engine: ReasoningEngine) => {
-    setEngineToDelete(engine);
-    setIsDeleteModalOpen(true);
+  
+  const handleToggleSelect = (engineName: string) => {
+    setSelectedEngines(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(engineName)) {
+            newSet.delete(engineName);
+        } else {
+            newSet.add(engineName);
+        }
+        return newSet;
+    });
   };
 
-  const confirmDeleteEngine = async () => {
-      if (!engineToDelete) return;
-      
-      const engineId = engineToDelete.name.split('/').pop();
-      if (!engineId) return;
-
-      setDeletingEngineId(engineId);
-      setIsDeleteModalOpen(false);
-      setError(null);
-
-      try {
-          await api.deleteReasoningEngine(engineToDelete.name, apiConfig);
-          setViewMode('list'); // Go back to list after deletion
-          await fetchEngines(); // Refresh the list
-      } catch (err: any) {
-          let errorMessage = err.message || `Failed to delete engine.`;
-          if (errorMessage.includes("is in use by")) { // A common pattern for dependency errors
-              errorMessage = `Cannot delete engine "${engineToDelete.displayName}". It may be in use by an agent. Please check agent configurations before deleting.`;
-          }
-          setError(errorMessage);
-      } finally {
-          setDeletingEngineId(null);
-          setEngineToDelete(null);
+  const handleToggleSelectAll = () => {
+      if (selectedEngines.size === engines.length) {
+          setSelectedEngines(new Set());
+      } else {
+          setSelectedEngines(new Set(engines.map(e => e.name)));
       }
+  };
+
+  const openDeleteModal = (engine?: ReasoningEngine) => {
+      // If a specific engine is provided (from a row button), select only that one.
+      if (engine) {
+          setSelectedEngines(new Set([engine.name]));
+      }
+      // Open the modal if there's a selection from either source.
+      if (selectedEngines.size > 0 || engine) {
+          setIsDeleteModalOpen(true);
+      }
+  };
+  
+  const confirmDelete = async () => {
+    if (selectedEngines.size === 0) return;
+    
+    setIsDeleting(true);
+    setError(null);
+    
+    const enginesToDelete = Array.from(selectedEngines);
+    const results = await Promise.allSettled(
+        enginesToDelete.map(engineName => api.deleteReasoningEngine(engineName, apiConfig))
+    );
+
+    const failures: string[] = [];
+    results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+            // FIX: Explicitly cast to string to prevent 'split' on 'unknown' error,
+            // addressing a potential type inference issue.
+            const engineName = String(enginesToDelete[index]).split('/').pop();
+            // FIX: The rejection reason from Promise.allSettled is of type 'unknown'.
+            // Safely access the message property to avoid a type error.
+            failures.push(`- ${engineName}: ${(result.reason as Error).message}`);
+        }
+    });
+
+    if (failures.length > 0) {
+        setError(`Failed to delete ${failures.length} engine(s):\n${failures.join('\n')}`);
+    }
+
+    setIsDeleting(false);
+    setIsDeleteModalOpen(false);
+    await fetchEngines(); // Refresh list, which also clears selection
   };
   
   const handleViewEngine = (engine: ReasoningEngine) => {
@@ -190,20 +225,43 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
         );
     }
     
+    const isAllSelected = selectedEngines.size === engines.length && engines.length > 0;
+
     return (
         <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">
-            <div className="p-4 border-b border-gray-700">
+            <div className="p-4 border-b border-gray-700 flex justify-between items-center">
                 <h2 className="text-xl font-bold text-white">Agent Engines</h2>
+                 {selectedEngines.size > 0 && (
+                    <div className="flex items-center gap-4">
+                        <span className="text-sm text-gray-300">{selectedEngines.size} selected</span>
+                        <button
+                            onClick={() => openDeleteModal()}
+                            disabled={isDeleting}
+                            className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700 disabled:bg-red-800"
+                        >
+                            Delete Selected
+                        </button>
+                    </div>
+                )}
             </div>
-             {error && <div className="text-center text-red-400 p-4">{error}</div>}
+             {error && <div className="p-4 bg-red-900/20 text-red-300 text-sm rounded-b-lg whitespace-pre-wrap">{error}</div>}
             {engines.length === 0 && !isLoading && !error && (
-                 <p className="text-gray-400 p-6 text-center">No agent engines loaded. Please provide a project and location, then click "Fetch Engines".</p>
+                 <p className="text-gray-400 p-6 text-center">No agent engines found in this location. Use the controls above to fetch them.</p>
             )}
             {engines.length > 0 && (
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-700">
                         <thead className="bg-gray-700/50">
                             <tr>
+                                <th scope="col" className="px-6 py-3">
+                                    <input
+                                        type="checkbox"
+                                        checked={isAllSelected}
+                                        onChange={handleToggleSelectAll}
+                                        aria-label="Select all engines"
+                                        className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600"
+                                    />
+                                </th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Display Name</th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Engine ID</th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Used By Agents</th>
@@ -213,11 +271,20 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
                         <tbody className="bg-gray-800 divide-y divide-gray-700">
                             {engines.map((engine) => {
                                 const engineId = engine.name.split('/').pop() || '';
-                                const isDeleting = deletingEngineId === engineId;
+                                const isSelected = selectedEngines.has(engine.name);
                                 const usingAgents = agentsByEngine[engine.name] || [];
 
                                 return (
-                                    <tr key={engine.name} className="hover:bg-gray-700/50 transition-colors">
+                                    <tr key={engine.name} className={`${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'} transition-colors`}>
+                                        <td className="px-6 py-4">
+                                            <input
+                                                type="checkbox"
+                                                checked={isSelected}
+                                                onChange={() => handleToggleSelect(engine.name)}
+                                                aria-label={`Select engine ${engine.displayName}`}
+                                                className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600"
+                                            />
+                                        </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{engine.displayName}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">{engineId}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
@@ -237,25 +304,19 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
                                             )}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
-                                            {isDeleting ? (
-                                                <span className="text-xs text-gray-400 italic">Deleting...</span>
-                                            ) : (
-                                                <>
-                                                    <button 
-                                                        onClick={() => handleViewEngine(engine)} 
-                                                        className="font-semibold text-blue-400 hover:text-blue-300"
-                                                    >
-                                                        View
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => requestDeleteEngine(engine)} 
-                                                        disabled={isDeleting}
-                                                        className="font-semibold text-red-400 hover:text-red-300 disabled:text-gray-500"
-                                                    >
-                                                        Delete
-                                                    </button>
-                                                </>
-                                            )}
+                                            <button 
+                                                onClick={() => handleViewEngine(engine)} 
+                                                className="font-semibold text-blue-400 hover:text-blue-300"
+                                            >
+                                                View
+                                            </button>
+                                            <button 
+                                                onClick={() => openDeleteModal(engine)} 
+                                                disabled={isDeleting}
+                                                className="font-semibold text-red-400 hover:text-red-300 disabled:text-gray-500"
+                                            >
+                                                Delete
+                                            </button>
                                         </td>
                                     </tr>
                                 );
@@ -311,21 +372,29 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
       </div>
       {renderContent()}
 
-      {engineToDelete && (
+      {isDeleteModalOpen && (
         <ConfirmationModal
             isOpen={isDeleteModalOpen}
             onClose={() => setIsDeleteModalOpen(false)}
-            onConfirm={confirmDeleteEngine}
-            title="Confirm Engine Deletion"
+            onConfirm={confirmDelete}
+            title={`Confirm Deletion of ${selectedEngines.size} Engine(s)`}
             confirmText="Delete"
-            isConfirming={!!deletingEngineId}
+            isConfirming={isDeleting}
         >
-            <p>Are you sure you want to permanently delete this agent engine?</p>
-             <div className="mt-2 p-3 bg-gray-700/50 rounded-md border border-gray-600">
-                <p className="font-bold text-white">{engineToDelete.displayName}</p>
-                <p className="text-xs font-mono text-gray-400 mt-1">{engineToDelete.name.split('/').pop()}</p>
-            </div>
-            <p className="mt-4 text-sm text-yellow-300">This action cannot be undone and may break agents that rely on it.</p>
+            <p>Are you sure you want to permanently delete the following agent engine(s)?</p>
+            <ul className="mt-2 p-3 bg-gray-700/50 rounded-md border border-gray-600 max-h-48 overflow-y-auto space-y-1">
+                {Array.from(selectedEngines).map(engineName => {
+                    const engine = engines.find(e => e.name === engineName);
+                    return (
+                        <li key={engineName} className="text-sm">
+                            <p className="font-bold text-white">{engine?.displayName || 'Unknown Engine'}</p>
+                            {/* FIX: Cast to string to prevent calling .split on 'unknown' if type inference fails. */}
+                            <p className="text-xs font-mono text-gray-400 mt-1">{String(engineName).split('/').pop()}</p>
+                        </li>
+                    )
+                })}
+            </ul>
+            <p className="mt-4 text-sm text-yellow-300">This action cannot be undone and may break agents that rely on these engines.</p>
         </ConfirmationModal>
       )}
     </div>
