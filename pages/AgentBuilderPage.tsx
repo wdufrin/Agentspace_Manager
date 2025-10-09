@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Config, Collection, DataStore, GcsBucket } from '../types';
+import { Config, Collection, DataStore, GcsBucket, GcsObject } from '../types';
 import * as api from '../services/apiService';
 import DeployModal from '../components/agent-builder/DeployModal';
 import { GoogleGenAI } from "@google/genai";
@@ -20,6 +20,8 @@ interface AgentConfig {
     instruction: string;
     tools: AgentTool[];
     useGoogleSearch: boolean;
+    enableOAuth: boolean;
+    oauthTokenKey: string;
 }
 
 export interface DeployInfo {
@@ -44,6 +46,7 @@ const generatePythonCode = (config: AgentConfig): string => {
     const toolImports = new Set<string>();
     const toolInitializations: string[] = [];
     const toolListForAgent: string[] = [];
+    let oauthToolCodeBlock = '';
 
     config.tools.forEach(tool => {
         if (tool.type === 'VertexAiSearchTool') {
@@ -59,6 +62,54 @@ const generatePythonCode = (config: AgentConfig): string => {
         toolImports.add('from google.adk.tools import google_search');
         // No initialization needed, just add the imported object to the list
         toolListForAgent.push('google_search');
+    }
+    
+    if (config.enableOAuth) {
+        toolImports.add('from google.adk.tools import FunctionTool, ToolContext');
+        toolImports.add('import json');
+        toolImports.add('import requests');
+        oauthToolCodeBlock = `
+# -- OAuth Sample Tool: Get User Info --
+def get_user_info(tool_context: ToolContext) -> str:
+    """
+    Gets the authenticated user's profile information using their OAuth token.
+
+    This tool demonstrates how to access the user's access token from the tool_context.
+    It requires OAuth to be configured on the Reasoning Engine.
+    Args:
+        tool_context: The context of the tool call, provided by the ADK.
+    Returns:
+        A JSON string containing the user's profile information or an error message.
+    """
+    # The ADK framework populates the state with the necessary credentials
+    # when OAuth is configured for the agent.
+    access_token = tool_context.state.get("temp:${config.oauthTokenKey}")
+
+    if not access_token:
+        return json.dumps({
+            "error": "Authentication Error",
+            "message": "Access token not found in tool_context.state. Make sure OAuth is configured."
+        })
+
+    # Call the Google User Info API
+    url = "https://www.googleapis.com/oauth2/v3/userinfo"
+    headers = { "Authorization": f"Bearer {access_token}" }
+
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()  # Raises an HTTPError for bad responses (4xx or 5xx)
+        return json.dumps(response.json())
+    except requests.exceptions.HTTPError as http_err:
+        return f"HTTP error occurred: {http_err} - Response: {response.text}"
+    except Exception as e:
+        return f"An unexpected error occurred: {e}"
+
+get_user_info_tool = FunctionTool(
+    func=get_user_info,
+)
+# -- End OAuth Sample Tool --
+`;
+        toolListForAgent.push('get_user_info_tool');
     }
 
     const formatPythonString = (str: string) => {
@@ -85,8 +136,9 @@ ${imports}
 # Load environment variables from .env file
 load_dotenv()
 
+${oauthToolCodeBlock}
 # Initialize Tools
-${toolInitializations.length > 0 ? toolInitializations.join('\n\n') : '# No tools defined'}
+${toolInitializations.length > 0 ? toolInitializations.join('\n\n') : '# No additional tools defined'}
 
 # Define the root agent
 root_agent = Agent(
@@ -115,6 +167,7 @@ GOOGLE_CLOUD_LOCATION="${location}"
 const generateRequirementsFile = (): string => {
     return `google-cloud-aiplatform[adk,agent_engines]
 python-dotenv
+requests
 `.trim();
 };
 
@@ -206,12 +259,14 @@ You are now ready to deploy your agent.
 
 const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }> = ({ accessToken, projectNumber }) => {
     const [agentConfig, setAgentConfig] = useState<AgentConfig>({
-        name: 'My Awesome Agent',
+        name: '',
         description: 'An agent that can do awesome things.',
         model: 'gemini-2.5-flash',
         instruction: 'You are an awesome and helpful agent.',
         tools: [],
         useGoogleSearch: false,
+        enableOAuth: false,
+        oauthTokenKey: 'user_token',
     });
     
     // State for Vertex AI config
@@ -281,8 +336,11 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
     const handleAgentConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         if (name === 'name') {
-            // Replace spaces with hyphens and convert to lowercase to ensure a valid name.
-            const sanitizedValue = value.replace(/\s+/g, '-').toLowerCase();
+            // Replace spaces with underscores and remove invalid characters.
+            const sanitizedValue = value.replace(/\s+/g, '_').replace(/[^a-z0-9_]/gi, '').toLowerCase();
+            setAgentConfig({ ...agentConfig, [name]: sanitizedValue });
+        } else if (name === 'oauthTokenKey') {
+            const sanitizedValue = value.replace(/\s+/g, '_').replace(/[^a-z0-9_]/gi, '');
             setAgentConfig({ ...agentConfig, [name]: sanitizedValue });
         } else {
             setAgentConfig({ ...agentConfig, [name]: value });
@@ -680,7 +738,7 @@ Rewritten Instruction:`;
                     {rewriteError && <p className="text-red-400 text-sm mb-2">{rewriteError}</p>}
                     <div>
                         <label className="block text-sm font-medium text-gray-400">Agent Name</label>
-                        <input type="text" name="name" value={agentConfig.name} onChange={handleAgentConfigChange} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" placeholder="e.g., my-awesome-agent" />
+                        <input type="text" name="name" value={agentConfig.name} onChange={handleAgentConfigChange} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" placeholder="e.g., my_awesome_agent" />
                     </div>
                     <div>
                         <div className="flex justify-between items-center">
@@ -718,7 +776,6 @@ Rewritten Instruction:`;
                             className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2 h-[42px]"
                         >
                             <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-                            <option value="gemini-2.5-pro">gemini-2.5-pro</option>
                         </select>
                     </div>
                     <div>
@@ -744,6 +801,41 @@ Rewritten Instruction:`;
                         />
                         <label htmlFor="useGoogleSearch" className="ml-2 text-sm font-medium text-gray-300">Google Search</label>
                     </div>
+                </div>
+                
+                {/* Authentication Section */}
+                <div className="space-y-3 p-3 bg-gray-900/50 rounded-md">
+                    <h3 className="text-lg font-semibold text-white">Authentication</h3>
+                    <div className="flex items-center">
+                        <input 
+                            type="checkbox" 
+                            id="enableOAuth"
+                            name="enableOAuth"
+                            checked={agentConfig.enableOAuth}
+                            onChange={(e) => setAgentConfig(prev => ({ ...prev, enableOAuth: e.target.checked }))}
+                            className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500"
+                        />
+                        <label htmlFor="enableOAuth" className="ml-2 text-sm font-medium text-gray-300">Enable OAuth (Adds a sample tool)</label>
+                    </div>
+                    {agentConfig.enableOAuth && (
+                        <div className="pl-6">
+                            <label className="block text-sm font-medium text-gray-400">Token Key</label>
+                            <div className="flex items-center mt-1">
+                                <span className="inline-flex items-center px-3 text-sm text-gray-400 bg-gray-800 border border-r-0 border-gray-600 rounded-l-md h-[42px]">
+                                    temp:
+                                </span>
+                                <input 
+                                    type="text" 
+                                    name="oauthTokenKey" 
+                                    value={agentConfig.oauthTokenKey} 
+                                    onChange={handleAgentConfigChange} 
+                                    className="w-full bg-gray-700 border-gray-600 rounded-r-md text-sm p-2 h-[42px]" 
+                                    placeholder="e.g., user_token"
+                                />
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">The key to retrieve the user's token from `tool_context.state`.</p>
+                        </div>
+                    )}
                 </div>
 
 
@@ -798,7 +890,7 @@ Rewritten Instruction:`;
             </div>
 
             {/* Right Panel: Code Preview & Deploy */}
-            <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col overflow-y-auto gap-4">
+            <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col gap-4">
                  {/* Code Preview Section */}
                  <div className="flex flex-col flex-1 min-h-0">
                     <div className="flex justify-between items-center mb-2">

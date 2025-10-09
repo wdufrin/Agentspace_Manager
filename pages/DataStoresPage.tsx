@@ -4,6 +4,7 @@ import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
 import DataStoreList from '../components/datastores/DataStoreList';
 import DataStoreDetails from '../components/datastores/DataStoreDetails';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 interface DataStoresPageProps {
   accessToken: string;
@@ -32,6 +33,13 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ accessToken, projectNum
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
+
+  // State for deletion
+  const [selectedDataStores, setSelectedDataStores] = useState<Set<string>>(new Set());
+  const [deletingDataStoreIds, setDeletingDataStoreIds] = useState<Set<string>>(new Set());
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [dataStoresToDelete, setDataStoresToDelete] = useState<DataStore[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   const [config, setConfig] = useState(getInitialConfig);
   
@@ -114,7 +122,94 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ accessToken, projectNum
   useEffect(() => {
     // Clear data stores if config changes and no auto-fetch is implemented
     setDataStores([]);
+    setSelectedDataStores(new Set());
   }, [config.collectionId, config.appLocation, projectNumber]);
+
+  const pollDiscoveryOperation = async (operation: any) => {
+    let currentOperation = operation;
+    while (!currentOperation.done) {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        currentOperation = await api.getDiscoveryOperation(currentOperation.name, apiConfig);
+    }
+    if (currentOperation.error) {
+        throw new Error(`Operation failed: ${currentOperation.error.message}`);
+    }
+    return currentOperation.response;
+  };
+
+  const handleToggleSelect = (dataStoreName: string) => {
+    setSelectedDataStores(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(dataStoreName)) {
+        newSet.delete(dataStoreName);
+      } else {
+        newSet.add(dataStoreName);
+      }
+      return newSet;
+    });
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedDataStores.size === dataStores.length) {
+      setSelectedDataStores(new Set());
+    } else {
+      setSelectedDataStores(new Set(dataStores.map(ds => ds.name)));
+    }
+  };
+
+  const handleRequestDelete = (dataStore?: DataStore) => {
+    let toDelete: DataStore[] = [];
+    if (dataStore) {
+      toDelete = [dataStore];
+    } else {
+      toDelete = dataStores.filter(ds => selectedDataStores.has(ds.name));
+    }
+
+    if (toDelete.length > 0) {
+      setDataStoresToDelete(toDelete);
+      setIsDeleteModalOpen(true);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (dataStoresToDelete.length === 0) return;
+
+    setIsDeleting(true);
+    setDeletingDataStoreIds(new Set(dataStoresToDelete.map(ds => ds.name)));
+    setIsDeleteModalOpen(false);
+    setError(null);
+
+    const results = await Promise.allSettled(
+        dataStoresToDelete.map(ds => api.deleteDataStore(ds.name, apiConfig).then(op => pollDiscoveryOperation(op)))
+    );
+
+    const failures: string[] = [];
+    results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+            const dsName = dataStoresToDelete[index].displayName;
+            const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+            failures.push(`- ${dsName}: ${reason}`);
+        }
+    });
+
+    if (failures.length > 0) {
+        setError(`Failed to delete ${failures.length} data store(s):\n${failures.join('\n')}`);
+    }
+    
+    // If we were on the details page of one of the deleted items, go back to list
+    if (selectedDataStore && dataStoresToDelete.some(ds => ds.name === selectedDataStore.name)) {
+        setViewMode('list');
+        setSelectedDataStore(null);
+    }
+    
+    setDataStoresToDelete([]);
+    setSelectedDataStores(new Set());
+    await fetchDataStores(); // Refresh the list
+
+    setIsDeleting(false);
+    setDeletingDataStoreIds(new Set());
+  };
+
 
   const handleSelectDataStore = (dataStore: DataStore) => {
     setSelectedDataStore(dataStore);
@@ -139,16 +234,24 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ accessToken, projectNum
                 dataStore={selectedDataStore}
                 config={apiConfig}
                 onBack={handleBackToList}
+                onDelete={handleRequestDelete}
+                isDeleting={deletingDataStoreIds.has(selectedDataStore.name)}
             />
         );
     }
     
     return (
       <>
-        {error && <div className="text-center text-red-400 p-4 mb-4 bg-red-900/20 rounded-lg">{error}</div>}
+        {error && <div className="text-center text-red-400 p-4 mb-4 bg-red-900/20 rounded-lg whitespace-pre-wrap">{error}</div>}
         <DataStoreList
             dataStores={dataStores}
             onSelectDataStore={handleSelectDataStore}
+            onDeleteDataStore={handleRequestDelete}
+            deletingDataStoreIds={deletingDataStoreIds}
+            selectedDataStores={selectedDataStores}
+            onToggleSelect={handleToggleSelect}
+            onToggleSelectAll={handleToggleSelectAll}
+            onDeleteSelected={() => handleRequestDelete()}
         />
       </>
     );
@@ -195,6 +298,28 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ accessToken, projectNum
             )}
         </div>
       {renderContent()}
+
+      {dataStoresToDelete.length > 0 && (
+        <ConfirmationModal
+            isOpen={isDeleteModalOpen}
+            onClose={() => setIsDeleteModalOpen(false)}
+            onConfirm={confirmDelete}
+            title={`Confirm Deletion of ${dataStoresToDelete.length} Data Store(s)`}
+            confirmText="Delete"
+            isConfirming={isDeleting}
+        >
+            <p>Are you sure you want to permanently delete the following data store(s)?</p>
+            <ul className="mt-2 p-3 bg-gray-700/50 rounded-md border border-gray-600 max-h-48 overflow-y-auto space-y-1">
+                {dataStoresToDelete.map(ds => (
+                    <li key={ds.name} className="text-sm">
+                        <p className="font-bold text-white">{ds.displayName}</p>
+                        <p className="text-xs font-mono text-gray-400 mt-1">{ds.name.split('/').pop()}</p>
+                    </li>
+                ))}
+            </ul>
+            <p className="mt-4 text-sm text-yellow-300">This action cannot be undone and will delete all documents within the store(s).</p>
+        </ConfirmationModal>
+      )}
     </div>
   );
 };

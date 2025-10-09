@@ -385,6 +385,22 @@ export async function getDataStore(dataStoreName: string, config: Config): Promi
     });
 }
 
+export async function deleteDataStore(dataStoreName: string, config: Config): Promise<any> {
+    const { accessToken, projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/v1beta/${dataStoreName}`;
+
+    // This API returns a long-running operation
+    return apiRequest<any>(url, {
+        method: 'DELETE',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Goog-User-Project': projectId,
+        },
+    });
+}
+
 export async function getDocument(documentName: string, config: Config): Promise<Document> {
     const { accessToken, projectId, appLocation } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);

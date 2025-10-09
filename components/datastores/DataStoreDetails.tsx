@@ -10,6 +10,8 @@ interface DataStoreDetailsProps {
     dataStore: DataStore;
     config: Config;
     onBack: () => void;
+    onDelete: (dataStore: DataStore) => void;
+    isDeleting: boolean;
 }
 
 const DetailItem: React.FC<{ label: string; value: string | string[] | undefined | null }> = ({ label, value }) => (
@@ -21,7 +23,7 @@ const DetailItem: React.FC<{ label: string; value: string | string[] | undefined
     </div>
 );
 
-const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, onBack }) => {
+const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, onBack, onDelete, isDeleting }) => {
     const [documents, setDocuments] = useState<Document[]>([]);
     const [isLoadingDocs, setIsLoadingDocs] = useState(false);
     const [docsError, setDocsError] = useState<string | null>(null);
@@ -89,6 +91,16 @@ const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, 
                 <DetailItem label="Content Config" value={dataStore.contentConfig} />
             </dl>
             
+            <div className="mt-8 flex flex-wrap gap-4 border-t border-gray-700 pt-6">
+                <button
+                    onClick={() => onDelete(dataStore)}
+                    disabled={isDeleting}
+                    className="px-5 py-2.5 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700 disabled:bg-red-800"
+                >
+                    {isDeleting ? 'Deleting...' : 'Delete Data Store'}
+                </button>
+            </div>
+
             <div className="mt-6 border-t border-gray-700 pt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div>
                     <h3 className="text-lg font-semibold text-white mb-2">Documents</h3>
