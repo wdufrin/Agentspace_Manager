@@ -19,38 +19,37 @@ interface DeployModalProps {
 
 const Instructions: React.FC = () => (
     <div className="space-y-3 text-xs text-gray-400 bg-gray-900/50 p-3 rounded-md border border-gray-700">
-        <p className="font-bold text-sm text-yellow-300">Action Required: Create and Upload Agent Pickle File</p>
-        <p>The Reasoning Engine requires a Python "pickle" file to deploy. This cannot be created in the browser.</p>
+        <p className="font-bold text-sm text-yellow-300">Action Required: Prepare and Upload Agent Package</p>
+        <p>The Reasoning Engine requires a Python "pickle" file (`agent.pkl`) to deploy. This file must be created locally and uploaded to Google Cloud Storage (GCS).</p>
         <ol className="list-decimal list-inside space-y-2">
             <li>
-                <strong>Download Your Agent Code:</strong> Use the "Download" button on the main page to get a <code>.zip</code> file containing <code>agent.py</code> and <code>requirements.txt</code>.
+                <strong>Download and Unzip:</strong> Use the "Download" button on the main page to get a <code>.zip</code> file. Unzip it into a new folder on your local machine. It contains all the necessary source code, including the <code>create_pickle.py</code> script.
             </li>
             <li>
-                <strong>Create the Pickle File:</strong>
+                <strong>Generate <code>agent.pkl</code>:</strong>
                 <ul className="list-disc list-inside ml-4 mt-1 space-y-1">
-                    <li>Unzip the files into a new folder.</li>
-                    <li>Create a new file named <code>create_pickle.py</code> in the same folder with this content:
+                    <li>Open your terminal and navigate to the folder where you unzipped the files.</li>
+                    <li>Set up a Python virtual environment and install dependencies:
                         <pre className="bg-gray-800 p-2 rounded-md text-gray-300 mt-1 text-xs whitespace-pre-wrap">
-{`import pickle
-from agent import app
-
-with open('agent.pkl', 'wb') as f:
-    pickle.dump(app, f)
-
-print("Successfully created agent.pkl")`}
+{`python3 -m venv venv
+source venv/bin/activate  # On macOS/Linux
+# .\\venv\\Scripts\\activate  # On Windows
+pip install -r requirements.txt`}
                         </pre>
                     </li>
-                    <li>In your terminal, navigate to the folder and run the script: <code className="bg-gray-800 p-1 rounded">python create_pickle.py</code></li>
-                    <li>This will create an <strong>agent.pkl</strong> file.</li>
+                    <li>Run the provided script to create the pickle file:
+                        <pre className="bg-gray-800 p-2 rounded-md text-gray-300 mt-1 text-xs whitespace-pre-wrap">
+{`python create_pickle.py`}
+                        </pre>
+                    </li>
+                    <li>This will create a new <strong>agent.pkl</strong> file in your folder.</li>
                 </ul>
             </li>
             <li>
-                <strong>Upload to GCS:</strong> Upload <code>agent.pkl</code> and <code>requirements.txt</code> to your GCS staging directory.
-                <br />
-                Example: <code className="bg-gray-800 p-1 rounded">gcloud storage cp agent.pkl gs://your-bucket/folder/</code>
+                <strong>Upload to GCS:</strong> Upload both <code>agent.pkl</code> and <code>requirements.txt</code> to your GCS staging directory.
             </li>
             <li>
-                <strong>Provide the GCS URI:</strong> Use the controls below to select the bucket and <code>.pkl</code> file you uploaded.
+                <strong>Deploy:</strong> Use the controls below to select the GCS bucket and the <code>.pkl</code> file you uploaded, then start the deployment.
             </li>
         </ol>
     </div>

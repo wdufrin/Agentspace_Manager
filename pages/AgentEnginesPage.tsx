@@ -1,5 +1,3 @@
-
-
 import React, { useState, useCallback, useMemo } from 'react';
 import { ReasoningEngine, Config, Agent } from '../types';
 import * as api from '../services/apiService';
@@ -187,16 +185,9 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
     results.forEach((result, index) => {
         if (result.status === 'rejected') {
             const engineName = String(enginesToDelete[index]).split('/').pop();
-            // The `reason` for a rejected promise from `Promise.allSettled` is of type 'unknown'.
-            // It must be safely converted to a string to be used. We check if it is an
-            // instance of Error to access the `message` property directly, otherwise we
-            // cast it to `any` to allow the String() constructor to process it.
             const reason = result.reason;
-            // FIX: The `reason` property from a rejected promise is of type `unknown`.
-            // Casting to `any` allows it to be passed to the `String()` constructor
-            // to prevent a TypeScript error.
-            // FIX: Argument of type 'unknown' is not assignable to parameter of type 'string'. Cast 'reason' to 'any' to allow string conversion.
-            const message = reason instanceof Error ? reason.message : String(reason as any);
+            // FIX: The `reason` from a rejected promise is of type `unknown`. It must be safely converted to a string before use.
+            const message = reason instanceof Error ? reason.message : String(reason);
             failures.push(`- ${engineName}: ${message}`);
         }
     });
