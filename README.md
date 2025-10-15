@@ -13,6 +13,7 @@ A web interface to manage Google Cloud Agentspace resources, including agents, a
     -   An integrated uploader to stage agent files (`main.py`, `.env`, `requirements.txt`, and a user-provided `agent.pkl`) directly to a GCS bucket.
     -   A deployment wizard to deploy the staged agent to a new or existing Reasoning Engine.
 -   **Explore Data Stores**: List data stores within a collection, view their details, and inspect individual documents and their content.
+-   **Explore MCP Servers**: Scan for Cloud Run services in a specified region. Identifies potential MCP servers if a service's labels contain "MCP". Provides a detailed view of each service's configuration, including container images and environment variables.
 -   **Model Armor Log Viewer**: Fetch and inspect safety policy violation logs from Cloud Logging, showing the verdict, reason, triggered filter, and source assistant for each event.
 -   **Comprehensive Backup & Restore**: Backup and restore agents, assistants, data stores, authorizations, and entire Discovery Engine configurations.
 -   **Dynamic Configuration**: Automatically resolves Project IDs to Project Numbers and populates dropdowns for collections, apps, and assistants.
@@ -56,11 +57,11 @@ This method is recommended for development and uses the standard Node.js ecosyst
 
 This UI is a wrapper around several Google Cloud REST APIs. Below are references to the official documentation and `curl` examples for common operations.
 
-### 1. Discovery Engine API (Agentspace)
+### 1. Gemini Enterprise API (formerly Agentspace / Discovery Engine)
 
 This is the primary API for managing agents, assistants, collections, and authorizations.
 
--   **Official Documentation**: [cloud.google.com/agentspace/docs/reference/rest](https://cloud.google.com/agentspace/docs/reference/rest)
+-   **Official Documentation**: [cloud.google.com/gemini/enterprise/docs/reference/rest](https://cloud.google.com/gemini/enterprise/docs/reference/rest)
 
 #### Example: List Agents
 
@@ -78,7 +79,7 @@ curl -X GET \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -H "X-Goog-User-Project: $PROJECT_ID" \
-  "https://discoveryengine.googleapis.com/v1alpha/projects/$PROJECT_ID/locations/$LOCATION/collections/$COLlection_ID/engines/$ENGINE_ID/assistants/$ASSISTANT_ID/agents"
+  "https://discoveryengine.googleapis.com/v1alpha/projects/$PROJECT_ID/locations/$LOCATION/collections/$COLLECTION_ID/engines/$ENGINE_ID/assistants/$ASSISTANT_ID/agents"
 ```
 
 #### Example: Create an Agent
