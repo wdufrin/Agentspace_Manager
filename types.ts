@@ -9,7 +9,7 @@ export enum Page {
   BACKUP_RECOVERY = 'Backup & Recovery',
 }
 
-export type SortableAgentKey = 'displayName' | 'state' | 'name';
+export type SortableAgentKey = 'displayName' | 'state' | 'name' | 'updateTime';
 export type SortDirection = 'asc' | 'desc';
 
 export interface SortConfig {

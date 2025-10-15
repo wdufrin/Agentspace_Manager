@@ -1,8 +1,8 @@
-
-
 import React, { useState } from 'react';
 import { Agent, Config } from '../../types';
 import * as api from '../../services/apiService';
+import Spinner from '../Spinner';
+import SetIamPolicyModal from './SetIamPolicyModal';
 
 interface AgentDetailsProps {
     agent: Agent;
@@ -28,6 +28,13 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
     const [agentViewData, setAgentViewData] = useState<any | null>(null);
     const [isFetchingView, setIsFetchingView] = useState(false);
     const [viewError, setViewError] = useState<string | null>(null);
+    const [iamPolicy, setIamPolicy] = useState<any | null>(null);
+    const [isFetchingPolicy, setIsFetchingPolicy] = useState(false);
+    const [policyError, setPolicyError] = useState<string | null>(null);
+    const [isSetPolicyModalOpen, setIsSetPolicyModalOpen] = useState(false);
+    // FIX: Corrected useState destructuring from [setPolicySuccess, setPolicySuccess] to [policySuccess, setPolicySuccess] to resolve redeclaration error.
+    const [policySuccess, setPolicySuccess] = useState<string | null>(null);
+
 
     const agentId = agent.name.split('/').pop() || '';
     const isToggling = togglingAgentId === agentId;
@@ -58,6 +65,28 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
         } finally {
             setIsFetchingView(false);
         }
+    };
+
+    const handleFetchIamPolicy = async () => {
+        setIsFetchingPolicy(true);
+        setPolicyError(null);
+        setPolicySuccess(null);
+        setIamPolicy(null);
+        try {
+            const policyData = await api.getAgentIamPolicy(agent.name, config);
+            setIamPolicy(policyData);
+        } catch (err: any) {
+            setPolicyError(err.message || 'Failed to fetch IAM policy.');
+        } finally {
+            setIsFetchingPolicy(false);
+        }
+    };
+
+    const handleSetPolicySuccess = (updatedPolicy: any) => {
+        setIamPolicy(updatedPolicy);
+        setIsSetPolicyModalOpen(false);
+        setPolicySuccess("IAM Policy updated successfully.");
+        setTimeout(() => setPolicySuccess(null), 5000);
     };
 
     const reasoningEngine = agent.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine;
@@ -120,6 +149,9 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                 <DetailItem label="Full Resource Name" value={agent.name} />
                 <DetailItem label="Agent ID" value={agentId} />
                 {statusElement}
+                <div /> 
+                <DetailItem label="Created On" value={agent.createTime ? new Date(agent.createTime).toLocaleString() : undefined} />
+                <DetailItem label="Last Modified" value={agent.updateTime ? new Date(agent.updateTime).toLocaleString() : undefined} />
                 {reasoningEngine && <DetailItem label="Reasoning Engine" value={reasoningEngine} />}
                 {toolDescription && <DetailItem label="Tool Description" value={toolDescription} />}
                 <DetailItem label="Authorizations" value={agent.authorizations?.join(', ')} />
@@ -142,22 +174,54 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
             {deleteError && <p className="text-red-400 mt-4">{deleteError}</p>}
 
 
-            <div className="mt-8 flex flex-wrap gap-4 border-t border-gray-700 pt-6">
-                {(agent.state === 'ENABLED' || agent.state === 'DISABLED') && (
-                    <button 
-                        onClick={onEdit} 
-                        title="Update Agent"
-                        className="px-5 py-2.5 bg-gray-600 text-white font-semibold rounded-md hover:bg-gray-700"
-                    >
-                        Update
-                    </button>
-                )}
-                <button onClick={handleDelete} disabled={isDeleting} className="px-5 py-2.5 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700 disabled:bg-red-800">
-                    {isDeleting ? 'Deleting...' : 'Delete'}
-                </button>
-                <button onClick={handleFetchAgentView} disabled={isFetchingView} className="px-5 py-2.5 bg-teal-600 text-white font-semibold rounded-md hover:bg-teal-700 disabled:bg-teal-800">
-                    {isFetchingView ? 'Fetching...' : 'Get View'}
-                 </button>
+            <div className="mt-8 border-t border-gray-700 pt-6">
+                <div className="flex flex-wrap items-start gap-4">
+                    {/* Edit and Policy Actions */}
+                    {(agent.state === 'ENABLED' || agent.state === 'DISABLED') && (
+                        <div className="flex flex-wrap gap-4 p-4 border border-gray-700 rounded-lg bg-gray-900/30">
+                            <div>
+                                <h4 className="font-semibold text-white">Edit Agent</h4>
+                                <p className="text-xs text-gray-400 mb-2">Modify the agent's definition or permissions.</p>
+                                <div className="flex flex-wrap gap-4">
+                                     <button 
+                                        onClick={onEdit} 
+                                        title="Update agent's display name, description, tools, etc."
+                                        className="px-5 py-2.5 bg-gray-600 text-white font-semibold rounded-md hover:bg-gray-700"
+                                    >
+                                        Update Agent
+                                    </button>
+                                    <button onClick={handleFetchIamPolicy} disabled={isFetchingPolicy} className="px-5 py-2.5 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700 disabled:bg-purple-800">
+                                        {isFetchingPolicy ? 'Fetching...' : 'Get IAM Policy'}
+                                    </button>
+                                    <button 
+                                        onClick={() => setIsSetPolicyModalOpen(true)} 
+                                        disabled={!iamPolicy || isFetchingPolicy} 
+                                        className="px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 disabled:bg-indigo-800 disabled:cursor-not-allowed"
+                                        title={!iamPolicy ? "Fetch the policy first to get the required ETag" : "Edit IAM Policy"}
+                                    >
+                                        Edit IAM Policy
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Other Actions */}
+                    <div className="flex flex-wrap gap-4 p-4 border border-gray-700 rounded-lg bg-gray-900/30 flex-1">
+                         <div>
+                            <h4 className="font-semibold text-white">View &amp; Delete</h4>
+                             <p className="text-xs text-gray-400 mb-2">Inspect agent data or perform destructive actions.</p>
+                            <div className="flex flex-wrap gap-4">
+                                <button onClick={handleFetchAgentView} disabled={isFetchingView} className="px-5 py-2.5 bg-teal-600 text-white font-semibold rounded-md hover:bg-teal-700 disabled:bg-teal-800">
+                                    {isFetchingView ? 'Fetching...' : 'Get View'}
+                                 </button>
+                                 <button onClick={handleDelete} disabled={isDeleting} className="px-5 py-2.5 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700 disabled:bg-red-800">
+                                    {isDeleting ? 'Deleting...' : 'Delete'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {(agentViewData || viewError) && (
@@ -170,6 +234,32 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                         </pre>
                     )}
                 </div>
+            )}
+
+            {(iamPolicy || policyError || isFetchingPolicy || policySuccess) && (
+                <div className="mt-6 border-t border-gray-700 pt-6">
+                    <h3 className="text-lg font-semibold text-white">IAM Policy</h3>
+                    {isFetchingPolicy && <Spinner />}
+                    {policyError && <p className="text-red-400 mt-2">{policyError}</p>}
+                    {/* FIX: Corrected variable from setPolicySuccess to policySuccess to display the state value. */}
+                    {policySuccess && <p className="text-green-400 mt-2">{policySuccess}</p>}
+                    {iamPolicy && (
+                        <pre className="mt-2 bg-gray-900 text-white p-4 rounded-md text-xs overflow-x-auto">
+                            <code>{JSON.stringify(iamPolicy, null, 2)}</code>
+                        </pre>
+                    )}
+                </div>
+            )}
+
+            {iamPolicy && (
+                 <SetIamPolicyModal
+                    isOpen={isSetPolicyModalOpen}
+                    onClose={() => setIsSetPolicyModalOpen(false)}
+                    onSuccess={handleSetPolicySuccess}
+                    agent={agent}
+                    config={config}
+                    currentPolicy={iamPolicy}
+                />
             )}
         </div>
     );

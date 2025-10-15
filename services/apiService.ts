@@ -147,6 +147,34 @@ export async function getAgentView(agentName: string, config: Config): Promise<a
     });
 }
 
+export async function getAgentIamPolicy(agentName: string, config: Config): Promise<any> {
+    const { accessToken, projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/v1alpha/${agentName}:getIamPolicy`;
+
+    return apiRequest(url, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Goog-User-Project': projectId },
+    });
+}
+
+export async function setAgentIamPolicy(resourceName: string, policy: any, config: Config): Promise<any> {
+    const { accessToken, projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/v1alpha/${resourceName}:setIamPolicy`;
+
+    return apiRequest(url, {
+        method: 'POST',
+        headers: { 
+            'Authorization': `Bearer ${accessToken}`, 
+            'Content-Type': 'application/json',
+            'X-Goog-User-Project': projectId 
+        },
+        body: JSON.stringify({ policy }),
+    });
+}
+
+
 export async function getEngine(engineName: string, config: Config): Promise<AppEngine> {
     const { accessToken, projectId, appLocation } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
