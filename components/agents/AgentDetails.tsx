@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Agent, Config } from '../../types';
+import { Agent, Config, DataStore } from '../../types';
 import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
 import SetIamPolicyModal from './SetIamPolicyModal';
@@ -32,8 +32,12 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
     const [isFetchingPolicy, setIsFetchingPolicy] = useState(false);
     const [policyError, setPolicyError] = useState<string | null>(null);
     const [isSetPolicyModalOpen, setIsSetPolicyModalOpen] = useState(false);
-    // FIX: Corrected useState destructuring from [setPolicySuccess, setPolicySuccess] to [policySuccess, setPolicySuccess] to resolve redeclaration error.
     const [policySuccess, setPolicySuccess] = useState<string | null>(null);
+
+    // State for accessible data stores
+    const [accessibleDataStores, setAccessibleDataStores] = useState<DataStore[] | null>(null);
+    const [isFetchingDataStores, setIsFetchingDataStores] = useState(false);
+    const [dataStoresError, setDataStoresError] = useState<string | null>(null);
 
 
     const agentId = agent.name.split('/').pop() || '';
@@ -88,6 +92,49 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
         setPolicySuccess("IAM Policy updated successfully.");
         setTimeout(() => setPolicySuccess(null), 5000);
     };
+
+    const handleFetchDataStores = async () => {
+        setIsFetchingDataStores(true);
+        setDataStoresError(null);
+        setAccessibleDataStores(null);
+        try {
+            const viewData = await api.getAgentView(agent.name, config);
+
+            const findDataStoreIds = (obj: any): string[] => {
+                let ids: string[] = [];
+                if (!obj || typeof obj !== 'object') return ids;
+
+                for (const key in obj) {
+                    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                        const value = obj[key];
+                        if (typeof value === 'string' && key.toLowerCase().includes('datastore') && value.startsWith('projects/') && value.includes('/dataStores/')) {
+                            ids.push(value);
+                        } else if (typeof value === 'object') {
+                            ids = ids.concat(findDataStoreIds(value));
+                        }
+                    }
+                }
+                return ids;
+            };
+
+            const dataStoreIds = [...new Set(findDataStoreIds(viewData))];
+
+            if (dataStoreIds.length === 0) {
+                setAccessibleDataStores([]);
+                return;
+            }
+
+            const dataStorePromises = dataStoreIds.map(id => api.getDataStore(id, config));
+            const dataStoresResults = await Promise.all(dataStorePromises);
+            setAccessibleDataStores(dataStoresResults);
+
+        } catch (err: any) {
+            setDataStoresError(err.message || 'Failed to fetch accessible data stores.');
+        } finally {
+            setIsFetchingDataStores(false);
+        }
+    };
+
 
     const reasoningEngine = agent.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine;
     const toolDescription = agent.adkAgentDefinition?.toolSettings?.toolDescription;
@@ -241,7 +288,6 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                     <h3 className="text-lg font-semibold text-white">IAM Policy</h3>
                     {isFetchingPolicy && <Spinner />}
                     {policyError && <p className="text-red-400 mt-2">{policyError}</p>}
-                    {/* FIX: Corrected variable from setPolicySuccess to policySuccess to display the state value. */}
                     {policySuccess && <p className="text-green-400 mt-2">{policySuccess}</p>}
                     {iamPolicy && (
                         <pre className="mt-2 bg-gray-900 text-white p-4 rounded-md text-xs overflow-x-auto">
@@ -250,6 +296,35 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                     )}
                 </div>
             )}
+
+            <div className="mt-6 border-t border-gray-700 pt-6">
+                <h3 className="text-lg font-semibold text-white">Accessible Data Stores</h3>
+                <p className="text-sm text-gray-400 mt-1 mb-4">View the Vertex AI Search data stores this agent has access to via its tools.</p>
+                
+                <button onClick={handleFetchDataStores} disabled={isFetchingDataStores} className="px-5 py-2.5 bg-cyan-600 text-white font-semibold rounded-md hover:bg-cyan-700 disabled:bg-cyan-800">
+                    {isFetchingDataStores ? 'Fetching...' : 'View Data Stores'}
+                </button>
+                
+                <div className="mt-4">
+                    {isFetchingDataStores && <Spinner />}
+                    {dataStoresError && <p className="text-red-400 mt-2">{dataStoresError}</p>}
+                    {accessibleDataStores && accessibleDataStores.length > 0 && (
+                        <div className="bg-gray-900/50 rounded-lg border border-gray-700">
+                             <ul className="divide-y divide-gray-700">
+                                {accessibleDataStores.map(ds => (
+                                    <li key={ds.name} className="p-3">
+                                        <p className="font-medium text-white">{ds.displayName}</p>
+                                        <p className="text-xs font-mono text-gray-400 mt-1">{ds.name.split('/').pop()}</p>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                    {accessibleDataStores && accessibleDataStores.length === 0 && (
+                         <p className="text-sm text-gray-400 italic">No data stores found in this agent's tool configuration.</p>
+                    )}
+                </div>
+            </div>
 
             {iamPolicy && (
                  <SetIamPolicyModal

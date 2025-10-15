@@ -1,6 +1,18 @@
 import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, LogEntry, ReasoningEngine, CloudRunService, GcsBucket, GcsObject } from '../types';
 import { getGapiClient } from './gapiService';
 
+// A list of all required API services for the application to function correctly.
+const REQUIRED_APIS = [
+    'discoveryengine.googleapis.com',
+    'aiplatform.googleapis.com',
+    'cloudresourcemanager.googleapis.com',
+    'logging.googleapis.com',
+    'run.googleapis.com',
+    'storage.googleapis.com',
+    'serviceusage.googleapis.com', // Required for this validation check itself
+];
+
+
 // Helper functions to get correct base URLs
 const getDiscoveryEngineUrl = (location: string): string => {
   if (location === 'global') {
@@ -9,7 +21,7 @@ const getDiscoveryEngineUrl = (location: string): string => {
   return `https://${location}-discoveryengine.googleapis.com`;
 };
 
-const getAiPlatformUrl = (location: string) => `${location}-aiplatform.googleapis.com`;
+const getAiPlatformUrl = (location: string) => `https://${location}-aiplatform.googleapis.com`;
 
 const getLoggingUrl = () => 'https://logging.googleapis.com';
 
@@ -60,6 +72,63 @@ async function gapiRequest<T>(
     throw new Error(message);
   }
 }
+
+// --- API Validation ---
+export const validateEnabledApis = async (projectId: string): Promise<{ enabled: string[], disabled: string[] }> => {
+    const client = await getGapiClient();
+    const enabled: string[] = [];
+    const disabled: string[] = [];
+
+    const checks = REQUIRED_APIS.map(async (apiName) => {
+        const resourceName = `projects/${projectId}/services/${apiName}`;
+        try {
+            const response = await client.serviceusage.services.get({ name: resourceName });
+            if (response.result.state === 'ENABLED') {
+                enabled.push(apiName);
+            } else {
+                disabled.push(apiName);
+            }
+        } catch (err: any) {
+            console.error(`Error checking API ${apiName}:`, err);
+            // If the API call fails (e.g., 403, 404), it's effectively not usable.
+            disabled.push(apiName);
+        }
+    });
+
+    await Promise.all(checks);
+    return { enabled, disabled };
+};
+
+export const batchEnableApis = async (projectId: string, apiIds: string[]): Promise<any> => {
+    const client = await getGapiClient();
+    try {
+        const response = await client.serviceusage.services.batchEnable({
+            parent: `projects/${projectId}`,
+            resource: {
+                serviceIds: apiIds,
+            },
+        });
+        return response.result;
+    } catch (err: any) {
+        console.error("GAPI Error during batchEnableApis:", err);
+        const errorMessage = err.result?.error?.message || 'An unknown error occurred while trying to enable APIs.';
+        throw new Error(errorMessage);
+    }
+};
+
+export const getServiceUsageOperation = async (operationName: string): Promise<any> => {
+    const client = await getGapiClient();
+    try {
+        const response = await client.serviceusage.operations.get({
+            name: operationName
+        });
+        return response.result;
+    } catch (err: any) {
+        console.error("GAPI Error during getServiceUsageOperation:", err);
+        const errorMessage = err.result?.error?.message || 'An unknown error occurred while polling the operation status.';
+        throw new Error(errorMessage);
+    }
+};
 
 
 // --- Generic Resource Management ---
@@ -300,7 +369,11 @@ export const deleteAuthorization = (authId: string, config: Config) => {
 
 // --- Data Store APIs ---
 export async function getDataStore(dataStoreName: string, config: Config): Promise<DataStore> {
-    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1beta/${dataStoreName}`;
+    // projects/{projectId}/locations/{location}/collections/{collectionId}/dataStores/{dataStoreId}
+    const parts = dataStoreName.split('/');
+    // Use location from the resource name if available, otherwise fallback to config.
+    const resourceLocation = parts.length > 3 ? parts[3] : config.appLocation;
+    const path = `${getDiscoveryEngineUrl(resourceLocation)}/v1beta/${dataStoreName}`;
     return gapiRequest<DataStore>(path, 'GET', config.projectId);
 }
 
@@ -370,7 +443,7 @@ export const getDiscoveryOperation = async (operationName: string, config: Confi
 export const getOperation = async (operationName: string, config: Config): Promise<any> => {
     const { projectId, reasoningEngineLocation } = config;
     if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
-    const path = `https://${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/${operationName}`;
+    const path = `${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/${operationName}`;
     return gapiRequest<any>(path, 'GET', projectId);
 };
 
@@ -378,14 +451,14 @@ export const getOperation = async (operationName: string, config: Config): Promi
 export const listReasoningEngines = (config: Config) => {
     const { projectId, reasoningEngineLocation } = config;
     if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
-    const path = `https://${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/projects/${projectId}/locations/${reasoningEngineLocation}/reasoningEngines`;
+    const path = `${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/projects/${projectId}/locations/${reasoningEngineLocation}/reasoningEngines`;
     return gapiRequest<{ reasoningEngines: ReasoningEngine[] }>(path, 'GET', projectId);
 };
 
 export const createReasoningEngine = async (engineData: any, config: Config): Promise<ReasoningEngine> => {
     const { reasoningEngineLocation, projectId } = config;
     if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
-    const path = `https://${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/projects/${projectId}/locations/${reasoningEngineLocation}/reasoningEngines`;
+    const path = `${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/projects/${projectId}/locations/${reasoningEngineLocation}/reasoningEngines`;
     const headers = { 'Content-Type': 'application/json' };
     return gapiRequest<ReasoningEngine>(path, 'POST', projectId, undefined, engineData, headers);
 };
@@ -394,7 +467,7 @@ export const updateReasoningEngine = async (engineName: string, payload: any, co
     const { projectId, reasoningEngineLocation } = config;
     if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
     const updateMask = Object.keys(payload).join(',');
-    const path = `https://${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/${engineName}`;
+    const path = `${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/${engineName}`;
     const headers = { 'Content-Type': 'application/json' };
     return gapiRequest<any>(path, 'PATCH', projectId, { updateMask }, payload, headers);
 };
@@ -402,7 +475,7 @@ export const updateReasoningEngine = async (engineName: string, payload: any, co
 export const deleteReasoningEngine = (engineName: string, config: Config) => {
     const { projectId, reasoningEngineLocation } = config;
     if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
-    const path = `https://${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/${engineName}`;
+    const path = `${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/${engineName}`;
     return gapiRequest(path, 'DELETE', projectId);
 };
 

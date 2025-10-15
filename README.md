@@ -64,14 +64,15 @@ You will need to replace placeholders like `[YOUR_PROJECT_ID]` and `[YOUR_ACCESS
 
 ### List of APIs Used
 
-The application interacts with the following Google Cloud API endpoints:
+The application interacts with the following Google Cloud APIs, using their respective discovery documents for client library initialization:
 
--   **Gemini Enterprise API (Discovery Engine)**: `https://discoveryengine.googleapis.com` (and regional variants `us-` and `eu-`)
--   **Vertex AI API (AI Platform)**: `https://[LOCATION]-aiplatform.googleapis.com`
--   **Cloud Resource Manager API**: `https://cloudresourcemanager.googleapis.com`
--   **Cloud Logging API**: `https://logging.googleapis.com`
--   **Cloud Run Admin API**: `https://[LOCATION]-run.googleapis.com`
--   **Cloud Storage API**: `https://storage.googleapis.com`
+-   [Gemini Enterprise API (v1alpha)](https://discoveryengine.googleapis.com/$discovery/rest?version=v1alpha)
+-   [Gemini Enterprise API (v1beta)](https://discoveryengine.googleapis.com/$discovery/rest?version=v1beta)
+-   [Vertex AI API (v1beta1)](https://aiplatform.googleapis.com/$discovery/rest?version=v1beta1)
+-   [Cloud Resource Manager API (v1)](https://cloudresourcemanager.googleapis.com/$discovery/rest?version=v1)
+-   [Cloud Logging API (v2)](https://logging.googleapis.com/$discovery/rest?version=v2)
+-   [Cloud Run Admin API (v2)](https://run.googleapis.com/$discovery/rest?version=v2)
+-   [Cloud Storage API (v1)](https://www.googleapis.com/discovery/v1/apis/storage/v1/rest)
 
 ---
 

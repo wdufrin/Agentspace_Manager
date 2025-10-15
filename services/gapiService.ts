@@ -19,6 +19,7 @@ const DISCOVERY_DOCS = [
     'https://logging.googleapis.com/$discovery/rest?version=v2',
     'https://run.googleapis.com/$discovery/rest?version=v2',
     'https://www.googleapis.com/discovery/v1/apis/storage/v1/rest',
+    'https://serviceusage.googleapis.com/$discovery/rest?version=v1',
 ];
 
 /**
