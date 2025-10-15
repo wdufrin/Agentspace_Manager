@@ -5,6 +5,7 @@ export enum Page {
   AGENT_ENGINES = 'Agent Engines',
   AGENT_BUILDER = 'Agent Builder',
   DATA_STORES = 'Data Stores',
+  MCP_SERVERS = 'MCP Servers',
   MODEL_ARMOR = 'Model Armor',
   BACKUP_RECOVERY = 'Backup & Recovery',
 }
@@ -150,4 +151,40 @@ export interface GcsBucket {
 export interface GcsObject {
     name: string;
     bucket: string;
+}
+
+// Cloud Run Types
+export interface EnvVar {
+    name: string;
+    value?: string;
+    valueSource?: {
+        secretKeyRef: {
+            secret: string;
+            version: string;
+        }
+    };
+}
+
+export interface Container {
+    image: string;
+    env: EnvVar[];
+    resources?: {
+        limits?: { [key: string]: string };
+    };
+}
+
+export interface ServiceTemplate {
+    containers: Container[];
+    serviceAccount?: string;
+    scaling?: any;
+}
+
+export interface CloudRunService {
+    name: string;
+    uri: string;
+    location: string;
+    labels?: Record<string, string>;
+    createTime: string;
+    updateTime: string;
+    template?: ServiceTemplate;
 }

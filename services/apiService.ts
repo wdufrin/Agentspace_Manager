@@ -1,4 +1,4 @@
-import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, LogEntry, ReasoningEngine } from '../types';
+import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, LogEntry, ReasoningEngine, CloudRunService } from '../types';
 
 // Helper functions to get correct base URLs
 const getDiscoveryEngineUrl = (location: string): string => {
@@ -11,6 +11,8 @@ const getDiscoveryEngineUrl = (location: string): string => {
 const getAiPlatformUrl = (location: string) => `https://${location}-aiplatform.googleapis.com/v1beta1`;
 
 const getLoggingUrl = () => 'https://logging.googleapis.com';
+
+const getCloudRunUrl = (location: string) => `https://${location}-run.googleapis.com`;
 
 // A generic helper to handle all API requests and errors
 async function apiRequest<T>(url: string, options: RequestInit): Promise<T> {
@@ -630,6 +632,33 @@ export const deleteReasoningEngine = (engineName: string, config: Config) => {
         },
     });
 };
+
+// --- Cloud Run API ---
+export async function listCloudRunServices(config: Config, location: string): Promise<{ services: CloudRunService[] }> {
+    const { accessToken, projectId } = config;
+    const url = `${getCloudRunUrl(location)}/v2/projects/${projectId}/locations/${location}/services`;
+    return apiRequest<{ services: CloudRunService[] }>(url, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'X-Goog-User-Project': projectId,
+        },
+    });
+}
+
+export async function getCloudRunService(serviceName: string, config: Config): Promise<CloudRunService> {
+    const { accessToken, projectId } = config;
+    const location = serviceName.split('/')[3]; // Extract location from the full resource name
+    const url = `${getCloudRunUrl(location)}/v2/${serviceName}`;
+    return apiRequest<CloudRunService>(url, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'X-Goog-User-Project': projectId,
+        },
+    });
+}
+
 
 // --- Vertex AI / AI Platform APIs (General) ---
 export async function listVertexAiModels(location: string, accessToken: string, projectId: string): Promise<{ models: any[] }> {

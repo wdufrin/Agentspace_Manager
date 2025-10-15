@@ -1,10 +1,4 @@
 
-
-
-
-
-
-
 import React, { useState, useCallback, useMemo } from 'react';
 import { ReasoningEngine, Config, Agent } from '../types';
 import * as api from '../services/apiService';
@@ -193,7 +187,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
         if (result.status === 'rejected') {
             const engineName = String(enginesToDelete[index]).split('/').pop();
             const reason = result.reason;
-            // FIX: The `reason` from a rejected promise is of type `unknown`. It must be safely converted to a string before use.
+            // FIX: The rejection 'reason' from a Promise is of type 'unknown' and must be safely converted to a string before use.
             const message = reason instanceof Error ? reason.message : String(reason);
             failures.push(`- ${engineName}: ${message}`);
         }
@@ -392,7 +386,6 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
                     return (
                         <li key={engineName} className="text-sm">
                             <p className="font-bold text-white">{engine?.displayName || 'Unknown Engine'}</p>
-                            {/* FIX: Cast to string to prevent calling .split on 'unknown' if type inference fails. */}
                             <p className="text-xs font-mono text-gray-400 mt-1">{String(engineName).split('/').pop()}</p>
                         </li>
                     )
