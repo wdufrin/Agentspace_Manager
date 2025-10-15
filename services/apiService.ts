@@ -1,4 +1,5 @@
-import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, LogEntry, ReasoningEngine, CloudRunService } from '../types';
+import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, LogEntry, ReasoningEngine, CloudRunService, GcsBucket, GcsObject } from '../types';
+import { getGapiClient } from './gapiService';
 
 // Helper functions to get correct base URLs
 const getDiscoveryEngineUrl = (location: string): string => {
@@ -8,221 +9,169 @@ const getDiscoveryEngineUrl = (location: string): string => {
   return `https://${location}-discoveryengine.googleapis.com`;
 };
 
-const getAiPlatformUrl = (location: string) => `https://${location}-aiplatform.googleapis.com/v1beta1`;
+const getAiPlatformUrl = (location: string) => `${location}-aiplatform.googleapis.com`;
 
 const getLoggingUrl = () => 'https://logging.googleapis.com';
 
 const getCloudRunUrl = (location: string) => `https://${location}-run.googleapis.com`;
 
-// A generic helper to handle all API requests and errors
-async function apiRequest<T>(url: string, options: RequestInit): Promise<T> {
-  const response = await fetch(url, options);
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("API Error Response:", errorText);
-    try {
-        const errorData = JSON.parse(errorText);
-        const message = `API request failed with status ${response.status}: ${errorData.error?.message || errorText}`;
-        throw new Error(message);
-    } catch(e) {
-        throw new Error(`API request failed with status ${response.status}: ${errorText}`);
+/**
+ * A generic helper to handle all GAPI requests and errors.
+ * It uses the generic `gapi.client.request` method, which allows for setting custom headers.
+ */
+async function gapiRequest<T>(
+    path: string,
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    projectId: string,
+    params?: object,
+    body?: object,
+    additionalHeaders?: Record<string, string>
+): Promise<T> {
+  try {
+    const client = await getGapiClient();
+    const headers = { 'X-Goog-User-Project': projectId, ...additionalHeaders };
+
+    const requestConfig: any = { path, method, headers };
+    if (params) requestConfig.params = params;
+    if (body) requestConfig.body = body;
+
+    const response = await client.request(requestConfig);
+
+    // Handle 204 No Content or other empty responses
+    if (response.result === undefined && response.body === "") {
+        return {} as T;
     }
+    
+    return response.result as T;
+  } catch (err: any) {
+    console.error("GAPI Error Response:", err);
+    let errorMessage = 'An unknown error occurred.';
+    if (err.result?.error?.message) {
+        errorMessage = err.result.error.message;
+    } else if (typeof err.body === 'string') {
+        try {
+            const parsedBody = JSON.parse(err.body);
+            errorMessage = parsedBody.error?.message || err.body;
+        } catch (e) {
+            errorMessage = err.body;
+        }
+    }
+    const message = `API request failed with status ${err.code || 'N/A'}: ${errorMessage}`;
+    throw new Error(message);
   }
-  
-  // Handle 204 No Content or other empty responses
-  const text = await response.text();
-  if (!text) {
-    return {} as T;
-  }
-
-  // Handle long-running operations that might be returned directly
-  const parsedResponse = JSON.parse(text);
-  if (parsedResponse.name && (parsedResponse.name.includes('/operations/') || parsedResponse.name.includes('/long-running-operations/')) && !parsedResponse.done) {
-    // It's an operation, so let's poll it.
-    // Note: This is a simplification; for a robust solution, you'd want to handle this more explicitly
-    // where the operation is expected. The createReasoningEngine handles this correctly already.
-    // For now, we'll return the operation object.
-    return parsedResponse as T;
-  }
-
-
-  return parsedResponse as T;
 }
+
 
 // --- Generic Resource Management ---
 
-// FIX: Added 'dataStores' to the resourceType to support listing them, which is required by the Backup page.
 export async function listResources(resourceType: 'agents' | 'engines' | 'collections' | 'assistants' | 'dataStores', config: Config): Promise<any> {
-    const { projectId, appLocation, collectionId, appId, accessToken } = config;
+    const { projectId, appLocation, collectionId, appId } = config;
     let parent = '';
-    // FIX: Data Stores list API is on v1beta, while others are on v1alpha.
     const apiVersion = resourceType === 'dataStores' ? 'v1beta' : 'v1alpha';
 
     switch(resourceType) {
         case 'agents':
-            if (!appId) throw new Error("App ID (Engine ID) is required to list agents.");
-            if (!collectionId) throw new Error("Collection ID is required to list agents.");
-            if (!config.assistantId) throw new Error("Assistant ID is required to list agents.");
+            if (!appId || !collectionId || !config.assistantId) throw new Error("Collection, App, and Assistant IDs are required.");
             parent = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${config.assistantId}`;
             break;
         case 'engines':
-            if (!collectionId) throw new Error("Collection ID is required to list engines.");
+            if (!collectionId) throw new Error("Collection ID is required.");
             parent = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}`;
             break;
         case 'collections':
             parent = `projects/${projectId}/locations/${appLocation}`;
             break;
         case 'assistants':
-            if (!appId) throw new Error("App ID (Engine ID) is required to list assistants.");
-            if (!collectionId) throw new Error("Collection ID is required to list assistants.");
+            if (!appId || !collectionId) throw new Error("Collection and App IDs are required.");
             parent = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}`;
             break;
-        // FIX: Added case for 'dataStores' to build the correct parent path.
         case 'dataStores':
-            if (!collectionId) throw new Error("Collection ID is required to list data stores.");
+            if (!collectionId) throw new Error("Collection ID is required.");
             parent = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}`;
             break;
     }
 
     const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/${apiVersion}/${parent}/${resourceType}`;
+    const path = `${baseUrl}/${apiVersion}/${parent}/${resourceType}`;
     
-    return apiRequest(url, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-            'X-Goog-User-Project': projectId,
-        },
-    });
+    return gapiRequest(path, 'GET', projectId);
 }
 
 export async function deleteResource(resourceName: string, config: Config): Promise<void> {
-    const { accessToken, projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    // FIX: Reverted to v1alpha, which is the correct endpoint for agent deletion.
-    const url = `${baseUrl}/v1alpha/${resourceName}`;
-
-    await apiRequest<any>(url, {
-        method: 'DELETE',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            // FIX: Re-added Content-Type. The Discovery Engine API appears to require this header
-            // for DELETE requests, unlike other Google Cloud APIs.
-            'Content-Type': 'application/json',
-            'X-Goog-User-Project': projectId,
-        },
-    });
+    const { projectId, appLocation } = config;
+    const path = `${getDiscoveryEngineUrl(appLocation)}/v1alpha/${resourceName}`;
+    const headers = { 'Content-Type': 'application/json' };
+    await gapiRequest<any>(path, 'DELETE', projectId, undefined, undefined, headers);
 }
 
 // --- Project APIs ---
-export const getProjectNumber = async (projectId: string, accessToken: string): Promise<string> => {
-    const url = `https://cloudresourcemanager.googleapis.com/v1/projects/${projectId}`;
-    const response = await apiRequest<{ projectNumber: string }>(url, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${accessToken}` },
-    });
-    return response.projectNumber;
+export const getProjectNumber = async (projectId: string): Promise<string> => {
+    // FIX: The gapiRequest helper was being used incorrectly. Switched to a direct GAPI client call.
+    const client = await getGapiClient();
+    try {
+        const response = await client.cloudresourcemanager.projects.get({ projectId });
+        return response.result.projectNumber;
+    } catch (err: any) {
+        console.error("GAPI Error during getProjectNumber:", err);
+        let errorMessage = 'An unknown error occurred.';
+        if (err.result?.error?.message) {
+            errorMessage = err.result.error.message;
+        }
+        const message = `API request failed with status ${err.code || 'N/A'}: ${errorMessage}`;
+        throw new Error(message);
+    }
 };
 
 
 // --- Agent Specific APIs ---
 
 export async function getAgent(agentName: string, config: Config): Promise<Agent> {
-    const { accessToken, projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/v1alpha/${agentName}`;
-    return apiRequest<Agent>(url, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Goog-User-Project': projectId },
-    });
+    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1alpha/${agentName}`;
+    return gapiRequest<Agent>(path, 'GET', config.projectId);
 }
 
 export async function getAgentView(agentName: string, config: Config): Promise<any> {
-    const { accessToken, projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/v1alpha/${agentName}:getAgentView`;
-
-    return apiRequest(url, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Goog-User-Project': projectId },
-    });
+    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1alpha/${agentName}:getAgentView`;
+    return gapiRequest(path, 'GET', config.projectId);
 }
 
 export async function getAgentIamPolicy(agentName: string, config: Config): Promise<any> {
-    const { accessToken, projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/v1alpha/${agentName}:getIamPolicy`;
-
-    return apiRequest(url, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Goog-User-Project': projectId },
-    });
+    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1alpha/${agentName}:getIamPolicy`;
+    return gapiRequest(path, 'GET', config.projectId);
 }
 
 export async function setAgentIamPolicy(resourceName: string, policy: any, config: Config): Promise<any> {
-    const { accessToken, projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/v1alpha/${resourceName}:setIamPolicy`;
-
-    return apiRequest(url, {
-        method: 'POST',
-        headers: { 
-            'Authorization': `Bearer ${accessToken}`, 
-            'Content-Type': 'application/json',
-            'X-Goog-User-Project': projectId 
-        },
-        body: JSON.stringify({ policy }),
-    });
+    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1alpha/${resourceName}:setIamPolicy`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest(path, 'POST', config.projectId, undefined, { policy }, headers);
 }
 
-
 export async function getEngine(engineName: string, config: Config): Promise<AppEngine> {
-    const { accessToken, projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/v1alpha/${engineName}`;
-    return apiRequest<AppEngine>(url, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Goog-User-Project': projectId },
-    });
+    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1alpha/${engineName}`;
+    return gapiRequest<AppEngine>(path, 'GET', config.projectId);
 }
 
 export async function getAssistant(assistantName: string, config: Config): Promise<Assistant> {
-    const { accessToken, projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/v1alpha/${assistantName}`;
-    return apiRequest<Assistant>(url, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Goog-User-Project': projectId },
-    });
+    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1alpha/${assistantName}`;
+    return gapiRequest<Assistant>(path, 'GET', config.projectId);
 }
 
 export async function createAgent(apiPayload: any, config: Config, agentId?: string): Promise<Agent> {
-    const { projectId, appLocation, collectionId, appId, assistantId, accessToken } = config;
+    const { projectId, appLocation, collectionId, appId, assistantId } = config;
     const parent = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}`;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    let url = `${baseUrl}/v1alpha/${parent}/agents`;
-    if (agentId) {
-        url += `?agent_id=${agentId}`;
-    }
-
-    return apiRequest<Agent>(url, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Goog-User-Project': projectId },
-        body: JSON.stringify(apiPayload),
-    });
+    const path = `${getDiscoveryEngineUrl(appLocation)}/v1alpha/${parent}/agents`;
+    const params = agentId ? { agent_id: agentId } : undefined;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<Agent>(path, 'POST', projectId, params, apiPayload, headers);
 }
 
 export async function updateAgent(originalAgent: Agent, updatedAgent: Partial<Agent>, config: Config): Promise<Agent> {
-    const { accessToken, projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/v1alpha/${originalAgent.name}`;
+    const { projectId, appLocation } = config;
+    const path = `${getDiscoveryEngineUrl(appLocation)}/v1alpha/${originalAgent.name}`;
 
     const updateMask: string[] = [];
     const payload: any = {};
 
-    // Per API requirements, the agent's definition must be included in the payload.
-    // The payload key must be camelCase, but nested keys (and updateMask) are often snake_case.
     if (originalAgent.adkAgentDefinition) {
         payload.adkAgentDefinition = {
             tool_settings: { tool_description: originalAgent.adkAgentDefinition.toolSettings?.toolDescription },
@@ -230,7 +179,6 @@ export async function updateAgent(originalAgent: Agent, updatedAgent: Partial<Ag
         };
     }
 
-    // Compare fields and build the updateMask and payload.
     if (updatedAgent.displayName !== undefined && originalAgent.displayName !== updatedAgent.displayName) {
         updateMask.push('display_name');
         payload.displayName = updatedAgent.displayName;
@@ -239,8 +187,6 @@ export async function updateAgent(originalAgent: Agent, updatedAgent: Partial<Ag
         updateMask.push('description');
         payload.description = updatedAgent.description;
     }
-    
-    // If the definition IS being updated, overwrite the one in the payload and add it to the mask.
     if (updatedAgent.adkAgentDefinition && JSON.stringify(originalAgent.adkAgentDefinition) !== JSON.stringify(updatedAgent.adkAgentDefinition)) {
         updateMask.push('adk_agent_definition');
         payload.adkAgentDefinition = {
@@ -248,69 +194,44 @@ export async function updateAgent(originalAgent: Agent, updatedAgent: Partial<Ag
              provisioned_reasoning_engine: { reasoning_engine: updatedAgent.adkAgentDefinition.provisionedReasoningEngine?.reasoningEngine }
         };
     }
-
     if (updatedAgent.icon !== undefined && JSON.stringify(originalAgent.icon) !== JSON.stringify(updatedAgent.icon)) {
         updateMask.push('icon');
         payload.icon = updatedAgent.icon;
     }
-
     if (updatedAgent.starterPrompts !== undefined && JSON.stringify(originalAgent.starterPrompts) !== JSON.stringify(updatedAgent.starterPrompts)) {
         updateMask.push('starter_prompts');
         payload.starterPrompts = updatedAgent.starterPrompts;
     }
 
-    if (updateMask.length === 0) {
-        return originalAgent; // No changes
-    }
+    if (updateMask.length === 0) return originalAgent;
     
-    return apiRequest<Agent>(`${url}?updateMask=${updateMask.join(',')}`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Goog-User-Project': projectId },
-        body: JSON.stringify(payload),
-    });
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<Agent>(path, 'PATCH', projectId, { updateMask: updateMask.join(',') }, payload, headers);
 }
 
-
 export async function enableAgent(agentName: string, config: Config): Promise<Agent> {
-    const { accessToken, projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/v1alpha/${agentName}:enableAgent`;
-    return apiRequest<Agent>(url, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Goog-User-Project': projectId },
-        body: JSON.stringify({}),
-    });
+    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1alpha/${agentName}:enableAgent`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<Agent>(path, 'POST', config.projectId, undefined, {}, headers);
 }
 
 export async function disableAgent(agentName: string, config: Config): Promise<Agent> {
-    const { accessToken, projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/v1alpha/${agentName}:disableAgent`;
-    return apiRequest<Agent>(url, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Goog-User-Project': projectId },
-        body: JSON.stringify({}),
-    });
+    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1alpha/${agentName}:disableAgent`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<Agent>(path, 'POST', config.projectId, undefined, {}, headers);
 }
 
-
-export const streamChat = async (agentName: string, messages: ChatMessage[], config: Config, onChunk: (chunk: string) => void) => {
-    const { accessToken, projectId, appLocation, collectionId, appId, assistantId } = config;
+// NOTE: streamChat CANNOT be converted to gapi as it does not support streaming responses.
+// It must continue to use fetch and requires the accessToken to be passed manually.
+export const streamChat = async (agentName: string, messages: ChatMessage[], config: Config, accessToken: string, onChunk: (chunk: string) => void) => {
+    const { projectId, appLocation, collectionId, appId, assistantId } = config;
     const assistantName = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}`;
-    
     const url = `${getDiscoveryEngineUrl(appLocation)}/v1alpha/${assistantName}:streamConverse`;
     
-    const conversationMessages = messages.map(msg => {
-        if (msg.role === 'user') {
-            return { userMessage: { text: msg.content } };
-        } else {
-            return { modelResponseMessage: { text: msg.content } };
-        }
-    });
-    
+    const conversationMessages = messages.map(msg => ({ [msg.role === 'user' ? 'userMessage' : 'modelResponseMessage']: { text: msg.content } }));
     const data = {
         messages: conversationMessages,
-        session: `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/sessions/agentspace-manager-session`, // static session is fine for this tool
+        session: `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/sessions/agentspace-manager-session`,
         agentsConfig: { agent: agentName },
     };
 
@@ -322,12 +243,7 @@ export const streamChat = async (agentName: string, messages: ChatMessage[], con
 
     if (!response.ok || !response.body) {
         const errorText = await response.text();
-         try {
-            const errorJson = JSON.parse(errorText);
-            throw new Error(`API Error: ${errorJson.error?.message || errorText}`);
-        } catch(e) {
-            throw new Error(`HTTP Error: ${response.status} ${response.statusText} - ${errorText}`);
-        }
+        throw new Error(`HTTP Error: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
     const reader = response.body.getReader();
@@ -337,18 +253,14 @@ export const streamChat = async (agentName: string, messages: ChatMessage[], con
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // Keep any incomplete line for the next chunk
-
+        buffer = lines.pop() || '';
         for (const line of lines) {
             if (line.trim() === '') continue;
             try {
                 const parsed = JSON.parse(line);
-                if (parsed.reply?.text) {
-                    onChunk(parsed.reply.text);
-                }
+                if (parsed.reply?.text) onChunk(parsed.reply.text);
             } catch (e) {
                 console.warn("Failed to parse stream line:", line);
             }
@@ -358,420 +270,209 @@ export const streamChat = async (agentName: string, messages: ChatMessage[], con
 
 // --- Authorization APIs ---
 export const listAuthorizations = (config: Config) => {
-    const { accessToken, projectId } = config;
-    const url = `${getDiscoveryEngineUrl('global')}/v1alpha/projects/${projectId}/locations/global/authorizations`;
-    return apiRequest<{ authorizations: Authorization[] }>(url, {
-        method: "GET",
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Goog-User-Project': projectId },
-    });
+    const { projectId } = config;
+    const path = `${getDiscoveryEngineUrl('global')}/v1alpha/projects/${projectId}/locations/global/authorizations`;
+    return gapiRequest<{ authorizations: Authorization[] }>(path, 'GET', projectId);
 };
 
 export const getAuthorization = (authName: string, config: Config) => {
-    const { accessToken, projectId } = config;
-    const url = `${getDiscoveryEngineUrl('global')}/v1alpha/${authName}`;
-     return apiRequest<Authorization>(url, {
-        method: "GET",
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Goog-User-Project': projectId },
-    });
-}
+    const path = `${getDiscoveryEngineUrl('global')}/v1alpha/${authName}`;
+    return gapiRequest<Authorization>(path, 'GET', config.projectId);
+};
 
 export const createAuthorization = (authId: string, authData: object, config: Config) => {
-    const { accessToken, projectId } = config;
-    const url = `${getDiscoveryEngineUrl('global')}/v1alpha/projects/${projectId}/locations/global/authorizations?authorizationId=${authId}`;
-    return apiRequest<Authorization>(url, {
-        method: "POST",
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Goog-User-Project': projectId },
-        body: JSON.stringify(authData),
-    });
+    const { projectId } = config;
+    const path = `${getDiscoveryEngineUrl('global')}/v1alpha/projects/${projectId}/locations/global/authorizations`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<Authorization>(path, 'POST', projectId, { authorizationId: authId }, authData, headers);
 };
 
 export const updateAuthorization = (authName: string, authData: object, updateMask: string[], config: Config) => {
-    const { accessToken, projectId } = config;
-    const url = `${getDiscoveryEngineUrl('global')}/v1alpha/${authName}?updateMask=${updateMask.join(',')}`;
-    return apiRequest<Authorization>(url, {
-        method: "PATCH",
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Goog-User-Project': projectId },
-        body: JSON.stringify(authData),
-    });
+    const path = `${getDiscoveryEngineUrl('global')}/v1alpha/${authName}`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<Authorization>(path, 'PATCH', config.projectId, { updateMask: updateMask.join(',') }, authData, headers);
 };
 
 export const deleteAuthorization = (authId: string, config: Config) => {
-    const { accessToken, projectId } = config;
-    const url = `${getDiscoveryEngineUrl('global')}/v1alpha/projects/${projectId}/locations/global/authorizations/${authId}`;
-    return apiRequest(url, {
-        method: "DELETE",
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Goog-User-Project': projectId },
-    });
+    const path = `${getDiscoveryEngineUrl('global')}/v1alpha/projects/${config.projectId}/locations/global/authorizations/${authId}`;
+    return gapiRequest(path, 'DELETE', config.projectId);
 };
 
 // --- Data Store APIs ---
 export async function getDataStore(dataStoreName: string, config: Config): Promise<DataStore> {
-    const { accessToken, projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/v1beta/${dataStoreName}`;
-    return apiRequest<DataStore>(url, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Goog-User-Project': projectId },
-    });
+    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1beta/${dataStoreName}`;
+    return gapiRequest<DataStore>(path, 'GET', config.projectId);
 }
 
 export async function deleteDataStore(dataStoreName: string, config: Config): Promise<any> {
-    const { accessToken, projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/v1beta/${dataStoreName}`;
-
-    // This API returns a long-running operation
-    return apiRequest<any>(url, {
-        method: 'DELETE',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-            'X-Goog-User-Project': projectId,
-        },
-    });
+    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1beta/${dataStoreName}`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<any>(path, 'DELETE', config.projectId, undefined, undefined, headers);
 }
 
 export async function getDocument(documentName: string, config: Config): Promise<Document> {
-    const { accessToken, projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/v1alpha/${documentName}`;
-
-    return apiRequest<Document>(url, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Goog-User-Project': projectId },
-    });
+    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1alpha/${documentName}`;
+    return gapiRequest<Document>(path, 'GET', config.projectId);
 }
 
 export async function listDocuments(dataStoreName: string, config: Config): Promise<any> {
-    const { accessToken, projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    // Documents are under the 'default_branch' of a data store
     const parent = `${dataStoreName}/branches/default_branch`;
-    const url = `${baseUrl}/v1alpha/${parent}/documents`;
-
-    return apiRequest(url, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'X-Goog-User-Project': projectId,
-        },
-    });
+    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1alpha/${parent}/documents`;
+    return gapiRequest(path, 'GET', config.projectId);
 }
-
 
 // --- Discovery Resource Creation APIs ---
 export const createCollection = async (collectionId: string, payload: { displayName: string }, config: Config) => {
-    const { projectId, appLocation, accessToken } = config;
+    const { projectId, appLocation } = config;
     const parent = `projects/${projectId}/locations/${appLocation}`;
-    const url = `${getDiscoveryEngineUrl(appLocation)}/v1beta/${parent}/collections?collectionId=${collectionId}`;
-    // This API returns a long-running operation
-    const operation = await apiRequest<any>(url, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Goog-User-Project': projectId },
-        body: JSON.stringify(payload),
-    });
-    // For simplicity, we assume it completes fast enough for the next step. A robust implementation would poll.
-    return operation;
+    const path = `${getDiscoveryEngineUrl(appLocation)}/v1beta/${parent}/collections`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<any>(path, 'POST', projectId, { collectionId }, payload, headers);
 };
 
 export const createEngine = async (engineId: string, payload: object, config: Config) => {
-    const { projectId, appLocation, collectionId, accessToken } = config;
+    const { projectId, appLocation, collectionId } = config;
     const parent = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}`;
-    const url = `${getDiscoveryEngineUrl(appLocation)}/v1beta/${parent}/engines?engineId=${engineId}`;
-    const operation = await apiRequest<any>(url, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Goog-User-Project': projectId },
-        body: JSON.stringify(payload),
-    });
-    return operation;
+    const path = `${getDiscoveryEngineUrl(appLocation)}/v1beta/${parent}/engines`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<any>(path, 'POST', projectId, { engineId }, payload, headers);
 };
 
 export const createDataStore = async (dataStoreId: string, payload: object, config: Config) => {
-    const { projectId, appLocation, collectionId, accessToken } = config;
+    const { projectId, appLocation, collectionId } = config;
     const parent = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}`;
-    const url = `${getDiscoveryEngineUrl(appLocation)}/v1beta/${parent}/dataStores?dataStoreId=${dataStoreId}`;
-    const operation = await apiRequest<any>(url, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Goog-User-Project': projectId },
-        body: JSON.stringify(payload),
-    });
-    return operation;
+    const path = `${getDiscoveryEngineUrl(appLocation)}/v1beta/${parent}/dataStores`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<any>(path, 'POST', projectId, { dataStoreId }, payload, headers);
 };
 
-
 export const createAssistant = async (assistantId: string, payload: { displayName: string }, config: Config) => {
-    const { projectId, appLocation, collectionId, appId, accessToken } = config;
+    const { projectId, appLocation, collectionId, appId } = config;
     const parent = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}`;
-    const url = `${getDiscoveryEngineUrl(appLocation)}/v1beta/${parent}/assistants?assistantId=${assistantId}`;
-     const operation = await apiRequest<any>(url, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Goog-User-Project': projectId },
-        body: JSON.stringify(payload),
-    });
-    return operation;
+    const path = `${getDiscoveryEngineUrl(appLocation)}/v1beta/${parent}/assistants`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<any>(path, 'POST', projectId, { assistantId }, payload, headers);
 };
 
 export const updateAssistant = async (assistantName: string, payload: Partial<Assistant>, updateMask: string[], config: Config): Promise<Assistant> => {
-    const { projectId, appLocation, accessToken } = config;
-    const url = `${getDiscoveryEngineUrl(appLocation)}/v1beta/${assistantName}?updateMask=${updateMask.join(',')}`;
-    return apiRequest<Assistant>(url, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Goog-User-Project': projectId },
-        body: JSON.stringify(payload),
-    });
+    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1beta/${assistantName}`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<Assistant>(path, 'PATCH', config.projectId, { updateMask: updateMask.join(',') }, payload, headers);
 };
 
-// --- Discovery Resource Operation API ---
+// --- Operation APIs ---
 export const getDiscoveryOperation = async (operationName: string, config: Config): Promise<any> => {
-    const { accessToken, projectId, appLocation } = config;
-    // Operation name is a full resource path, like projects/{project}/locations/{location}/collections/.../operations/{id}
-    // We can extract the location from the name, or fall back to the config's location
-    const location = operationName.split('/')[3] || appLocation;
-    const baseUrl = getDiscoveryEngineUrl(location);
-    // The operation name is the full path from the version onwards.
-    const url = `${baseUrl}/v1beta/${operationName}`;
-
-    return apiRequest<any>(url, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'X-Goog-User-Project': projectId,
-        },
-    });
+    const location = operationName.split('/')[3] || config.appLocation;
+    const path = `${getDiscoveryEngineUrl(location)}/v1beta/${operationName}`;
+    return gapiRequest<any>(path, 'GET', config.projectId);
 };
 
+export const getOperation = async (operationName: string, config: Config): Promise<any> => {
+    const { projectId, reasoningEngineLocation } = config;
+    if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
+    const path = `https://${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/${operationName}`;
+    return gapiRequest<any>(path, 'GET', projectId);
+};
 
 // --- Reasoning Engine (AI Platform) APIs ---
-export const getOperation = async (operationName: string, config: Config): Promise<any> => {
-    const { accessToken, projectId, reasoningEngineLocation } = config;
-    if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required for this operation.");
-
-    const baseUrl = getAiPlatformUrl(reasoningEngineLocation).replace('/v1beta1', ''); // Get base without version
-    const url = `${baseUrl}/v1beta1/${operationName}`;
-
-    return apiRequest<any>(url, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'X-Goog-User-Project': projectId,
-        },
-    });
-};
-
 export const listReasoningEngines = (config: Config) => {
-    const { accessToken, projectId, reasoningEngineLocation } = config;
+    const { projectId, reasoningEngineLocation } = config;
     if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
-    const url = `${getAiPlatformUrl(reasoningEngineLocation)}/projects/${projectId}/locations/${reasoningEngineLocation}/reasoningEngines`;
-    return apiRequest<{ reasoningEngines: ReasoningEngine[] }>(url, {
-        method: "GET",
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'X-Goog-User-Project': projectId },
-    });
+    const path = `https://${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/projects/${projectId}/locations/${reasoningEngineLocation}/reasoningEngines`;
+    return gapiRequest<{ reasoningEngines: ReasoningEngine[] }>(path, 'GET', projectId);
 };
 
 export const createReasoningEngine = async (engineData: any, config: Config): Promise<ReasoningEngine> => {
-    const { reasoningEngineLocation, projectId, accessToken } = config;
+    const { reasoningEngineLocation, projectId } = config;
     if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
-
-    const url = `${getAiPlatformUrl(reasoningEngineLocation)}/projects/${projectId}/locations/${reasoningEngineLocation}/reasoningEngines`;
-
-    // This API returns a long-running operation
-    const operation = await apiRequest<any>(url, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-            'X-Goog-User-Project': projectId,
-        },
-        body: JSON.stringify(engineData),
-    });
-
-    // Poll the operation until it's done
-    let currentOperation = operation;
-    while (!currentOperation.done) {
-        await new Promise(resolve => setTimeout(resolve, 5000)); // Poll every 5 seconds
-        currentOperation = await getOperation(currentOperation.name, config);
-    }
-
-    if (currentOperation.error) {
-        throw new Error(`Reasoning engine creation failed: ${currentOperation.error.message}`);
-    }
-
-    // The actual resource is in the 'response' field of the completed operation
-    return currentOperation.response as ReasoningEngine;
+    const path = `https://${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/projects/${projectId}/locations/${reasoningEngineLocation}/reasoningEngines`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<ReasoningEngine>(path, 'POST', projectId, undefined, engineData, headers);
 };
 
 export const updateReasoningEngine = async (engineName: string, payload: any, config: Config): Promise<any> => {
-    const { accessToken, projectId, reasoningEngineLocation } = config;
+    const { projectId, reasoningEngineLocation } = config;
     if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
-    // The API requires the update mask to point to the top-level key in the payload.
     const updateMask = Object.keys(payload).join(',');
-    const url = `${getAiPlatformUrl(reasoningEngineLocation)}/${engineName}?updateMask=${updateMask}`;
-
-    return apiRequest<any>(url, {
-        method: 'PATCH',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-            'X-Goog-User-Project': projectId,
-        },
-        body: JSON.stringify(payload),
-    });
+    const path = `https://${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/${engineName}`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<any>(path, 'PATCH', projectId, { updateMask }, payload, headers);
 };
 
 export const deleteReasoningEngine = (engineName: string, config: Config) => {
-    const { accessToken, projectId, reasoningEngineLocation } = config;
+    const { projectId, reasoningEngineLocation } = config;
     if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
-    const url = `${getAiPlatformUrl(reasoningEngineLocation)}/${engineName}`;
-    return apiRequest(url, {
-        method: 'DELETE',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            // FIX: Removed Content-Type header. DELETE requests should not have a body,
-            // and this header can cause CORS preflight failures on some APIs like AI Platform.
-            'X-Goog-User-Project': projectId,
-        },
-    });
+    const path = `https://${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/${engineName}`;
+    return gapiRequest(path, 'DELETE', projectId);
 };
 
 // --- Cloud Run API ---
 export async function listCloudRunServices(config: Config, location: string): Promise<{ services: CloudRunService[] }> {
-    const { accessToken, projectId } = config;
-    const url = `${getCloudRunUrl(location)}/v2/projects/${projectId}/locations/${location}/services`;
-    return apiRequest<{ services: CloudRunService[] }>(url, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'X-Goog-User-Project': projectId,
-        },
-    });
+    const path = `${getCloudRunUrl(location)}/v2/projects/${config.projectId}/locations/${location}/services`;
+    return gapiRequest<{ services: CloudRunService[] }>(path, 'GET', config.projectId);
 }
 
 export async function getCloudRunService(serviceName: string, config: Config): Promise<CloudRunService> {
-    const { accessToken, projectId } = config;
-    const location = serviceName.split('/')[3]; // Extract location from the full resource name
-    const url = `${getCloudRunUrl(location)}/v2/${serviceName}`;
-    return apiRequest<CloudRunService>(url, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'X-Goog-User-Project': projectId,
-        },
-    });
+    const location = serviceName.split('/')[3];
+    const path = `${getCloudRunUrl(location)}/v2/${serviceName}`;
+    return gapiRequest<CloudRunService>(path, 'GET', config.projectId);
 }
 
-
 // --- Vertex AI / AI Platform APIs (General) ---
-export async function listVertexAiModels(location: string, accessToken: string, projectId: string): Promise<{ models: any[] }> {
-    const url = `https://${location}-aiplatform.googleapis.com/v1/publishers/google/models`;
-    return apiRequest(url, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            // FIX: Removed 'X-Goog-User-Project' header. For the public model listing endpoint,
-            // this header is not strictly required and may cause CORS preflight failures in some environments,
-            // leading to the "Failed to fetch" error. The projectId parameter is kept for API signature consistency.
-        },
-    });
+export async function listVertexAiModels(location: string, projectId: string): Promise<{ models: any[] }> {
+    const path = `https://${location}-aiplatform.googleapis.com/v1/publishers/google/models`;
+    const client = await getGapiClient();
+    // This public endpoint does not need the X-Goog-User-Project header.
+    const response = await client.request({ path, method: 'GET' });
+    return response.result;
 }
 
 // --- GCS Storage API ---
-export async function listBuckets(projectId: string, accessToken: string): Promise<{ items: { id: string, name: string }[] }> {
-    const url = `https://storage.googleapis.com/storage/v1/b?project=${projectId}`;
-    return apiRequest(url, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'X-Goog-User-Project': projectId,
-        },
-    });
+export async function listBuckets(projectId: string): Promise<{ items: GcsBucket[] }> {
+    const path = `https://storage.googleapis.com/storage/v1/b`;
+    return gapiRequest<{ items: GcsBucket[] }>(path, 'GET', projectId, { project: projectId });
 }
 
-export async function listGcsObjects(bucketName: string, prefix: string, accessToken: string, projectId: string): Promise<{ items: { name: string, bucket: string }[] }> {
-    const encodedPrefix = encodeURIComponent(prefix);
-    const url = `https://storage.googleapis.com/storage/v1/b/${bucketName}/o?prefix=${encodedPrefix}`;
-    return apiRequest(url, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'X-Goog-User-Project': projectId,
-        },
-    });
+export async function listGcsObjects(bucketName: string, prefix: string, projectId: string): Promise<{ items: GcsObject[] }> {
+    const path = `https://storage.googleapis.com/storage/v1/b/${bucketName}/o`;
+    return gapiRequest(path, 'GET', projectId, { prefix });
 }
 
-export async function uploadToGcs(
-    accessToken: string,
-    bucketName: string,
-    objectName: string,
-    fileContent: string,
-    contentType: string,
-    projectId: string
-): Promise<void> {
-    const url = `https://storage.googleapis.com/upload/storage/v1/b/${bucketName}/o?uploadType=media&name=${encodeURIComponent(objectName)}`;
-    
-    // Cannot use generic apiRequest here as it expects JSON response and GCS can return non-JSON on success.
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': contentType,
-            'X-Goog-User-Project': projectId,
-        },
-        body: fileContent,
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        console.error("GCS Upload Error Response:", errorText);
-        try {
-            const errorData = JSON.parse(errorText);
-            const message = `GCS upload failed with status ${response.status}: ${errorData.error?.message || errorText}`;
-            throw new Error(message);
-        } catch(e) {
-            throw new Error(`GCS upload failed with status ${response.status}: ${errorText}`);
+// GCS uploads are special and cannot use the generic gapiRequest helper due to binary bodies and non-JSON responses.
+async function gcsUploadRequest(path: string, projectId: string, body: File | string, contentType: string): Promise<void> {
+    const client = await getGapiClient();
+    try {
+        const response = await client.request({
+            path,
+            method: 'POST',
+            headers: { 'Content-Type': contentType, 'X-Goog-User-Project': projectId },
+            body,
+        });
+        if (response.status < 200 || response.status >= 300) {
+            throw response; // Throw the whole response object on failure
         }
+    } catch (err: any) {
+        console.error("GCS Upload GAPI Error:", err);
+        const errorBody = typeof err.body === 'string' ? JSON.parse(err.body) : err.body;
+        const message = `GCS upload failed with status ${err.status}: ${errorBody?.error?.message || 'Unknown GCS error.'}`;
+        throw new Error(message);
     }
 }
 
-export async function uploadFileToGcs(
-    accessToken: string,
-    bucketName: string,
-    objectName: string,
-    file: File,
-    projectId: string
-): Promise<void> {
-    const url = `https://storage.googleapis.com/upload/storage/v1/b/${bucketName}/o?uploadType=media&name=${encodeURIComponent(objectName)}`;
-
-    // Cannot use generic apiRequest here as it expects JSON response and GCS can return non-JSON on success.
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': file.type || 'application/octet-stream',
-            'X-Goog-User-Project': projectId,
-        },
-        body: file,
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        console.error("GCS Upload Error Response:", errorText);
-        try {
-            const errorData = JSON.parse(errorText);
-            const message = `GCS upload failed with status ${response.status}: ${errorData.error?.message || errorText}`;
-            throw new Error(message);
-        } catch(e) {
-            throw new Error(`GCS upload failed with status ${response.status}: ${errorText}`);
-        }
-    }
+export async function uploadToGcs(bucketName: string, objectName: string, fileContent: string, contentType: string, projectId: string): Promise<void> {
+    const path = `https://storage.googleapis.com/upload/storage/v1/b/${bucketName}/o?uploadType=media&name=${encodeURIComponent(objectName)}`;
+    await gcsUploadRequest(path, projectId, fileContent, contentType);
 }
 
+export async function uploadFileToGcs(bucketName: string, objectName: string, file: File, projectId: string): Promise<void> {
+    const path = `https://storage.googleapis.com/upload/storage/v1/b/${bucketName}/o?uploadType=media&name=${encodeURIComponent(objectName)}`;
+    await gcsUploadRequest(path, projectId, file, file.type || 'application/octet-stream');
+}
 
 // --- Cloud Logging APIs ---
 export async function fetchViolationLogs(config: Config, customFilter: string): Promise<{ entries?: LogEntry[] }> {
-    const { accessToken, projectId } = config;
-    const baseUrl = getLoggingUrl();
-    const url = `${baseUrl}/v2/entries:list`;
-
+    const { projectId } = config;
+    const path = `${getLoggingUrl()}/v2/entries:list`;
     const baseFilter = `log_id("modelarmor.googleapis.com/sanitize_operations")`;
     const finalFilter = customFilter ? `${baseFilter} AND (${customFilter})` : baseFilter;
 
@@ -779,15 +480,8 @@ export async function fetchViolationLogs(config: Config, customFilter: string): 
         projectIds: [projectId],
         filter: finalFilter,
         orderBy: "timestamp desc",
-        pageSize: 100, // Fetch up to 100 logs
+        pageSize: 100,
     };
-
-    return apiRequest<{ entries?: LogEntry[] }>(url, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-    });
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<{ entries?: LogEntry[] }>(path, 'POST', projectId, undefined, body, headers);
 }

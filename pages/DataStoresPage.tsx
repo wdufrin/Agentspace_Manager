@@ -7,7 +7,6 @@ import DataStoreDetails from '../components/datastores/DataStoreDetails';
 import ConfirmationModal from '../components/ConfirmationModal';
 
 interface DataStoresPageProps {
-  accessToken: string;
   projectNumber: string;
 }
 
@@ -27,7 +26,7 @@ const getInitialConfig = () => {
   };
 };
 
-const DataStoresPage: React.FC<DataStoresPageProps> = ({ accessToken, projectNumber }) => {
+const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
   const [dataStores, setDataStores] = useState<DataStore[]>([]);
   const [selectedDataStore, setSelectedDataStore] = useState<DataStore | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -61,18 +60,17 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ accessToken, projectNum
     }
   };
 
-  const apiConfig: Config = useMemo(() => ({
+  const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       ...config,
-      accessToken,
       projectId: projectNumber,
       // Dummy values for other required config properties
       appId: '',
       assistantId: '',
-  }), [config, accessToken, projectNumber]);
+  }), [config, projectNumber]);
 
   // Effect to fetch collections for dropdown
   useEffect(() => {
-    if (!apiConfig.projectId || !apiConfig.appLocation || !apiConfig.accessToken) {
+    if (!apiConfig.projectId || !apiConfig.appLocation) {
         setCollections([]);
         return;
     }
@@ -97,13 +95,13 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ accessToken, projectNum
         }
     };
     fetchCollections();
-  }, [apiConfig.projectId, apiConfig.appLocation, apiConfig.accessToken]);
+  }, [apiConfig.projectId, apiConfig.appLocation]);
 
 
   const fetchDataStores = useCallback(async () => {
-    if (!accessToken || !projectNumber || !config.collectionId) {
+    if (!projectNumber || !config.collectionId) {
         setDataStores([]);
-        setError("Access Token, Project ID/Number, and Collection ID are required to list data stores.");
+        setError("Project ID/Number and Collection ID are required to list data stores.");
         return;
     }
     setIsLoading(true);
@@ -117,7 +115,7 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ accessToken, projectNum
     } finally {
       setIsLoading(false);
     }
-  }, [apiConfig, accessToken, projectNumber, config.collectionId]);
+  }, [apiConfig, projectNumber, config.collectionId]);
   
   useEffect(() => {
     // Clear data stores if config changes and no auto-fetch is implemented
@@ -222,10 +220,6 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ accessToken, projectNum
   };
 
   const renderContent = () => {
-    if (!accessToken) {
-      return <div className="text-center text-gray-400 mt-8">Please set your GCP Access Token to begin.</div>;
-    }
-
     if (isLoading) { return <Spinner />; }
 
     if (viewMode === 'details' && selectedDataStore) {

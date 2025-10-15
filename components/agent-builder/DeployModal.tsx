@@ -91,7 +91,7 @@ const DeployModal: React.FC<DeployModalProps> = ({ isOpen, onClose, onDeploy, co
     }), [config, location]);
 
     const fetchEngines = useCallback(async () => {
-        if (!apiConfig.projectId || !apiConfig.accessToken || !location) {
+        if (!apiConfig.projectId || !location) {
             setEngines([]);
             return;
         }
@@ -109,10 +109,10 @@ const DeployModal: React.FC<DeployModalProps> = ({ isOpen, onClose, onDeploy, co
         } finally {
             setIsLoadingEngines(false);
         }
-    }, [apiConfig]);
+    }, [apiConfig, location]);
 
     const handleLoadBuckets = useCallback(async () => {
-        if (!apiConfig.projectId || !apiConfig.accessToken) return;
+        if (!apiConfig.projectId) return;
         setIsLoadingBuckets(true);
         setBucketLoadError(null);
         setBuckets([]);
@@ -120,7 +120,8 @@ const DeployModal: React.FC<DeployModalProps> = ({ isOpen, onClose, onDeploy, co
         setObjects([]);
         setSelectedObject('');
         try {
-            const res = await api.listBuckets(apiConfig.projectId, apiConfig.accessToken);
+            // FIX: Removed extra accessToken argument, which is not part of the function signature.
+            const res = await api.listBuckets(apiConfig.projectId);
             setBuckets(res.items || []);
         } catch (err: any) {
             setBucketLoadError(err.message || 'Failed to load buckets.');
@@ -136,7 +137,8 @@ const DeployModal: React.FC<DeployModalProps> = ({ isOpen, onClose, onDeploy, co
         setObjects([]);
         setSelectedObject('');
         try {
-            const res = await api.listGcsObjects(selectedBucket, gcsPrefix, apiConfig.accessToken, apiConfig.projectId);
+            // FIX: Removed extra accessToken argument and corrected the argument order.
+            const res = await api.listGcsObjects(selectedBucket, gcsPrefix, apiConfig.projectId);
             const pklFiles = (res.items || []).filter(item => item.name.endsWith('.pkl'));
             setObjects(pklFiles);
             if (pklFiles.length === 0) {

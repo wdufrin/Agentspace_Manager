@@ -19,7 +19,6 @@ export interface SortConfig {
 }
 
 export interface Config {
-  accessToken: string;
   projectId: string;
   appLocation: string;
   collectionId: string;

@@ -5,10 +5,11 @@ import * as api from '../../services/apiService';
 interface ChatWindowProps {
     agent: Agent;
     config: Config;
+    accessToken: string;
     onBack: () => void;
 }
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ agent, config, onBack }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({ agent, config, accessToken, onBack }) => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -35,10 +36,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ agent, config, onBack }) => {
         setError(null);
 
         try {
+            // FIX: Added missing 'accessToken' argument to streamChat call.
             await api.streamChat(
                 agent.name,
                 historyForApi, // Pass the conversation history
                 config,
+                accessToken,
                 (chunk) => {
                     setMessages(prev => {
                         const lastMessage = prev[prev.length - 1];

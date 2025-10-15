@@ -7,11 +7,10 @@ import McpServerDetails from '../components/mcp-servers/McpServerDetails';
 
 
 interface McpServersPageProps {
-  accessToken: string;
   projectNumber: string;
 }
 
-const McpServersPage: React.FC<McpServersPageProps> = ({ accessToken, projectNumber }) => {
+const McpServersPage: React.FC<McpServersPageProps> = ({ projectNumber }) => {
   const [location, setLocation] = useState('us-central1');
   const [services, setServices] = useState<CloudRunService[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -20,19 +19,18 @@ const McpServersPage: React.FC<McpServersPageProps> = ({ accessToken, projectNum
   const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
   const [selectedService, setSelectedService] = useState<CloudRunService | null>(null);
 
-  const apiConfig: Config = useMemo(() => ({
-      accessToken,
+  const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectNumber,
       // Dummy values for other required config properties
       appLocation: 'global',
       collectionId: '',
       appId: '',
       assistantId: '',
-  }), [accessToken, projectNumber]);
+  }), [projectNumber]);
 
   const handleScan = useCallback(async () => {
-    if (!accessToken || !projectNumber) {
-        setError("Access Token and Project ID/Number are required to scan for services.");
+    if (!projectNumber) {
+        setError("Project ID/Number is required to scan for services.");
         return;
     }
     setIsLoading(true);
@@ -47,7 +45,7 @@ const McpServersPage: React.FC<McpServersPageProps> = ({ accessToken, projectNum
     } finally {
         setIsLoading(false);
     }
-  }, [apiConfig, location, accessToken, projectNumber]);
+  }, [apiConfig, location, projectNumber]);
   
   const handleSelectService = (service: CloudRunService) => {
     setSelectedService(service);
@@ -60,10 +58,6 @@ const McpServersPage: React.FC<McpServersPageProps> = ({ accessToken, projectNum
   };
 
   const renderContent = () => {
-    if (!accessToken) {
-      return <div className="text-center text-gray-400 mt-8">Please set your GCP Access Token to begin.</div>;
-    }
-
     if (isLoading) {
         return <Spinner />;
     }

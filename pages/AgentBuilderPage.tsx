@@ -258,7 +258,7 @@ You are now ready to deploy your agent.
 };
 
 
-const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }> = ({ accessToken, projectNumber }) => {
+const AgentBuilderPage: React.FC<{ projectNumber: string; }> = ({ projectNumber }) => {
     const [agentConfig, setAgentConfig] = useState<AgentConfig>({
         name: '',
         description: 'An agent that can do awesome things.',
@@ -312,14 +312,13 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
     const [pickleFile, setPickleFile] = useState<File | null>(null);
     const [requirementsFile, setRequirementsFile] = useState<File | null>(null);
     
-    const apiConfig: Config = useMemo(() => ({
-      accessToken,
+    const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectNumber,
       appLocation: toolBuilderConfig.location,
       collectionId: toolBuilderConfig.collectionId,
       appId: '',
       assistantId: ''
-    }), [accessToken, projectNumber, toolBuilderConfig.location, toolBuilderConfig.collectionId]);
+    }), [projectNumber, toolBuilderConfig.location, toolBuilderConfig.collectionId]);
 
 
     useEffect(() => {
@@ -372,7 +371,7 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
     
     // Fetch collections
     useEffect(() => {
-      if (!projectNumber || !accessToken || !toolBuilderConfig.location) return;
+      if (!projectNumber || !toolBuilderConfig.location) return;
       const fetchCollections = async () => {
         setIsLoadingCollections(true);
         setCollections([]);
@@ -391,11 +390,11 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
         }
       };
       fetchCollections();
-    }, [projectNumber, accessToken, toolBuilderConfig.location, apiConfig]);
+    }, [projectNumber, toolBuilderConfig.location, apiConfig]);
 
     // Fetch data stores
     useEffect(() => {
-      if (!projectNumber || !accessToken || !toolBuilderConfig.collectionId) return;
+      if (!projectNumber || !toolBuilderConfig.collectionId) return;
       const fetchDataStores = async () => {
         setIsLoadingDataStores(true);
         setDataStores([]);
@@ -413,7 +412,7 @@ const AgentBuilderPage: React.FC<{ accessToken: string; projectNumber: string; }
         }
       };
       fetchDataStores();
-    }, [projectNumber, accessToken, toolBuilderConfig.collectionId, apiConfig]);
+    }, [projectNumber, toolBuilderConfig.collectionId, apiConfig]);
 
 
     const handleAddTool = () => {
@@ -624,19 +623,19 @@ Rewritten Instruction:`;
     }, [activeTab, generatedAgentCode, generatedEnvCode, generatedRequirementsCode, generatedReadmeCode]);
 
     const handleLoadBuckets = useCallback(async () => {
-        if (!projectNumber || !accessToken) return;
+        if (!projectNumber) return;
         setIsLoadingBuckets(true);
         setBucketLoadError(null);
         setBuckets([]);
         try {
-            const res = await api.listBuckets(projectNumber, accessToken);
+            const res = await api.listBuckets(projectNumber);
             setBuckets(res.items || []);
         } catch (err: any) {
             setBucketLoadError(err.message || 'Failed to load buckets.');
         } finally {
             setIsLoadingBuckets(false);
         }
-    }, [projectNumber, accessToken]);
+    }, [projectNumber]);
     
     const addUploadLog = (log: string) => {
         setUploadLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${log}`]);
@@ -673,13 +672,13 @@ Rewritten Instruction:`;
             // Upload pickle file
             const pickleObjectName = `${path}${pickleFile.name}`;
             addUploadLog(`Uploading ${pickleFile.name} to ${pickleObjectName}...`);
-            await api.uploadFileToGcs(accessToken, gcsUploadBucket, pickleObjectName, pickleFile, projectNumber);
+            await api.uploadFileToGcs(gcsUploadBucket, pickleObjectName, pickleFile, projectNumber);
             addUploadLog(`  - ${pickleFile.name} uploaded successfully.`);
 
             // Upload requirements.txt
             const reqsObjectName = `${path}${requirementsFile.name}`;
             addUploadLog(`Uploading ${requirementsFile.name} to ${reqsObjectName}...`);
-            await api.uploadFileToGcs(accessToken, gcsUploadBucket, reqsObjectName, requirementsFile, projectNumber);
+            await api.uploadFileToGcs(gcsUploadBucket, reqsObjectName, requirementsFile, projectNumber);
             addUploadLog(`  - ${requirementsFile.name} uploaded successfully.`);
 
             addUploadLog('Staging files uploaded successfully!');

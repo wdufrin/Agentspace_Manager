@@ -11,7 +11,6 @@ import ConfirmationModal from '../components/ConfirmationModal';
 type ViewMode = 'list' | 'form' | 'details';
 
 interface AgentsPageProps {
-  accessToken: string;
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
 }
@@ -36,7 +35,7 @@ const getInitialConfig = () => {
   };
 };
 
-const AgentsPage: React.FC<AgentsPageProps> = ({ accessToken, projectNumber, setProjectNumber }) => {
+const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber }) => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -107,16 +106,15 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ accessToken, projectNumber, set
     setAssistants([]);
   };
 
-  const apiConfig: Config = useMemo(() => ({
+  const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       ...config,
-      accessToken,
       projectId: projectNumber,
-  }), [config, accessToken, projectNumber]);
+  }), [config, projectNumber]);
 
   // --- Effects to fetch dropdown data ---
 
   useEffect(() => {
-    if (!apiConfig.projectId || !apiConfig.appLocation || !apiConfig.accessToken) {
+    if (!apiConfig.projectId || !apiConfig.appLocation) {
         setCollections([]);
         return;
     }
@@ -142,10 +140,10 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ accessToken, projectNumber, set
         }
     };
     fetchCollections();
-  }, [apiConfig.projectId, apiConfig.appLocation, apiConfig.accessToken]);
+  }, [apiConfig.projectId, apiConfig.appLocation]);
 
   useEffect(() => {
-    if (!config.collectionId || !apiConfig.projectId || !apiConfig.appLocation || !apiConfig.accessToken) {
+    if (!config.collectionId || !apiConfig.projectId || !apiConfig.appLocation) {
         setApps([]);
         return;
     }
@@ -171,10 +169,10 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ accessToken, projectNumber, set
         }
     };
     fetchApps();
-  }, [config.collectionId, apiConfig.projectId, apiConfig.appLocation, apiConfig.accessToken]);
+  }, [config.collectionId, apiConfig.projectId, apiConfig.appLocation]);
   
   useEffect(() => {
-    if (!config.appId || !config.collectionId || !apiConfig.projectId || !apiConfig.appLocation || !apiConfig.accessToken) {
+    if (!config.appId || !config.collectionId || !apiConfig.projectId || !apiConfig.appLocation) {
         setAssistants([]);
         return;
     }
@@ -200,13 +198,13 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ accessToken, projectNumber, set
         }
     };
     fetchAssistants();
-  }, [config.appId, config.collectionId, apiConfig.projectId, apiConfig.appLocation, apiConfig.accessToken]);
+  }, [config.appId, config.collectionId, apiConfig.projectId, apiConfig.appLocation]);
 
   const fetchAgents = useCallback(async () => {
-    if (!apiConfig.accessToken || !apiConfig.projectId || !apiConfig.assistantId) {
+    if (!apiConfig.projectId || !apiConfig.assistantId) {
       setAgents([]);
       if (apiConfig.projectId && apiConfig.assistantId) {
-        setError("Access Token is required to list agents.");
+        setError("Project and Assistant must be selected to list agents.");
       }
       return;
     }
@@ -310,10 +308,6 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ accessToken, projectNumber, set
   }, [agents, sortConfig]);
 
   const renderContent = () => {
-    if (!accessToken) {
-      return <div className="text-center text-gray-400 mt-8">Please set your GCP Access Token to begin.</div>;
-    }
-    
     if (isLoading && agents.length === 0) {
       return <Spinner />;
     }
@@ -361,7 +355,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ accessToken, projectNumber, set
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
-            <ProjectInput value={projectNumber} onChange={handleProjectNumberChange} accessToken={accessToken} />
+            <ProjectInput value={projectNumber} onChange={handleProjectNumberChange} />
           </div>
           <div>
             <label htmlFor="appLocation" className="block text-sm font-medium text-gray-400 mb-1">Location</label>

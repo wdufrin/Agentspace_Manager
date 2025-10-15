@@ -4,10 +4,9 @@ import * as api from '../services/apiService';
 interface ProjectInputProps {
   value: string;
   onChange: (value: string) => void;
-  accessToken: string;
 }
 
-const ProjectInput: React.FC<ProjectInputProps> = ({ value, onChange, accessToken }) => {
+const ProjectInput: React.FC<ProjectInputProps> = ({ value, onChange }) => {
   const [inputValue, setInputValue] = useState(value);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,17 +26,13 @@ const ProjectInput: React.FC<ProjectInputProps> = ({ value, onChange, accessToke
     }
     
     // It's a string (project ID), so try to resolve it to a project number.
-    if (!accessToken) {
-        setError("Access Token is required to resolve a Project ID.");
-        return;
-    }
     setIsLoading(true);
     setError(null);
     try {
-      const projectNumber = await api.getProjectNumber(trimmedValue, accessToken);
+      const projectNumber = await api.getProjectNumber(trimmedValue);
       onChange(projectNumber);
     } catch (err: any) {
-      setError(`Failed to resolve Project ID: ${err.message}`);
+      setError(`Failed to resolve Project ID: ${err.message}. Ensure the API client is initialized.`);
       // Do not update parent on error
     } finally {
       setIsLoading(false);

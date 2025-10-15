@@ -120,25 +120,24 @@ const LogEntryCard: React.FC<{ log: LogEntry }> = ({ log }) => {
 
 // --- Main Page Component ---
 
-const ModelArmorPage: React.FC<{ accessToken: string; projectNumber: string; setProjectNumber: (projectNumber: string) => void; }> = ({ accessToken, projectNumber, setProjectNumber }) => {
+const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (projectNumber: string) => void; }> = ({ projectNumber, setProjectNumber }) => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
 
-  const apiConfig: Config = useMemo(() => ({
-      accessToken,
+  const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectNumber,
       // Dummy values, not used for logging API but required by type
       appLocation: 'global',
       collectionId: '',
       appId: '',
       assistantId: '',
-  }), [accessToken, projectNumber]);
+  }), [projectNumber]);
   
   const handleFetchLogs = useCallback(async () => {
-    if (!accessToken || !projectNumber) {
-        setError("Access Token and Project ID are required to fetch logs.");
+    if (!projectNumber) {
+        setError("Project ID is required to fetch logs.");
         return;
     }
     
@@ -154,11 +153,11 @@ const ModelArmorPage: React.FC<{ accessToken: string; projectNumber: string; set
     } finally {
       setIsLoading(false);
     }
-  }, [apiConfig, filterText, accessToken, projectNumber]);
+  }, [apiConfig, filterText, projectNumber]);
   
   const renderContent = () => {
-    if (!accessToken || !projectNumber) {
-        return <div className="text-center text-gray-400 mt-8">Please set your GCP Access Token and Project ID to begin.</div>;
+    if (!projectNumber) {
+        return <div className="text-center text-gray-400 mt-8">Please set your Project ID to begin.</div>;
     }
     if (isLoading) return <Spinner />;
 
@@ -183,7 +182,7 @@ const ModelArmorPage: React.FC<{ accessToken: string; projectNumber: string; set
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
                 <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
-                <ProjectInput value={projectNumber} onChange={setProjectNumber} accessToken={accessToken} />
+                <ProjectInput value={projectNumber} onChange={setProjectNumber} />
             </div>
             <div>
                  <label htmlFor="filterText" className="block text-sm font-medium text-gray-400 mb-1">Additional Filter (Optional)</label>

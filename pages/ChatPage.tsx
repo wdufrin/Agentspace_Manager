@@ -56,17 +56,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
     });
   };
 
-  const apiConfig: Config = useMemo(() => ({
+  const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       ...config,
-      accessToken,
       projectId: projectNumber,
-  }), [config, accessToken, projectNumber]);
+  }), [config, projectNumber]);
 
   const selectedAgent = useMemo(() => agents.find(a => a.name === config.agentName), [agents, config.agentName]);
 
   // --- Dropdown Data Fetching Effects ---
   useEffect(() => {
-    if (!apiConfig.projectId || !apiConfig.appLocation || !apiConfig.accessToken) { setCollections([]); return; }
+    if (!apiConfig.projectId || !apiConfig.appLocation) { setCollections([]); return; }
     const fetch = async () => {
         setIsLoadingCollections(true); setCollections([]);
         try {
@@ -76,7 +75,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
         finally { setIsLoadingCollections(false); }
     };
     fetch();
-  }, [apiConfig.projectId, apiConfig.appLocation, apiConfig.accessToken]);
+  }, [apiConfig.projectId, apiConfig.appLocation]);
 
   useEffect(() => {
     if (!config.collectionId) { setApps([]); return; }
@@ -124,7 +123,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
     }
     if (selectedAgent) {
         // The onBack prop for ChatWindow can be used to deselect the agent
-        return <ChatWindow agent={selectedAgent} config={apiConfig} onBack={() => setConfig(prev => ({...prev, agentName: ''}))} />;
+        return <ChatWindow agent={selectedAgent} config={apiConfig} accessToken={accessToken} onBack={() => setConfig(prev => ({...prev, agentName: ''}))} />;
     }
     return (
         <div className="text-center text-gray-400 mt-8 bg-gray-800 p-6 rounded-lg">
@@ -141,7 +140,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
-            <ProjectInput value={projectNumber} onChange={setProjectNumber} accessToken={accessToken} />
+            <ProjectInput value={projectNumber} onChange={setProjectNumber} />
           </div>
           <div>
             <label htmlFor="appLocation" className="block text-sm font-medium text-gray-400 mb-1">Location</label>
@@ -174,15 +173,4 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
             <label htmlFor="agentName" className="block text-sm font-medium text-gray-400 mb-1">Agent</label>
             <select name="agentName" value={config.agentName} onChange={handleConfigChange} disabled={isLoadingAgents} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] disabled:bg-gray-700/50">
               <option value="">{isLoadingAgents ? 'Loading...' : '-- Select Agent --'}</option>
-              {agents.map(a => <option key={a.name} value={a.name}>{a.displayName}</option>)}
-            </select>
-          </div>
-        </div>
-        {error && <div className="text-red-400 mt-3 text-sm">{error}</div>}
-      </div>
-      {renderContent()}
-    </div>
-  );
-};
-
-export default ChatPage;
+              {agents.map(a => <option key={a.name} value={a.name}>{a.

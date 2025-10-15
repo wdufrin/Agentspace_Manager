@@ -7,11 +7,10 @@ import AuthForm from '../components/authorizations/AuthForm';
 import ConfirmationModal from '../components/ConfirmationModal';
 
 interface AuthorizationsPageProps {
-  accessToken: string;
   projectNumber: string;
 }
 
-const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ accessToken, projectNumber }) => {
+const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }) => {
   const [authorizations, setAuthorizations] = useState<Authorization[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,8 +22,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ accessToken, pr
   const [authToDelete, setAuthToDelete] = useState<Authorization | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const apiConfig: Config = {
-      accessToken,
+  const apiConfig: Omit<Config, 'accessToken'> = {
       projectId: projectNumber,
       // These are not used for authorizations but are required by the type
       appLocation: 'global', 
@@ -34,9 +32,9 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ accessToken, pr
   };
 
   const fetchAuthorizations = useCallback(async () => {
-    if (!accessToken || !projectNumber) {
+    if (!projectNumber) {
         setAuthorizations([]);
-        setError("Access Token and Project ID/Number are required to list authorizations.");
+        setError("Project ID/Number is required to list authorizations.");
         return;
     }
     setIsLoading(true);
@@ -50,7 +48,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ accessToken, pr
     } finally {
       setIsLoading(false);
     }
-  }, [accessToken, projectNumber]);
+  }, [projectNumber]);
 
   useEffect(() => {
     if (projectNumber) {
@@ -129,9 +127,6 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ accessToken, pr
   };
 
   const renderContent = () => {
-    if (!accessToken) {
-      return <div className="text-center text-gray-400 mt-8">Please set your GCP Access Token to begin.</div>;
-    }
     if (isLoading) { return <Spinner />; }
     if (error && view === 'list') { return <div className="text-center text-red-400 mt-8">{error}</div>; }
     

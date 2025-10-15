@@ -140,11 +140,10 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   const [isLoadingAssistants, setIsLoadingAssistants] = useState(false);
 
 
-  const apiConfig: Config = useMemo(() => ({
+  const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       ...config,
-      accessToken,
       projectId: projectNumber,
-  }), [config, accessToken, projectNumber]);
+  }), [config, projectNumber]);
 
   const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -189,7 +188,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
   // --- Effects to fetch dropdown data ---
   useEffect(() => {
-    if (!apiConfig.projectId || !apiConfig.appLocation || !apiConfig.accessToken) {
+    if (!apiConfig.projectId || !apiConfig.appLocation) {
         setCollections([]);
         return;
     }
@@ -213,10 +212,10 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
         }
     };
     fetchCollections();
-  }, [apiConfig.projectId, apiConfig.appLocation, apiConfig.accessToken]);
+  }, [apiConfig.projectId, apiConfig.appLocation]);
 
   useEffect(() => {
-    if (!config.collectionId || !apiConfig.projectId || !apiConfig.appLocation || !apiConfig.accessToken) {
+    if (!config.collectionId || !apiConfig.projectId || !apiConfig.appLocation) {
         setApps([]);
         return;
     }
@@ -240,10 +239,10 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
         }
     };
     fetchApps();
-  }, [config.collectionId, apiConfig.projectId, apiConfig.appLocation, apiConfig.accessToken]);
+  }, [config.collectionId, apiConfig.projectId, apiConfig.appLocation]);
   
   useEffect(() => {
-    if (!config.appId || !config.collectionId || !apiConfig.projectId || !apiConfig.appLocation || !apiConfig.accessToken) {
+    if (!config.appId || !config.collectionId || !apiConfig.projectId || !apiConfig.appLocation) {
         setAssistants([]);
         return;
     }
@@ -267,7 +266,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
         }
     };
     fetchAssistants();
-  }, [config.appId, config.collectionId, apiConfig.projectId, apiConfig.appLocation, apiConfig.accessToken]);
+  }, [config.appId, config.collectionId, apiConfig.projectId, apiConfig.appLocation]);
 
 
   const downloadJson = (data: object, filenamePrefix: string) => {
@@ -300,12 +299,12 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       }
   };
 
-  const pollOperation = async (operation: any, config: Config, resourceName: string) => {
+  const pollOperation = async (operation: any, pollConfig: typeof apiConfig, resourceName: string) => {
     let currentOperation = operation;
     addLog(`  - Operation for ${resourceName} initiated (${currentOperation.name}). Polling for completion...`);
     while (!currentOperation.done) {
         await delay(5000); // Poll every 5 seconds
-        currentOperation = await api.getDiscoveryOperation(currentOperation.name, config);
+        currentOperation = await api.getDiscoveryOperation(currentOperation.name, pollConfig);
         addLog(`    - Polling ${resourceName}... status: ${currentOperation.done ? 'DONE' : 'IN_PROGRESS'}`);
     }
 
@@ -480,7 +479,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     });
   };
 
-  const restoreAgentsIntoAssistant = async (agents: Agent[], restoreConfig: Config) => {
+  const restoreAgentsIntoAssistant = async (agents: Agent[], restoreConfig: typeof apiConfig) => {
     addLog(`  - Restoring ${agents.length} agent(s)...`);
     for (const agent of agents) {
       const originalAgentId = agent.name.split('/').pop()!;
@@ -964,7 +963,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">Target Project ID / Number</label>
-            <ProjectInput value={projectNumber} onChange={handleProjectNumberChange} accessToken={accessToken} />
+            <ProjectInput value={projectNumber} onChange={handleProjectNumberChange} />
           </div>
           <div>
             <label htmlFor="appLocation" className="block text-sm font-medium text-gray-400 mb-1">Target Location</label>

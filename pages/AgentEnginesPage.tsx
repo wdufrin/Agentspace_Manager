@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useCallback, useMemo } from 'react';
 import { ReasoningEngine, Config, Agent } from '../types';
 import * as api from '../services/apiService';
@@ -7,11 +9,10 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import EngineDetails from '../components/agent-engines/EngineDetails';
 
 interface AgentEnginesPageProps {
-  accessToken: string;
   projectNumber: string;
 }
 
-const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projectNumber }) => {
+const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber }) => {
   const [engines, setEngines] = useState<ReasoningEngine[]>([]);
   const [allAgents, setAllAgents] = useState<Agent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -27,8 +28,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
-  const apiConfig: Config = useMemo(() => ({
-      accessToken,
+  const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectNumber,
       reasoningEngineLocation: location,
       // Dummy values for other required config properties
@@ -36,7 +36,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
       collectionId: 'default_collection',
       appId: '',
       assistantId: 'default_assistant'
-  }), [accessToken, projectNumber, location]);
+  }), [projectNumber, location]);
 
   const agentsByEngine = useMemo(() => {
     if (!allAgents.length) return {};
@@ -54,9 +54,9 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
   }, [allAgents]);
 
   const fetchEngines = useCallback(async () => {
-    if (!accessToken || !projectNumber || !location) {
+    if (!projectNumber || !location) {
       setEngines([]);
-      setError("Access Token, Project ID/Number, and Location are required to list agent engines.");
+      setError("Project ID/Number and Location are required to list agent engines.");
       return;
     }
     setIsLoading(true);
@@ -72,8 +72,6 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
       setEngines(fetchedEngines);
 
       if (fetchedEngines.length === 0) {
-        // This is not an error, just an empty state.
-        // setError(`No agent engines found in location "${location}".`);
         return; // The finally block will handle isLoading
       }
 
@@ -138,7 +136,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
     } finally {
       setIsLoading(false);
     }
-  }, [apiConfig, location, accessToken, projectNumber]);
+  }, [apiConfig, location, projectNumber]);
   
   const handleToggleSelect = (engineName: string) => {
     setSelectedEngines(prev => {
@@ -208,9 +206,6 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ accessToken, projec
   };
 
   const renderContent = () => {
-    if (!accessToken) {
-      return <div className="text-center text-gray-400 mt-8">Please set your GCP Access Token to begin.</div>;
-    }
     if (isLoading && viewMode === 'list') { return <Spinner />; }
     
     if (viewMode === 'details' && selectedEngine) {
