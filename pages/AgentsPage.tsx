@@ -13,6 +13,7 @@ type ViewMode = 'list' | 'form' | 'details';
 interface AgentsPageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
+  accessToken: string;
 }
 
 const getInitialConfig = () => {
@@ -35,7 +36,7 @@ const getInitialConfig = () => {
   };
 };
 
-const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber }) => {
+const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber, accessToken }) => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [isLoading, setIsLoading] = useState(false);

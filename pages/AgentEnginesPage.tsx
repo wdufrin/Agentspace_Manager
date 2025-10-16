@@ -184,9 +184,20 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber }) =>
     results.forEach((result, index) => {
         if (result.status === 'rejected') {
             const engineName = String(enginesToDelete[index]).split('/').pop();
-            const reason = result.reason;
-            // FIX: The rejection 'reason' from a Promise is of type 'unknown' and must be safely converted to a string before use.
-            const message = reason instanceof Error ? reason.message : String(reason);
+            const reason: unknown = result.reason;
+            let message: string;
+            // FIX: Safely stringify unknown error reasons.
+            if (reason instanceof Error) {
+                message = reason.message;
+            } else if (typeof reason === 'string') {
+                message = reason;
+            } else {
+                try {
+                    message = JSON.stringify(reason as any) ?? 'Reason could not be serialized to a string.';
+                } catch {
+                    message = 'A non-serializable error object was caught.';
+                }
+            }
             failures.push(`- ${engineName}: ${message}`);
         }
     });

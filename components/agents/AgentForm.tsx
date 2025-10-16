@@ -47,7 +47,6 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [iconPreviewError, setIconPreviewError] = useState(false);
-  const [previewPayload, setPreviewPayload] = useState<object | null>(null);
 
   const [rewritingField, setRewritingField] = useState<string | null>(null);
   const [rewriteError, setRewriteError] = useState<string | null>(null);
@@ -60,6 +59,10 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
   const [isLoadingAuths, setIsLoadingAuths] = useState(false);
   const [authLoadError, setAuthLoadError] = useState<string | null>(null);
   const [authInputMode, setAuthInputMode] = useState<'manual' | 'select'>('manual');
+  
+  // State for cURL command preview
+  const [curlCommand, setCurlCommand] = useState('');
+  const [copySuccessCurl, setCopySuccessCurl] = useState(false);
 
   const isEditingDisabled = agentToEdit && !agentToEdit.state;
 
@@ -91,34 +94,121 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
     }
   }, [agentToEdit, config.appLocation]);
 
-  // Effect to generate the JSON preview payload when editing
-  useEffect(() => {
-    if (!agentToEdit) {
-      setPreviewPayload(null);
-      return;
-    }
 
-    const finalStarterPrompts = formData.starterPrompts
-        .map(text => text.trim())
-        .filter(text => text)
-        .map(text => ({ text }));
+    // Effect to generate the cURL command preview for both create and update
+    useEffect(() => {
+        const { projectId, appLocation, collectionId, appId, assistantId } = config;
 
-    const payload: Partial<Agent> = {
-        displayName: formData.displayName,
-        description: formData.description,
-        icon: formData.iconUri ? { uri: formData.iconUri } : undefined,
-        starterPrompts: finalStarterPrompts.length > 0 ? finalStarterPrompts : undefined,
-        adkAgentDefinition: {
-            toolSettings: { toolDescription: formData.toolDescription },
-            provisionedReasoningEngine: {
-              reasoningEngine: `projects/${config.projectId}/locations/${formData.reasoningEngineLocation}/reasoningEngines/${formData.reasoningEngineId}`,
-            },
-        },
-    };
+        if (!projectId || !appLocation) {
+            setCurlCommand('Project ID and Location must be set.');
+            return;
+        }
 
-    setPreviewPayload(payload);
+        const finalStarterPrompts = formData.starterPrompts
+            .map(text => text.trim())
+            .filter(text => text)
+            .map(text => ({ text }));
+        
+        const reasoningEnginePath = `projects/${projectId}/locations/${formData.reasoningEngineLocation}/reasoningEngines/${formData.reasoningEngineId}`;
 
-  }, [formData, agentToEdit, config.projectId]);
+        if (agentToEdit) {
+            // --- UPDATE (PATCH) LOGIC ---
+            const updateMask: string[] = [];
+            const payload: any = {};
+
+            if (agentToEdit.displayName !== formData.displayName) {
+                updateMask.push('display_name');
+                payload.displayName = formData.displayName;
+            }
+
+            if (agentToEdit.description !== formData.description) {
+                updateMask.push('description');
+                payload.description = formData.description;
+            }
+            
+            if (agentToEdit.icon?.uri !== formData.iconUri) {
+                updateMask.push('icon');
+                payload.icon = { uri: formData.iconUri };
+            }
+
+            const originalPrompts = (agentToEdit.starterPrompts || []).map(p => ({ text: p.text }));
+            if (JSON.stringify(originalPrompts) !== JSON.stringify(finalStarterPrompts)) {
+                updateMask.push('starter_prompts');
+                payload.starterPrompts = finalStarterPrompts;
+            }
+            
+            const originalAdkDef = agentToEdit.adkAgentDefinition;
+            if (originalAdkDef?.toolSettings?.toolDescription !== formData.toolDescription ||
+                originalAdkDef?.provisionedReasoningEngine?.reasoningEngine !== reasoningEnginePath) {
+                updateMask.push('adk_agent_definition');
+                payload.adk_agent_definition = {
+                    tool_settings: { tool_description: formData.toolDescription },
+                    provisioned_reasoning_engine: { reasoning_engine: reasoningEnginePath }
+                };
+            }
+
+            if (updateMask.length === 0) {
+                setCurlCommand('# No changes detected. Modify the form to see the update command.');
+                return;
+            }
+
+            const payloadString = JSON.stringify(payload, null, 2);
+            const url = `https://${appLocation === 'global' ? '' : appLocation + '-'}discoveryengine.googleapis.com/v1alpha/${agentToEdit.name}?updateMask=${updateMask.join(',')}`;
+
+            const command = `curl -X PATCH \\
+     -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+     -H "Content-Type: application/json" \\
+     -H "X-Goog-User-Project: ${projectId}" \\
+     -d '${payloadString}' \\
+     "${url}"`;
+
+            setCurlCommand(command);
+
+        } else {
+            // --- CREATE (POST) LOGIC ---
+            if (!collectionId || !appId || !assistantId) {
+                setCurlCommand('Fill out the main configuration on the Agents page to generate the command.');
+                return;
+            }
+
+            const createPayload: any = {
+                displayName: formData.displayName,
+                description: formData.description,
+                icon: formData.iconUri ? { uri: formData.iconUri } : undefined,
+                starterPrompts: finalStarterPrompts.length > 0 ? finalStarterPrompts : undefined,
+                adkAgentDefinition: {
+                    tool_settings: { tool_description: formData.toolDescription },
+                    provisioned_reasoning_engine: {
+                      reasoning_engine: reasoningEnginePath,
+                    },
+                },
+            };
+        
+            const finalAuthId = formData.authId?.split('/').pop()?.trim();
+            if (finalAuthId) {
+                createPayload.authorizations = [
+                    `projects/${projectId}/locations/global/authorizations/${finalAuthId}`
+                ];
+            }
+
+            const payloadString = JSON.stringify(createPayload, null, 2);
+            const parent = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}`;
+            let url = `https://${appLocation === 'global' ? '' : appLocation + '-'}discoveryengine.googleapis.com/v1alpha/${parent}/agents`;
+            if (formData.agentId.trim()) {
+                url += `?agent_id=${formData.agentId.trim()}`;
+            }
+            
+            const command = `curl -X POST \\
+     -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+     -H "Content-Type: application/json" \\
+     -H "X-Goog-User-Project: ${projectId}" \\
+     -d '${payloadString}' \\
+     "${url}"`;
+
+            setCurlCommand(command);
+        }
+    }, [formData, agentToEdit, config]);
+
 
   useEffect(() => {
     setIconPreviewError(false);
@@ -332,9 +422,16 @@ Rewritten tool description:`;
       setIsSubmitting(false);
     }
   };
+  
+    const handleCopyCurlCommand = () => {
+        navigator.clipboard.writeText(curlCommand).then(() => {
+            setCopySuccessCurl(true);
+            setTimeout(() => setCopySuccessCurl(false), 2000);
+        });
+    };
 
   return (
-    <div className={`bg-gray-800 shadow-xl rounded-lg p-6 ${agentToEdit ? 'max-w-7xl' : 'max-w-2xl'} mx-auto`}>
+    <div className="bg-gray-800 shadow-xl rounded-lg p-6 max-w-7xl mx-auto">
       <div className="flex justify-between items-start mb-6">
         <h2 className="text-2xl font-bold text-white">{agentToEdit ? 'Update Agent' : 'Register New Agent'}</h2>
         <button type="button" onClick={onCancel} className="text-gray-400 hover:text-white">&larr; Back to list</button>
@@ -348,7 +445,7 @@ Rewritten tool description:`;
 
       {rewriteError && <p className="text-red-400 text-sm mb-4">{rewriteError}</p>}
 
-      <div className={agentToEdit ? "grid grid-cols-1 lg:grid-cols-2 gap-8" : ""}>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Column 1: The Form */}
         <form id="agent-form" onSubmit={handleSubmit} className="space-y-4">
             <fieldset disabled={isEditingDisabled} className="space-y-4">
@@ -499,18 +596,27 @@ Rewritten tool description:`;
         </form>
 
         {/* Column 2: The Preview */}
-        {agentToEdit && previewPayload && (
-            <div>
-                 <h3 className="text-xl font-semibold text-white">Update Payload Preview</h3>
-                 <div className="bg-gray-900 rounded-lg p-4 mt-2" style={{maxHeight: 'calc(100vh - 25rem)', overflowY: 'auto'}}>
-                    <pre className="text-xs text-gray-300 whitespace-pre-wrap">
-                        <code>
-                            {JSON.stringify(previewPayload, null, 2)}
-                        </code>
-                    </pre>
-                 </div>
+        <div>
+            <h3 className="text-xl font-semibold text-white">cURL Command Preview</h3>
+            <p className="text-sm text-gray-400 mt-1 mb-2">
+                {agentToEdit
+                    ? "This command reflects changes made in the form for updating the agent."
+                    : "This command reflects the current form settings for registering a new agent."}
+            </p>
+            <div className="bg-gray-900 rounded-lg p-4 relative" style={{ maxHeight: 'calc(100vh - 25rem)', overflowY: 'auto' }}>
+                <button
+                    onClick={handleCopyCurlCommand}
+                    className="absolute top-3 right-3 px-3 py-1 bg-gray-600 text-white text-xs font-semibold rounded-md hover:bg-gray-500 z-10"
+                >
+                    {copySuccessCurl ? 'Copied!' : 'Copy'}
+                </button>
+                <pre className="text-xs text-gray-300 whitespace-pre-wrap">
+                    <code>
+                        {curlCommand}
+                    </code>
+                </pre>
             </div>
-        )}
+        </div>
       </div>
 
        {/* Buttons and Error outside the grid, at the bottom of the component */}

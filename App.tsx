@@ -11,8 +11,9 @@ import ModelArmorPage from './pages/ModelArmorPage';
 import AgentBuilderPage from './pages/AgentBuilderPage';
 import McpServersPage from './pages/McpServersPage';
 import ProjectInput from './components/ProjectInput';
-import { initGapiClient } from './services/gapiService';
+import { initGapiClient, getGapiClient } from './services/gapiService';
 import * as api from './services/apiService';
+import ChatPage from './pages/ChatPage';
 
 
 const App: React.FC = () => {
@@ -25,6 +26,7 @@ const App: React.FC = () => {
   const [isGapiInitialized, setIsGapiInitialized] = useState(false);
   const [isGapiReady, setIsGapiReady] = useState(false); // New state for two-stage welcome screen
   const [isGapiLoading, setIsGapiLoading] = useState(false);
+  const [isTokenValidating, setIsTokenValidating] = useState(false);
   const [gapiError, setGapiError] = useState<string | null>(null);
 
   // State for API validation check
@@ -44,23 +46,48 @@ const App: React.FC = () => {
     
     if (trimmedToken) {
       setIsGapiLoading(true);
+      setIsTokenValidating(false);
       setGapiError(null);
       setApiValidationResult(null);
       setApisToEnable(new Set());
       setApiEnablementLogs([]);
+      
       initGapiClient(trimmedToken)
         .then(() => {
-          console.log("Google API Client Initialized Successfully.");
+          console.log("Google API Client Initialized Successfully. Validating token...");
+          setIsGapiLoading(false);
+          setIsTokenValidating(true);
+          // Perform a lightweight API call to validate the token's usability.
+          return getGapiClient().then(client => client.cloudresourcemanager.projects.list({ pageSize: 1 }));
+        })
+        .then(() => {
+          console.log("Token validated successfully.");
           setIsGapiReady(true);
           setGapiError(null);
         })
-        .catch((err) => {
-          console.error("GAPI initialization failed", err);
-          setGapiError(`Failed to initialize Google API Client. The access token might be invalid, expired, or missing required scopes. Details: ${err.message || 'Unknown error'}`);
+        .catch((err: any) => {
+          console.error("GAPI initialization or token validation failed", err);
+          let detailMessage = 'An unknown error occurred.';
+          if (typeof err === 'string') {
+              detailMessage = err;
+          } else if (err instanceof Error) {
+              detailMessage = err.message;
+          } else if (err?.result?.error?.message) {
+              detailMessage = err.result.error.message;
+          } else {
+              try {
+                  detailMessage = JSON.stringify(err, null, 2);
+              } catch {
+                  detailMessage = 'A non-serializable error object was caught.';
+              }
+          }
+          const errorMessage = `Failed to initialize or validate the token. Details: ${detailMessage}. The access token might be invalid, expired, or missing required scopes (e.g., cloud-platform).`;
+          setGapiError(errorMessage);
           setIsGapiReady(false);
         })
         .finally(() => {
           setIsGapiLoading(false);
+          setIsTokenValidating(false);
         });
     } else {
         setIsGapiReady(false);
@@ -71,6 +98,8 @@ const App: React.FC = () => {
   const handleSetProjectNumber = (projectNum: string) => {
     sessionStorage.setItem('agentspace-projectNumber', projectNum);
     setProjectNumber(projectNum);
+    // Also reset any results that depend on the project number
+    setApiValidationResult(null);
   };
   
   const handleValidateApis = async () => {
@@ -175,13 +204,15 @@ const App: React.FC = () => {
 
     switch (currentPage) {
       case Page.AGENTS:
-        return <AgentsPage {...projectProps} />;
+        return <AgentsPage {...projectProps} accessToken={accessToken} />;
       case Page.AUTHORIZATIONS:
         return <AuthorizationsPage {...commonProps} />;
       case Page.AGENT_ENGINES:
         return <AgentEnginesPage {...commonProps} />;
       case Page.AGENT_BUILDER:
         return <AgentBuilderPage {...commonProps} />;
+      case Page.CHAT:
+        return <ChatPage {...projectProps} accessToken={accessToken} />;
       case Page.DATA_STORES:
         return <DataStoresPage {...commonProps} />;
       case Page.MCP_SERVERS:
@@ -191,10 +222,10 @@ const App: React.FC = () => {
       case Page.BACKUP_RECOVERY:
         return <BackupPage {...projectProps} accessToken={accessToken} />;
       default:
-        return <AgentsPage {...projectProps} />;
+        return <AgentsPage {...projectProps} accessToken={accessToken} />;
     }
   };
-  
+
   const renderApiValidationResults = () => {
     if (!apiValidationResult) return null;
     
@@ -300,12 +331,18 @@ const App: React.FC = () => {
                                 Initializing Google API Client... Please wait.
                             </div>
                         )}
+                        {isTokenValidating && (
+                             <div className="flex items-center justify-center p-4 text-sm text-blue-300">
+                                <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-400 mr-3"></div>
+                                Validating access token permissions...
+                            </div>
+                        )}
                         {gapiError && <div className="p-4 text-sm text-center text-red-300 bg-red-900/30 rounded-lg">{gapiError}</div>}
                     </>
                 ) : (
                      <>
                         <div className="p-4 text-center text-green-300 bg-green-900/30 rounded-lg border border-green-700">
-                           API Client Initialized Successfully!
+                           API Client Initialized & Token Validated Successfully!
                         </div>
                         <p className="text-center text-gray-400">Step 2: Set your Project and validate required APIs.</p>
                         

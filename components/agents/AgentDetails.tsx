@@ -223,13 +223,13 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
 
             <div className="mt-8 border-t border-gray-700 pt-6">
                 <div className="flex flex-wrap items-start gap-4">
-                    {/* Edit and Policy Actions */}
-                    {(agent.state === 'ENABLED' || agent.state === 'DISABLED') && (
-                        <div className="flex flex-wrap gap-4 p-4 border border-gray-700 rounded-lg bg-gray-900/30">
-                            <div>
-                                <h4 className="font-semibold text-white">Edit Agent</h4>
-                                <p className="text-xs text-gray-400 mb-2">Modify the agent's definition or permissions.</p>
-                                <div className="flex flex-wrap gap-4">
+                    {/* Primary Actions */}
+                    <div className="flex flex-wrap gap-4 p-4 border border-gray-700 rounded-lg bg-gray-900/30">
+                        <div>
+                            <h4 className="font-semibold text-white">Primary Actions</h4>
+                            <p className="text-xs text-gray-400 mb-2">Modify this agent.</p>
+                            <div className="flex flex-wrap gap-4">
+                                {(agent.state === 'ENABLED' || agent.state === 'DISABLED') && (
                                      <button 
                                         onClick={onEdit} 
                                         title="Update agent's display name, description, tools, etc."
@@ -237,31 +237,23 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                                     >
                                         Update Agent
                                     </button>
-                                    <button onClick={handleFetchIamPolicy} disabled={isFetchingPolicy} className="px-5 py-2.5 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700 disabled:bg-purple-800">
-                                        {isFetchingPolicy ? 'Fetching...' : 'Get IAM Policy'}
-                                    </button>
-                                    <button 
-                                        onClick={() => setIsSetPolicyModalOpen(true)} 
-                                        disabled={!iamPolicy || isFetchingPolicy} 
-                                        className="px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 disabled:bg-indigo-800 disabled:cursor-not-allowed"
-                                        title={!iamPolicy ? "Fetch the policy first to get the required ETag" : "Edit IAM Policy"}
-                                    >
-                                        Edit IAM Policy
-                                    </button>
-                                </div>
+                                )}
                             </div>
                         </div>
-                    )}
+                    </div>
                     
                     {/* Other Actions */}
                     <div className="flex flex-wrap gap-4 p-4 border border-gray-700 rounded-lg bg-gray-900/30 flex-1">
                          <div>
-                            <h4 className="font-semibold text-white">View &amp; Delete</h4>
-                             <p className="text-xs text-gray-400 mb-2">Inspect agent data or perform destructive actions.</p>
+                            <h4 className="font-semibold text-white">Advanced Actions</h4>
+                             <p className="text-xs text-gray-400 mb-2">Inspect data or perform destructive actions.</p>
                             <div className="flex flex-wrap gap-4">
-                                <button onClick={handleFetchAgentView} disabled={isFetchingView} className="px-5 py-2.5 bg-teal-600 text-white font-semibold rounded-md hover:bg-teal-700 disabled:bg-teal-800">
+                                 <button onClick={handleFetchAgentView} disabled={isFetchingView} className="px-5 py-2.5 bg-teal-600 text-white font-semibold rounded-md hover:bg-teal-700 disabled:bg-teal-800">
                                     {isFetchingView ? 'Fetching...' : 'Get View'}
                                  </button>
+                                <button onClick={handleFetchIamPolicy} disabled={isFetchingPolicy} className="px-5 py-2.5 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700 disabled:bg-purple-800">
+                                    {isFetchingPolicy ? 'Fetching...' : 'Get IAM Policy'}
+                                </button>
                                  <button onClick={handleDelete} disabled={isDeleting} className="px-5 py-2.5 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700 disabled:bg-red-800">
                                     {isDeleting ? 'Deleting...' : 'Delete'}
                                 </button>
@@ -285,7 +277,19 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
 
             {(iamPolicy || policyError || isFetchingPolicy || policySuccess) && (
                 <div className="mt-6 border-t border-gray-700 pt-6">
-                    <h3 className="text-lg font-semibold text-white">IAM Policy</h3>
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold text-white">IAM Policy</h3>
+                         {(agent.state === 'ENABLED' || agent.state === 'DISABLED') && (
+                            <button 
+                                onClick={() => setIsSetPolicyModalOpen(true)} 
+                                disabled={!iamPolicy || isFetchingPolicy} 
+                                className="px-3 py-1.5 text-xs bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 disabled:bg-indigo-800 disabled:cursor-not-allowed"
+                                title={!iamPolicy ? "Fetch the policy first to get the required ETag" : "Edit IAM Policy"}
+                            >
+                                Edit Policy
+                            </button>
+                         )}
+                    </div>
                     {isFetchingPolicy && <Spinner />}
                     {policyError && <p className="text-red-400 mt-2">{policyError}</p>}
                     {policySuccess && <p className="text-green-400 mt-2">{policySuccess}</p>}

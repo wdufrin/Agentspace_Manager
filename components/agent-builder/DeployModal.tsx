@@ -161,7 +161,12 @@ const DeployModal: React.FC<DeployModalProps> = ({ isOpen, onClose, onDeploy, co
         setIsDeploying(true);
         setDeploymentLogs([]);
         
-        const stagingUri = `gs://${selectedBucket}/${gcsPrefix ? (gcsPrefix.endsWith('/') ? gcsPrefix : `${gcsPrefix}/`) : ''}`;
+        // Derive the staging path from the selected pickle file's path.
+        // This ensures requirements.txt is found in the same directory.
+        const lastSlashIndex = selectedObject.lastIndexOf('/');
+        const objectPath = lastSlashIndex > -1 ? selectedObject.substring(0, lastSlashIndex + 1) : '';
+        const stagingUri = `gs://${selectedBucket}/${objectPath}`;
+        
         const pickleUri = `gs://${selectedBucket}/${selectedObject}`;
         
         const deployInfo: DeployInfo = { 

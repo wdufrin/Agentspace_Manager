@@ -22,7 +22,14 @@ const NavItem: React.FC<{
     }`}
   >
     {icon}
-    <span className="ml-3">{page}</span>
+    <span className="ml-3 flex items-center gap-2">
+      <span>{page}</span>
+      {page === Page.CHAT && (
+        <span className="px-1.5 py-0.5 text-xs font-semibold tracking-wider bg-yellow-500 text-black rounded-full">
+          BETA
+        </span>
+      )}
+    </span>
   </button>
 );
 
@@ -59,6 +66,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage }) => {
           currentPage={currentPage} 
           setCurrentPage={setCurrentPage}
           icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.494 3.132a1 1 0 00-1.414 0l-1.88 1.88a1 1 0 000 1.414l.707.707a1 1 0 001.414 0l.172-.172a.5.5 0 01.707 0l1.414 1.414a.5.5 0 010 .707l-.172.172a1 1 0 000 1.414l.707.707a1 1 0 001.414 0l1.88-1.88a1 1 0 000-1.414l-4.243-4.243zM4.707 10.293a1 1 0 00-1.414 1.414l3.536 3.536a1 1 0 001.414 0l.707-.707a1 1 0 00-1.414-1.414l-.353.354-2.121-2.121.353-.354a1 1 0 00-1.414-1.414l-.707.707z" clipRule="evenodd" /><path d="M13.293 4.293a1 1 0 010 1.414L11 8a1 1 0 01-1.414-1.414L11.879 4.3a1 1 0 011.414-.007z" /></svg>}
+        />
+        <NavItem 
+          page={Page.CHAT} 
+          currentPage={currentPage} 
+          setCurrentPage={setCurrentPage}
+          icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 5v8a2 2 0 01-2 2h-5l-5 4v-4H4a2 2 0 01-2-2V5a2 2 0 012-2h12a2 2 0 012 2zM7 8H5v2h2V8zm2 0h2v2H9V8zm6 0h-2v2h2V8z" clipRule="evenodd" /></svg>}
         />
         <NavItem 
           page={Page.DATA_STORES} 

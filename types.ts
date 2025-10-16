@@ -4,6 +4,7 @@ export enum Page {
   AUTHORIZATIONS = 'Authorizations',
   AGENT_ENGINES = 'Agent Engines',
   AGENT_BUILDER = 'Agent Builder',
+  CHAT = 'Chat',
   DATA_STORES = 'Data Stores',
   MCP_SERVERS = 'MCP Servers',
   MODEL_ARMOR = 'Model Armor',
@@ -81,6 +82,10 @@ export interface ReasoningEngine {
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  answerDetails?: {
+      diagnostics?: any;
+      citations?: any[];
+  }
 }
 
 // Types for Discovery Resources

@@ -122,8 +122,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
       return <div className="text-center text-gray-400 mt-8">Please set your GCP Access Token to begin.</div>;
     }
     if (selectedAgent) {
-        // The onBack prop for ChatWindow can be used to deselect the agent
-        return <ChatWindow agent={selectedAgent} config={apiConfig} accessToken={accessToken} onBack={() => setConfig(prev => ({...prev, agentName: ''}))} />;
+        return <ChatWindow agent={selectedAgent} config={apiConfig} accessToken={accessToken} onClose={() => setConfig(prev => ({...prev, agentName: ''}))} />;
     }
     return (
         <div className="text-center text-gray-400 mt-8 bg-gray-800 p-6 rounded-lg">
@@ -134,7 +133,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
   };
   
  return (
-    <div className="space-y-6">
+    <div className="flex flex-col h-full space-y-6">
       <div className="bg-gray-800 p-4 rounded-lg shadow-md">
         <h2 className="text-lg font-semibold text-white mb-3">Chat Configuration</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -173,4 +172,17 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
             <label htmlFor="agentName" className="block text-sm font-medium text-gray-400 mb-1">Agent</label>
             <select name="agentName" value={config.agentName} onChange={handleConfigChange} disabled={isLoadingAgents} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] disabled:bg-gray-700/50">
               <option value="">{isLoadingAgents ? 'Loading...' : '-- Select Agent --'}</option>
-              {agents.map(a => <option key={a.name} value={a.name}>{a.
+              {agents.map(a => <option key={a.name} value={a.name}>{a.displayName}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+      {error && <div className="text-center text-red-400 p-4 mb-4 bg-red-900/20 rounded-lg">{error}</div>}
+      <div className="flex-1 min-h-0">
+        {renderContent()}
+      </div>
+    </div>
+  );
+};
+
+export default ChatPage;

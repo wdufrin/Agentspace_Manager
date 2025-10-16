@@ -12,6 +12,67 @@ const REQUIRED_APIS = [
     'serviceusage.googleapis.com', // Required for this validation check itself
 ];
 
+// A list of all required IAM permissions for the application's features.
+const ALL_REQUIRED_PERMISSIONS = [
+    // Discovery Engine
+    'discoveryengine.agents.create',
+    'discoveryengine.agents.delete',
+    'discoveryengine.agents.get',
+    'discoveryengine.agents.getIamPolicy',
+    'discoveryengine.agents.list',
+    'discoveryengine.agents.setIamPolicy',
+    'discoveryengine.agents.update',
+    'discoveryengine.assistants.assist',
+    'discoveryengine.authorizations.create',
+    'discoveryengine.authorizations.delete',
+    'discoveryengine.authorizations.get',
+    'discoveryengine.authorizations.list',
+    'discoveryengine.authorizations.update',
+    'discoveryengine.collections.get',
+    'discoveryengine.collections.list',
+    'discoveryengine.dataStores.create',
+    'discoveryengine.dataStores.delete',
+    'discoveryengine.dataStores.get',
+    'discoveryengine.dataStores.list',
+    'discoveryengine.documents.list',
+    'discoveryengine.engines.get',
+    'discoveryengine.engines.list',
+    
+    // Vertex AI / AI Platform
+    'aiplatform.reasoningEngines.create',
+    'aiplatform.reasoningEngines.delete',
+    'aiplatform.reasoningEngines.get',
+    'aiplatform.reasoningEngines.list',
+    'aiplatform.reasoningEngines.update',
+  
+    // Cloud Resource Manager
+    'resourcemanager.projects.get',
+    'resourcemanager.projects.getIamPolicy',
+    'resourcemanager.projects.list',
+  
+    // Cloud Logging
+    'logging.logEntries.list',
+  
+    // Cloud Run
+    'run.services.get',
+    'run.services.list',
+  
+    // Cloud Storage
+    'storage.buckets.list',
+    'storage.objects.create',
+    'storage.objects.get',
+  
+    // Service Usage
+    'serviceusage.services.batchEnable',
+    'serviceusage.services.get',
+    'serviceusage.services.list',
+];
+
+const SERVICE_ACCOUNT_REQUIRED_ROLES = [
+    'roles/aiplatform.user',
+    'roles/storage.objectUser',
+];
+
 
 // Helper functions to get correct base URLs
 const getDiscoveryEngineUrl = (location: string): string => {
@@ -73,7 +134,7 @@ async function gapiRequest<T>(
   }
 }
 
-// --- API Validation ---
+// --- API Validation & Permission Checks ---
 export const validateEnabledApis = async (projectId: string): Promise<{ enabled: string[], disabled: string[] }> => {
     const client = await getGapiClient();
     const enabled: string[] = [];
@@ -98,6 +159,110 @@ export const validateEnabledApis = async (projectId: string): Promise<{ enabled:
     await Promise.all(checks);
     return { enabled, disabled };
 };
+
+// Helper function to parse IAM policy for a specific service account's roles
+const checkRolesForPrincipal = (
+    policy: any,
+    principalEmail: string,
+    requiredRoles: string[]
+): { granted: string[], denied: string[] } => {
+    const granted: string[] = [];
+    const principal = `serviceAccount:${principalEmail}`;
+    const assignedRoles = new Set<string>();
+
+    if (policy && policy.bindings) {
+        for (const binding of policy.bindings) {
+            if (binding.members && binding.members.includes(principal)) {
+                assignedRoles.add(binding.role);
+            }
+        }
+    }
+
+    const denied = requiredRoles.filter(role => {
+        if (assignedRoles.has(role)) {
+            granted.push(role);
+            return false;
+        }
+        return true;
+    });
+
+    return { granted, denied };
+};
+
+export const checkAllPermissions = async (projectNumber: string): Promise<{
+    user: { granted: string[], denied: string[] };
+    discoverySa: { granted: string[], denied: string[] };
+    reasoningEngineSa: { granted: string[], denied: string[] };
+}> => {
+    const client = await getGapiClient();
+
+    // 1. Check permissions for the logged-in user
+    const userPermissionsPromise = client.cloudresourcemanager.projects.testIamPermissions({
+        resource: projectNumber,
+        permissions: ALL_REQUIRED_PERMISSIONS
+    }).then((response: any) => {
+        const granted = response.result.permissions || [];
+        const denied = ALL_REQUIRED_PERMISSIONS.filter(p => !granted.includes(p));
+        return { granted, denied };
+    }).catch((err: any) => {
+        console.error("GAPI Error during testIamPermissions for user:", err);
+        let detailMessage = 'An unknown error occurred while checking permissions.';
+        if (typeof err === 'string') {
+            detailMessage = err;
+        } else if (err instanceof Error) {
+            detailMessage = err.message;
+        } else if (err?.result?.error?.message) {
+            detailMessage = err.result.error.message;
+        } else {
+            try {
+                detailMessage = JSON.stringify(err, null, 2);
+            } catch {
+                detailMessage = 'A non-serializable error object was caught during permission check.';
+            }
+        }
+        throw new Error(`Failed to check user permissions: ${detailMessage}`);
+    });
+
+    // 2. Get the project's IAM policy to check service accounts
+    const iamPolicyPromise = client.cloudresourcemanager.projects.getIamPolicy({
+        resource: projectNumber,
+    }).then((response: any) => response.result)
+    .catch((err: any) => {
+        console.error("GAPI Error during getIamPolicy:", err);
+        let detailMessage = 'An unknown error occurred while getting IAM policy.';
+         if (typeof err === 'string') {
+            detailMessage = err;
+        } else if (err instanceof Error) {
+            detailMessage = err.message;
+        } else if (err?.result?.error?.message) {
+            detailMessage = err.result.error.message;
+        } else {
+            try {
+                detailMessage = JSON.stringify(err, null, 2);
+            } catch {
+                detailMessage = 'A non-serializable error object was caught during IAM policy fetch.';
+            }
+        }
+        throw new Error(`Failed to get project IAM policy: ${detailMessage}`);
+    });
+
+    // Await both promises
+    const [userResult, iamPolicy] = await Promise.all([userPermissionsPromise, iamPolicyPromise]);
+
+    // 3. Construct SA names and check their roles from the policy
+    const discoverySaEmail = `service-${projectNumber}@gcp-sa-discoveryengine.iam.gserviceaccount.com`;
+    const reasoningEngineSaEmail = `service-${projectNumber}@gcp-sa-aiplatform-re.iam.gserviceaccount.com`;
+
+    const discoverySaResult = checkRolesForPrincipal(iamPolicy, discoverySaEmail, SERVICE_ACCOUNT_REQUIRED_ROLES);
+    const reasoningEngineSaResult = checkRolesForPrincipal(iamPolicy, reasoningEngineSaEmail, SERVICE_ACCOUNT_REQUIRED_ROLES);
+
+    return {
+        user: userResult,
+        discoverySa: discoverySaResult,
+        reasoningEngineSa: reasoningEngineSaResult,
+    };
+};
+
 
 export const batchEnableApis = async (projectId: string, apiIds: string[]): Promise<any> => {
     const client = await getGapiClient();
@@ -292,17 +457,19 @@ export async function disableAgent(agentName: string, config: Config): Promise<A
 
 // NOTE: streamChat CANNOT be converted to gapi as it does not support streaming responses.
 // It must continue to use fetch and requires the accessToken to be passed manually.
-export const streamChat = async (agentName: string, messages: ChatMessage[], config: Config, accessToken: string, onChunk: (chunk: string) => void) => {
+export const streamChat = async (agentName: string, query: string, sessionId: string | null, config: Config, accessToken: string, onChunk: (chunk: any) => void) => {
     const { projectId, appLocation, collectionId, appId, assistantId } = config;
     const assistantName = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}`;
-    const url = `${getDiscoveryEngineUrl(appLocation)}/v1alpha/${assistantName}:streamConverse`;
-    
-    const conversationMessages = messages.map(msg => ({ [msg.role === 'user' ? 'userMessage' : 'modelResponseMessage']: { text: msg.content } }));
-    const data = {
-        messages: conversationMessages,
-        session: `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/sessions/agentspace-manager-session`,
+    const url = `${getDiscoveryEngineUrl(appLocation)}/v1alpha/${assistantName}:streamAssist`;
+
+    const data: any = {
+        query: { text: query },
         agentsConfig: { agent: agentName },
     };
+
+    if (sessionId) {
+        data.session = sessionId;
+    }
 
     const response = await fetch(url, {
         method: 'POST',
@@ -323,15 +490,30 @@ export const streamChat = async (agentName: string, messages: ChatMessage[], con
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-            if (line.trim() === '') continue;
-            try {
-                const parsed = JSON.parse(line);
-                if (parsed.reply?.text) onChunk(parsed.reply.text);
-            } catch (e) {
-                console.warn("Failed to parse stream line:", line);
+        
+        // The API returns a stream of JSON objects that are not always newline-separated.
+        // We need to handle this by finding valid JSON objects in the buffer.
+        let jsonStart = buffer.indexOf('{');
+        let openBraces = 0;
+        
+        for (let i = jsonStart; i < buffer.length; i++) {
+            if (buffer[i] === '{') {
+                openBraces++;
+            } else if (buffer[i] === '}') {
+                openBraces--;
+                if (openBraces === 0 && jsonStart !== -1) {
+                    const jsonString = buffer.substring(jsonStart, i + 1);
+                    try {
+                        const parsed = JSON.parse(jsonString);
+                        onChunk(parsed);
+                    } catch (e) {
+                        console.warn("Failed to parse stream chunk:", jsonString);
+                    }
+                    // Reset buffer to what's left
+                    buffer = buffer.substring(i + 1);
+                    jsonStart = buffer.indexOf('{');
+                    i = jsonStart - 1; // Adjust loop counter
+                }
             }
         }
     }
