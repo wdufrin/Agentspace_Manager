@@ -109,10 +109,10 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
 const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, setProjectNumber }) => {
   const [config, setConfig] = useState({
     appLocation: 'global',
-    collectionId: '',
     appId: '',
-    assistantId: '',
     reasoningEngineLocation: 'us-central1',
+    collectionId: 'default_collection',
+    assistantId: 'default_assistant',
   });
   const [isLoading, setIsLoading] = useState(false);
   const [loadingSection, setLoadingSection] = useState<string | null>(null);
@@ -132,12 +132,8 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   const [secretPrompt, setSecretPrompt] = useState<{ auth: Authorization; resolve: (secret: string | null) => void; customMessage?: string; } | null>(null);
 
   // State for dropdown options
-  const [collections, setCollections] = useState<Collection[]>([]);
   const [apps, setApps] = useState<AppEngine[]>([]);
-  const [assistants, setAssistants] = useState<Assistant[]>([]);
-  const [isLoadingCollections, setIsLoadingCollections] = useState(false);
   const [isLoadingApps, setIsLoadingApps] = useState(false);
-  const [isLoadingAssistants, setIsLoadingAssistants] = useState(false);
 
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
@@ -147,21 +143,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
   const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setConfig(prev => {
-        const newConfig = { ...prev, [name]: value };
-        // Reset children when parent changes
-        if (name === 'collectionId') {
-            newConfig.appId = '';
-            newConfig.assistantId = '';
-            setApps([]);
-            setAssistants([]);
-        }
-        if (name === 'appId') {
-            newConfig.assistantId = '';
-            setAssistants([]);
-        }
-        return newConfig;
-    });
+    setConfig(prev => ({ ...prev, [name]: value }));
   };
 
   const handleProjectNumberChange = (newValue: string) => {
@@ -169,13 +151,9 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     // Reset dependent fields when project changes
     setConfig(prev => ({
         ...prev,
-        collectionId: '',
         appId: '',
-        assistantId: '',
     }));
-    setCollections([]);
     setApps([]);
-    setAssistants([]);
   };
   
   const handleFileChange = (section: string, file: File | null) => {
@@ -189,33 +167,6 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   // --- Effects to fetch dropdown data ---
   useEffect(() => {
     if (!apiConfig.projectId || !apiConfig.appLocation) {
-        setCollections([]);
-        return;
-    }
-    const fetchCollections = async () => {
-        setIsLoadingCollections(true);
-        setCollections([]);
-        try {
-            const response = await api.listResources('collections', apiConfig);
-            const fetchedCollections = response.collections || [];
-            setCollections(fetchedCollections);
-            if (fetchedCollections.length === 1) {
-                const singleCollectionId = fetchedCollections[0].name.split('/').pop();
-                if (singleCollectionId) {
-                    setConfig(prev => ({ ...prev, collectionId: singleCollectionId }));
-                }
-            }
-        } catch (err) {
-            console.error("Failed to fetch collections:", err);
-        } finally {
-            setIsLoadingCollections(false);
-        }
-    };
-    fetchCollections();
-  }, [apiConfig.projectId, apiConfig.appLocation]);
-
-  useEffect(() => {
-    if (!config.collectionId || !apiConfig.projectId || !apiConfig.appLocation) {
         setApps([]);
         return;
     }
@@ -239,34 +190,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
         }
     };
     fetchApps();
-  }, [config.collectionId, apiConfig.projectId, apiConfig.appLocation]);
-  
-  useEffect(() => {
-    if (!config.appId || !config.collectionId || !apiConfig.projectId || !apiConfig.appLocation) {
-        setAssistants([]);
-        return;
-    }
-    const fetchAssistants = async () => {
-        setIsLoadingAssistants(true);
-        setAssistants([]);
-        try {
-            const response = await api.listResources('assistants', apiConfig);
-            const fetchedAssistants = response.assistants || [];
-            setAssistants(fetchedAssistants);
-            if (fetchedAssistants.length === 1) {
-                const singleAssistantId = fetchedAssistants[0].name.split('/').pop();
-                if (singleAssistantId) {
-                    setConfig(prev => ({ ...prev, assistantId: singleAssistantId }));
-                }
-            }
-        } catch (err) {
-            console.error("Failed to fetch assistants:", err);
-        } finally {
-            setIsLoadingAssistants(false);
-        }
-    };
-    fetchAssistants();
-  }, [config.appId, config.collectionId, apiConfig.projectId, apiConfig.appLocation]);
+  }, [apiConfig.projectId, apiConfig.appLocation, apiConfig.collectionId]);
 
 
   const downloadJson = (data: object, filenamePrefix: string) => {
@@ -318,9 +242,17 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
   // --- Backup Handlers ---
   const handleBackupDiscovery = async () => executeOperation('BackupDiscoveryResources', async () => {
-    addLog('Starting Discovery Resources backup...');
+    addLog('Starting Discovery Resources backup for default_collection...');
     const collectionsResponse = await api.listResources('collections', apiConfig);
-    const collections: Collection[] = collectionsResponse.collections || [];
+    const collections: Collection[] = (collectionsResponse.collections || []).filter(c => c.name.endsWith('/default_collection'));
+
+    if (collections.length === 0) {
+        addLog('Warning: default_collection not found in this location.');
+        const backupData = { type: 'DiscoveryResources', createdAt: new Date().toISOString(), sourceConfig: apiConfig, collections: [] };
+        downloadJson(backupData, 'agentspace-discovery-backup');
+        addLog(`Backup complete! No collections found to back up.`);
+        return;
+    }
     
     for (const collection of collections) {
         const collectionId = collection.name.split('/').pop()!;
@@ -331,35 +263,35 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
         for (const engine of engines) {
             const appId = engine.name.split('/').pop()!;
             const assistantsResponse = await api.listResources('assistants', { ...apiConfig, collectionId, appId });
-            engine.assistants = assistantsResponse.assistants || [];
+            engine.assistants = (assistantsResponse.assistants || []).filter(a => a.name.endsWith('/default_assistant'));
         }
     }
 
     const backupData = { type: 'DiscoveryResources', createdAt: new Date().toISOString(), sourceConfig: apiConfig, collections };
     downloadJson(backupData, 'agentspace-discovery-backup');
-    addLog(`Backup complete! Found ${collections.length} collections.`);
+    addLog(`Backup complete! Found and backed up 'default_collection'.`);
   });
   
   const handleBackupAppEngine = async () => executeOperation('BackupAppEngine', async () => {
-    if (!apiConfig.collectionId || !apiConfig.appId) {
-      throw new Error("Collection ID and App / Engine ID must be set in the configuration to back up a single engine.");
+    if (!apiConfig.appId) {
+      throw new Error("App / Engine ID must be set in the configuration to back up a single engine.");
     }
     addLog(`Starting backup for App/Engine: ${apiConfig.appId}...`);
     const engineName = `projects/${apiConfig.projectId}/locations/${apiConfig.appLocation}/collections/${apiConfig.collectionId}/engines/${apiConfig.appId}`;
     
     const engine = await api.getEngine(engineName, apiConfig);
     
-    const assistantsResponse = await api.listResources('assistants', { ...apiConfig, collectionId: apiConfig.collectionId, appId: apiConfig.appId });
-    engine.assistants = assistantsResponse.assistants || [];
+    const assistantsResponse = await api.listResources('assistants', { ...apiConfig, appId: apiConfig.appId });
+    engine.assistants = (assistantsResponse.assistants || []).filter(a => a.name.endsWith('/default_assistant'));
 
     const backupData = { type: 'AppEngine', createdAt: new Date().toISOString(), sourceConfig: apiConfig, engine };
     downloadJson(backupData, `agentspace-app-engine-${apiConfig.appId}-backup`);
-    addLog(`Backup complete! App/Engine '${engine.displayName}' and its ${engine.assistants.length} assistants saved.`);
+    addLog(`Backup complete! App/Engine '${engine.displayName}' and its default_assistant saved.`);
   });
 
   const handleBackupAssistant = async () => executeOperation('BackupAssistant', async () => {
-    if (!apiConfig.collectionId || !apiConfig.appId || !apiConfig.assistantId) {
-      throw new Error("Collection, App/Engine, and Assistant IDs must be set to back up a single assistant.");
+    if (!apiConfig.appId) {
+      throw new Error("App/Engine ID must be set to back up an assistant.");
     }
     addLog(`Starting backup for Assistant: ${apiConfig.assistantId}...`);
     const assistantName = `projects/${apiConfig.projectId}/locations/${apiConfig.appLocation}/collections/${apiConfig.collectionId}/engines/${apiConfig.appId}/assistants/${apiConfig.assistantId}`;
@@ -375,8 +307,8 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   });
   
   const handleBackupAgents = async () => executeOperation('BackupAgents', async () => {
-    if (!apiConfig.collectionId || !apiConfig.appId || !apiConfig.assistantId) {
-      throw new Error("Collection, App/Engine, and Assistant IDs must be set to back up agents.");
+    if (!apiConfig.appId) {
+      throw new Error("App/Engine ID must be set to back up agents.");
     }
     addLog(`Starting backup for agents in Assistant: ${apiConfig.assistantId}...`);
     
@@ -389,10 +321,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   });
 
   const handleBackupDataStores = async () => executeOperation('BackupDataStores', async () => {
-    if (!apiConfig.collectionId) {
-      throw new Error("Collection ID must be set to back up data stores.");
-    }
-    addLog('Starting Data Stores backup...');
+    addLog('Starting Data Stores backup for default_collection...');
     const dataStoresResponse = await api.listResources('dataStores', apiConfig);
     const dataStores: DataStore[] = dataStoresResponse.dataStores || [];
     
@@ -742,8 +671,8 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
               const agentsToRestore = data.assistant.agents; 
               const restoreConfig = apiConfig; // Uses the UI config, including the target assistantId
 
-              if (!restoreConfig.assistantId) {
-                  throw new Error("You must select a target Assistant in the configuration before restoring agents from an assistant backup.");
+              if (!restoreConfig.appId) {
+                  throw new Error("You must select a target App/Engine in the configuration before restoring agents from an assistant backup.");
               }
               
               addLog(`Restoring ${agentsToRestore.length} agent(s) into selected assistant '${restoreConfig.assistantId}'...`);
@@ -824,8 +753,8 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     }
 
     const restoreConfig = apiConfig;
-    if (!restoreConfig.assistantId) {
-        throw new Error("You must select a target Assistant in the configuration before restoring agents.");
+    if (!restoreConfig.appId) {
+        throw new Error("You must select a target App/Engine in the configuration before restoring agents.");
     }
 
     setModalData({
@@ -974,30 +903,10 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
             </select>
           </div>
           <div>
-            <label htmlFor="collectionId" className="block text-sm font-medium text-gray-400 mb-1">Target Collection ID</label>
-            <select name="collectionId" value={config.collectionId} onChange={handleConfigChange} disabled={isLoadingCollections || collections.length === 0} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px] disabled:bg-gray-700/50">
-              <option value="">{isLoadingCollections ? 'Loading...' : '-- Select Collection --'}</option>
-              {collections.map(c => {
-                  const id = c.name.split('/').pop() || '';
-                  return <option key={c.name} value={id}>{c.displayName || id}</option>
-              })}
-            </select>
-          </div>
-          <div>
             <label htmlFor="appId" className="block text-sm font-medium text-gray-400 mb-1">Target App / Engine ID</label>
              <select name="appId" value={config.appId} onChange={handleConfigChange} disabled={isLoadingApps || apps.length === 0} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px] disabled:bg-gray-700/50">
               <option value="">{isLoadingApps ? 'Loading...' : '-- Select App --'}</option>
               {apps.map(a => {
-                  const id = a.name.split('/').pop() || '';
-                  return <option key={a.name} value={id}>{a.displayName || id}</option>
-              })}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="assistantId" className="block text-sm font-medium text-gray-400 mb-1">Target Assistant ID</label>
-            <select name="assistantId" value={config.assistantId} onChange={handleConfigChange} disabled={isLoadingAssistants || assistants.length === 0} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px] disabled:bg-gray-700/50">
-              <option value="">{isLoadingAssistants ? 'Loading...' : '-- Select Assistant --'}</option>
-              {assistants.map(a => {
                   const id = a.name.split('/').pop() || '';
                   return <option key={a.name} value={id}>{a.displayName || id}</option>
               })}

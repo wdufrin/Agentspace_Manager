@@ -85,6 +85,7 @@ export interface ChatMessage {
   answerDetails?: {
       diagnostics?: any;
       citations?: any[];
+      groundingMetadata?: any;
   }
 }
 

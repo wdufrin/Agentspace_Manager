@@ -14,7 +14,9 @@ const getInitialConfig = () => {
   try {
     const savedConfig = sessionStorage.getItem('dataStoresPageConfig');
     if (savedConfig) {
-      return JSON.parse(savedConfig);
+      const parsed = JSON.parse(savedConfig);
+      delete parsed.collectionId; // remove deprecated key
+      return parsed;
     }
   } catch (e) {
     console.error("Failed to parse config from sessionStorage", e);
@@ -22,7 +24,6 @@ const getInitialConfig = () => {
   }
   return {
     appLocation: 'global',
-    collectionId: '',
   };
 };
 
@@ -40,24 +41,20 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
   const [dataStoresToDelete, setDataStoresToDelete] = useState<DataStore[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
   
-  const [config, setConfig] = useState(getInitialConfig);
-  
-  // State for dropdown options
-  const [collections, setCollections] = useState<Collection[]>([]);
-  const [isLoadingCollections, setIsLoadingCollections] = useState(false);
+  const [config, setConfig] = useState(() => ({
+    ...getInitialConfig(),
+    collectionId: 'default_collection',
+  }));
   
   // Save config to session storage on change
   useEffect(() => {
-    sessionStorage.setItem('dataStoresPageConfig', JSON.stringify(config));
+    const { appLocation } = config;
+    sessionStorage.setItem('dataStoresPageConfig', JSON.stringify({ appLocation }));
   }, [config]);
 
   const handleConfigChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const { name, value } = e.target;
     setConfig(prev => ({ ...prev, [name]: value }));
-    if (name === 'appLocation') {
-        setConfig(prev => ({...prev, collectionId: ''}));
-        setCollections([]);
-    }
   };
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
@@ -67,36 +64,6 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
       appId: '',
       assistantId: '',
   }), [config, projectNumber]);
-
-  // Effect to fetch collections for dropdown
-  useEffect(() => {
-    if (!apiConfig.projectId || !apiConfig.appLocation) {
-        setCollections([]);
-        return;
-    }
-    const fetchCollections = async () => {
-        setIsLoadingCollections(true);
-        setCollections([]);
-        try {
-            const response = await api.listResources('collections', apiConfig);
-            const fetchedCollections = response.collections || [];
-            setCollections(fetchedCollections);
-            // Auto-select if there is only one option
-            if (fetchedCollections.length === 1) {
-                const singleCollectionId = fetchedCollections[0].name.split('/').pop();
-                if (singleCollectionId) {
-                    setConfig(prev => ({ ...prev, collectionId: singleCollectionId }));
-                }
-            }
-        } catch (err: any) {
-            setError("Failed to fetch collections. " + err.message);
-        } finally {
-            setIsLoadingCollections(false);
-        }
-    };
-    fetchCollections();
-  }, [apiConfig.projectId, apiConfig.appLocation]);
-
 
   const fetchDataStores = useCallback(async () => {
     if (!projectNumber || !config.collectionId) {
@@ -121,7 +88,7 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
     // Clear data stores if config changes and no auto-fetch is implemented
     setDataStores([]);
     setSelectedDataStores(new Set());
-  }, [config.collectionId, config.appLocation, projectNumber]);
+  }, [config.appLocation, projectNumber]);
 
   const pollDiscoveryOperation = async (operation: any) => {
     let currentOperation = operation;
@@ -271,20 +238,16 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
                     </select>
                 </div>
                 <div>
-                    <label htmlFor="collectionId" className="block text-sm font-medium text-gray-400 mb-1">Collection ID</label>
-                    <select name="collectionId" value={config.collectionId} onChange={handleConfigChange} disabled={isLoadingCollections || collections.length === 0} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[38px] disabled:bg-gray-700/50">
-                    <option value="">{isLoadingCollections ? 'Loading...' : '-- Select a Collection --'}</option>
-                    {collections.map(c => {
-                        const collectionId = c.name.split('/').pop() || '';
-                        return <option key={c.name} value={collectionId}>{c.displayName || collectionId}</option>
-                    })}
-                    </select>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Collection ID</label>
+                    <div className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-300 font-mono h-[38px] flex items-center">
+                        default_collection
+                    </div>
                 </div>
             </div>
             {viewMode === 'list' && (
                 <button 
                     onClick={fetchDataStores} 
-                    disabled={isLoading || !config.collectionId}
+                    disabled={isLoading}
                     className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500"
                 >
                     {isLoading ? 'Loading...' : 'Fetch Data Stores'}

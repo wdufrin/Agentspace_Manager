@@ -22,6 +22,8 @@ const getInitialConfig = () => {
     if (savedConfig) {
       const parsed = JSON.parse(savedConfig);
       delete parsed.projectNumber; // Ensure project number isn't part of this state
+      delete parsed.collectionId; // Remove deprecated keys
+      delete parsed.assistantId;  // Remove deprecated keys
       return parsed;
     }
   } catch (e) {
@@ -31,8 +33,6 @@ const getInitialConfig = () => {
   return {
     appId: '',
     appLocation: 'global',
-    collectionId: '',
-    assistantId: '',
   };
 };
 
@@ -50,20 +50,22 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   const [agentToDelete, setAgentToDelete] = useState<Agent | null>(null);
 
   // Configuration state
-  const [config, setConfig] = useState(getInitialConfig);
+  const [config, setConfig] = useState(() => ({
+    ...getInitialConfig(),
+    collectionId: 'default_collection',
+    assistantId: 'default_assistant',
+  }));
   const [sortConfig, setSortConfig] = useState<{ key: SortableAgentKey; direction: SortDirection }>({ key: 'displayName', direction: 'asc' });
 
   // State for dropdown options and their loading status
-  const [collections, setCollections] = useState<any[]>([]);
   const [apps, setApps] = useState<any[]>([]);
-  const [assistants, setAssistants] = useState<any[]>([]);
-  const [isLoadingCollections, setIsLoadingCollections] = useState(false);
   const [isLoadingApps, setIsLoadingApps] = useState(false);
-  const [isLoadingAssistants, setIsLoadingAssistants] = useState(false);
 
   // Save config to session storage on change
   useEffect(() => {
-    sessionStorage.setItem('agentsPageConfig', JSON.stringify(config));
+    // Only save the user-configurable parts
+    const { appId, appLocation } = config;
+    sessionStorage.setItem('agentsPageConfig', JSON.stringify({ appId, appLocation }));
   }, [config]);
 
   const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -72,22 +74,8 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
         const newConfig = { ...prev, [name]: value };
         // Reset children when parent changes
         if (name === 'appLocation') {
-            newConfig.collectionId = '';
             newConfig.appId = '';
-            newConfig.assistantId = '';
-            setCollections([]);
             setApps([]);
-            setAssistants([]);
-        }
-        if (name === 'collectionId') {
-            newConfig.appId = '';
-            newConfig.assistantId = '';
-            setApps([]);
-            setAssistants([]);
-        }
-        if (name === 'appId') {
-            newConfig.assistantId = '';
-            setAssistants([]);
         }
         return newConfig;
     });
@@ -98,13 +86,9 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     // Reset dependent fields when project changes
     setConfig(prev => ({
         ...prev,
-        collectionId: '',
         appId: '',
-        assistantId: '',
     }));
-    setCollections([]);
     setApps([]);
-    setAssistants([]);
   };
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
@@ -116,35 +100,6 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
 
   useEffect(() => {
     if (!apiConfig.projectId || !apiConfig.appLocation) {
-        setCollections([]);
-        return;
-    }
-    const fetchCollections = async () => {
-        setIsLoadingCollections(true);
-        setCollections([]);
-        try {
-            const response = await api.listResources('collections', apiConfig);
-            const fetchedCollections = response.collections || [];
-            setCollections(fetchedCollections);
-            // Auto-select if there is only one option
-            if (fetchedCollections.length === 1) {
-                const singleCollectionId = fetchedCollections[0].name.split('/').pop();
-                if (singleCollectionId) {
-                    setConfig(prev => ({ ...prev, collectionId: singleCollectionId }));
-                }
-            }
-        } catch (err) {
-            console.error("Failed to fetch collections:", err);
-            setError("Failed to fetch collections.");
-        } finally {
-            setIsLoadingCollections(false);
-        }
-    };
-    fetchCollections();
-  }, [apiConfig.projectId, apiConfig.appLocation]);
-
-  useEffect(() => {
-    if (!config.collectionId || !apiConfig.projectId || !apiConfig.appLocation) {
         setApps([]);
         return;
     }
@@ -163,49 +118,20 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
                 }
             }
         } catch (err) {
-            console.error("Failed to fetch apps:", err);
+            console.error("Failed to fetch apps/engines:", err);
             setError("Failed to fetch apps/engines.");
         } finally {
             setIsLoadingApps(false);
         }
     };
     fetchApps();
-  }, [config.collectionId, apiConfig.projectId, apiConfig.appLocation]);
-  
-  useEffect(() => {
-    if (!config.appId || !config.collectionId || !apiConfig.projectId || !apiConfig.appLocation) {
-        setAssistants([]);
-        return;
-    }
-    const fetchAssistants = async () => {
-        setIsLoadingAssistants(true);
-        setAssistants([]);
-        try {
-            const response = await api.listResources('assistants', apiConfig);
-            const fetchedAssistants = response.assistants || [];
-            setAssistants(fetchedAssistants);
-            // Auto-select if there is only one option
-            if (fetchedAssistants.length === 1) {
-                const singleAssistantId = fetchedAssistants[0].name.split('/').pop();
-                if (singleAssistantId) {
-                    setConfig(prev => ({ ...prev, assistantId: singleAssistantId }));
-                }
-            }
-        } catch (err) {
-            console.error("Failed to fetch assistants:", err);
-            setError("Failed to fetch assistants.");
-        } finally {
-            setIsLoadingAssistants(false);
-        }
-    };
-    fetchAssistants();
-  }, [config.appId, config.collectionId, apiConfig.projectId, apiConfig.appLocation]);
+  }, [apiConfig.projectId, apiConfig.appLocation, apiConfig.collectionId]);
 
   const fetchAgents = useCallback(async () => {
-    if (!apiConfig.projectId || !apiConfig.assistantId) {
+    if (!apiConfig.projectId || !apiConfig.appId) {
       setAgents([]);
-      if (apiConfig.projectId && apiConfig.assistantId) {
-        setError("Project and Assistant must be selected to list agents.");
+      if (apiConfig.projectId && !apiConfig.appId) {
+        setError("Project and App/Engine must be selected to list agents.");
       }
       return;
     }
@@ -223,12 +149,12 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   }, [apiConfig]);
 
   useEffect(() => {
-    if (config.assistantId) {
+    if (config.appId) {
       fetchAgents();
     } else {
-      setAgents([]); // Clear agents if assistant isn't selected
+      setAgents([]); // Clear agents if app isn't selected
     }
-  }, [fetchAgents, config.assistantId]);
+  }, [fetchAgents, config.appId]);
 
   const handleToggleStatus = async (agent: Agent) => {
     const agentId = agent.name.split('/').pop() || '';
@@ -353,7 +279,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     <div className="space-y-6">
       <div className="bg-gray-800 p-4 rounded-lg shadow-md">
         <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
             <ProjectInput value={projectNumber} onChange={handleProjectNumberChange} />
@@ -367,32 +293,12 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             </select>
           </div>
           <div>
-            <label htmlFor="collectionId" className="block text-sm font-medium text-gray-400 mb-1">Collection ID</label>
-            <select name="collectionId" value={config.collectionId} onChange={handleConfigChange} disabled={isLoadingCollections || collections.length === 0} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px] disabled:bg-gray-700/50">
-              <option value="">{isLoadingCollections ? 'Loading...' : '-- Select a Collection --'}</option>
-              {collections.map(c => {
-                  const collectionId = c.name.split('/').pop() || '';
-                  return <option key={c.name} value={collectionId}>{c.displayName || collectionId}</option>
-              })}
-            </select>
-          </div>
-          <div>
             <label htmlFor="appId" className="block text-sm font-medium text-gray-400 mb-1">App / Engine ID</label>
             <select name="appId" value={config.appId} onChange={handleConfigChange} disabled={isLoadingApps || apps.length === 0} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px] disabled:bg-gray-700/50">
               <option value="">{isLoadingApps ? 'Loading...' : '-- Select an App --'}</option>
               {apps.map(a => {
                   const appId = a.name.split('/').pop() || '';
                   return <option key={a.name} value={appId}>{a.displayName || appId}</option>
-              })}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="assistantId" className="block text-sm font-medium text-gray-400 mb-1">Assistant ID</label>
-            <select name="assistantId" value={config.assistantId} onChange={handleConfigChange} disabled={isLoadingAssistants || assistants.length === 0} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px] disabled:bg-gray-700/50">
-              <option value="">{isLoadingAssistants ? 'Loading...' : '-- Select an Assistant --'}</option>
-              {assistants.map(a => {
-                  const assistantId = a.name.split('/').pop() || '';
-                  return <option key={a.name} value={assistantId}>{a.displayName || assistantId}</option>
               })}
             </select>
           </div>

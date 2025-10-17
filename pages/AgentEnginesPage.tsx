@@ -1,18 +1,22 @@
 
 
 
+
+
 import React, { useState, useCallback, useMemo } from 'react';
 import { ReasoningEngine, Config, Agent } from '../types';
 import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
 import ConfirmationModal from '../components/ConfirmationModal';
 import EngineDetails from '../components/agent-engines/EngineDetails';
+import DirectQueryChatWindow from '../components/agent-engines/DirectQueryChatWindow';
 
 interface AgentEnginesPageProps {
   projectNumber: string;
+  accessToken: string; // Add accessToken to props
 }
 
-const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber }) => {
+const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, accessToken }) => {
   const [engines, setEngines] = useState<ReasoningEngine[]>([]);
   const [allAgents, setAllAgents] = useState<Agent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -22,6 +26,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber }) =>
   // State for view management
   const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
   const [selectedEngine, setSelectedEngine] = useState<ReasoningEngine | null>(null);
+  const [chatEngine, setChatEngine] = useState<ReasoningEngine | null>(null);
   
   // State for multi-select and delete confirmation
   const [selectedEngines, setSelectedEngines] = useState<Set<string>>(new Set());
@@ -184,9 +189,10 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber }) =>
     results.forEach((result, index) => {
         if (result.status === 'rejected') {
             const engineName = String(enginesToDelete[index]).split('/').pop();
+            // FIX: The 'reason' for a rejected promise from Promise.allSettled is of type 'unknown'. It must be type-checked before being used as a string to prevent a TypeScript error.
             const reason: unknown = result.reason;
             let message: string;
-            // FIX: Safely stringify unknown error reasons.
+            
             if (reason instanceof Error) {
                 message = reason.message;
             } else if (typeof reason === 'string') {
@@ -309,10 +315,16 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber }) =>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
                                             <button 
+                                                onClick={() => setChatEngine(engine)} 
+                                                className="font-semibold text-green-400 hover:text-green-300"
+                                            >
+                                                Direct Query
+                                            </button>
+                                            <button 
                                                 onClick={() => handleViewEngine(engine)} 
                                                 className="font-semibold text-blue-400 hover:text-blue-300"
                                             >
-                                                View
+                                                Details
                                             </button>
                                             <button 
                                                 onClick={() => openDeleteModal(engine)} 
@@ -335,6 +347,14 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber }) =>
 
   return (
     <div>
+      {chatEngine && (
+        <DirectQueryChatWindow 
+          engine={chatEngine}
+          config={apiConfig}
+          accessToken={accessToken}
+          onClose={() => setChatEngine(null)}
+        />
+      )}
       <div className="bg-gray-800 p-4 rounded-lg mb-6 shadow-md">
         <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

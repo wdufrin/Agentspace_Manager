@@ -208,7 +208,7 @@ const App: React.FC = () => {
       case Page.AUTHORIZATIONS:
         return <AuthorizationsPage {...commonProps} />;
       case Page.AGENT_ENGINES:
-        return <AgentEnginesPage {...commonProps} />;
+        return <AgentEnginesPage {...commonProps} accessToken={accessToken} />;
       case Page.AGENT_BUILDER:
         return <AgentBuilderPage {...commonProps} />;
       case Page.CHAT:

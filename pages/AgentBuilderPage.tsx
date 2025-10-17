@@ -288,14 +288,12 @@ const AgentBuilderPage: React.FC<{ projectNumber: string; }> = ({ projectNumber 
     // State for tool builder UI
     const [toolBuilderConfig, setToolBuilderConfig] = useState({
         location: 'global',
-        collectionId: '',
+        collectionId: 'default_collection',
         dataStoreId: ''
     });
 
     // State for dropdowns
-    const [collections, setCollections] = useState<Collection[]>([]);
     const [dataStores, setDataStores] = useState<DataStore[]>([]);
-    const [isLoadingCollections, setIsLoadingCollections] = useState(false);
     const [isLoadingDataStores, setIsLoadingDataStores] = useState(false);
 
     // State for deployment
@@ -356,41 +354,12 @@ const AgentBuilderPage: React.FC<{ projectNumber: string; }> = ({ projectNumber 
       setToolBuilderConfig(prev => {
         const newConfig = {...prev, [name]: value};
         if (name === 'location') {
-          newConfig.collectionId = '';
-          newConfig.dataStoreId = '';
-          setCollections([]);
-          setDataStores([]);
-        }
-        if (name === 'collectionId') {
           newConfig.dataStoreId = '';
           setDataStores([]);
         }
         return newConfig;
       });
     };
-    
-    // Fetch collections
-    useEffect(() => {
-      if (!projectNumber || !toolBuilderConfig.location) return;
-      const fetchCollections = async () => {
-        setIsLoadingCollections(true);
-        setCollections([]);
-        try {
-          const res = await api.listResources('collections', apiConfig);
-          const fetchedCollections = res.collections || [];
-          setCollections(fetchedCollections);
-          if (fetchedCollections.length === 1) {
-            const collectionId = fetchedCollections[0].name.split('/').pop() || '';
-            setToolBuilderConfig(prev => ({...prev, collectionId: collectionId}));
-          }
-        } catch (err) {
-          console.error("Failed to fetch collections", err);
-        } finally {
-          setIsLoadingCollections(false);
-        }
-      };
-      fetchCollections();
-    }, [projectNumber, toolBuilderConfig.location, apiConfig]);
 
     // Fetch data stores
     useEffect(() => {
@@ -412,7 +381,7 @@ const AgentBuilderPage: React.FC<{ projectNumber: string; }> = ({ projectNumber 
         }
       };
       fetchDataStores();
-    }, [projectNumber, toolBuilderConfig.collectionId, apiConfig]);
+    }, [projectNumber, toolBuilderConfig.location, apiConfig]);
 
 
     const handleAddTool = () => {
@@ -842,19 +811,9 @@ Rewritten Instruction:`;
                             <option value="global">global</option><option value="us">us</option><option value="eu">eu</option>
                         </select>
                     </div>
-                     <div>
-                        <label className="block text-sm font-medium text-gray-400">Collection</label>
-                        <select name="collectionId" value={toolBuilderConfig.collectionId} onChange={handleToolBuilderConfigChange} disabled={isLoadingCollections} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2 h-[42px]">
-                            <option value="">{isLoadingCollections ? 'Loading...' : '-- Select Collection --'}</option>
-                            {collections.map(c => {
-                                const collectionId = c.name.split('/').pop() || '';
-                                return <option key={c.name} value={collectionId}>{c.displayName || collectionId}</option>
-                            })}
-                        </select>
-                    </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-400">Data Store</label>
-                        <select name="dataStoreId" value={toolBuilderConfig.dataStoreId} onChange={(e) => setToolBuilderConfig(p => ({...p, dataStoreId: e.target.value}))} disabled={isLoadingDataStores || !toolBuilderConfig.collectionId} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2 h-[42px]">
+                        <select name="dataStoreId" value={toolBuilderConfig.dataStoreId} onChange={(e) => setToolBuilderConfig(p => ({...p, dataStoreId: e.target.value}))} disabled={isLoadingDataStores} className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2 h-[42px]">
                             <option value="">{isLoadingDataStores ? 'Loading...' : '-- Select Data Store --'}</option>
                             {dataStores.map(ds => <option key={ds.name} value={ds.name}>{ds.displayName}</option>)}
                         </select>

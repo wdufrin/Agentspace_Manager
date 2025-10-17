@@ -1,5 +1,3 @@
-
-
 import React from 'react';
 import { Agent, ReasoningEngine } from '../../types';
 
@@ -30,8 +28,18 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({ engine, usingAgents, onBa
                 </div>
                 <button onClick={onBack} className="text-gray-400 hover:text-white">&larr; Back to list</button>
             </div>
-
-            <dl className="mt-6 border-t border-gray-700 pt-6 grid grid-cols-1 gap-x-4 gap-y-2">
+            
+            <div className="mt-4 border-b border-gray-700">
+                <nav className="-mb-px flex space-x-4" aria-label="Tabs">
+                    <span
+                        className={'whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm border-blue-500 text-blue-400'}
+                    >
+                        Details
+                    </span>
+                </nav>
+            </div>
+            
+            <dl className="mt-6 pt-6 grid grid-cols-1 gap-x-4 gap-y-2">
                 <DetailItem label="Full Resource Name" value={engine.name} />
                 <DetailItem label="Location" value={engine.name.split('/')[3]} />
             </dl>

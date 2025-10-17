@@ -14,44 +14,44 @@ const getInitialConfig = () => {
   try {
     const savedConfig = sessionStorage.getItem('chatPageConfig');
     if (savedConfig) {
-      return JSON.parse(savedConfig);
+      const parsed = JSON.parse(savedConfig);
+      delete parsed.collectionId;
+      delete parsed.assistantId;
+      return parsed;
     }
   } catch (e) { console.error("Failed to parse config from sessionStorage", e); }
   return {
     appLocation: 'global',
-    collectionId: '',
     appId: '',
-    assistantId: '',
     agentName: '',
   };
 };
 
 const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProjectNumber }) => {
-  const [config, setConfig] = useState(getInitialConfig);
+  const [config, setConfig] = useState(() => ({
+    ...getInitialConfig(),
+    collectionId: 'default_collection',
+    assistantId: 'default_assistant',
+  }));
   const [error, setError] = useState<string | null>(null);
 
-  const [collections, setCollections] = useState<any[]>([]);
   const [apps, setApps] = useState<any[]>([]);
-  const [assistants, setAssistants] = useState<any[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   
-  const [isLoadingCollections, setIsLoadingCollections] = useState(false);
   const [isLoadingApps, setIsLoadingApps] = useState(false);
-  const [isLoadingAssistants, setIsLoadingAssistants] = useState(false);
   const [isLoadingAgents, setIsLoadingAgents] = useState(false);
 
   useEffect(() => {
-    sessionStorage.setItem('chatPageConfig', JSON.stringify(config));
+    const { appLocation, appId, agentName } = config;
+    sessionStorage.setItem('chatPageConfig', JSON.stringify({ appLocation, appId, agentName }));
   }, [config]);
 
   const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setConfig(prev => {
         const newConfig = { ...prev, [name]: value };
-        if (name === 'appLocation') { newConfig.collectionId = ''; newConfig.appId = ''; newConfig.assistantId = ''; newConfig.agentName = ''; }
-        if (name === 'collectionId') { newConfig.appId = ''; newConfig.assistantId = ''; newConfig.agentName = ''; }
-        if (name === 'appId') { newConfig.assistantId = ''; newConfig.agentName = ''; }
-        if (name === 'assistantId') { newConfig.agentName = ''; }
+        if (name === 'appLocation') { newConfig.appId = ''; newConfig.agentName = ''; }
+        if (name === 'appId') { newConfig.agentName = ''; }
         return newConfig;
     });
   };
@@ -65,20 +65,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
 
   // --- Dropdown Data Fetching Effects ---
   useEffect(() => {
-    if (!apiConfig.projectId || !apiConfig.appLocation) { setCollections([]); return; }
-    const fetch = async () => {
-        setIsLoadingCollections(true); setCollections([]);
-        try {
-            const res = await api.listResources('collections', apiConfig);
-            setCollections(res.collections || []);
-        } catch (err: any) { setError(err.message); } 
-        finally { setIsLoadingCollections(false); }
-    };
-    fetch();
-  }, [apiConfig.projectId, apiConfig.appLocation]);
-
-  useEffect(() => {
-    if (!config.collectionId) { setApps([]); return; }
+    if (!apiConfig.projectId || !apiConfig.appLocation) { setApps([]); return; }
     const fetch = async () => {
         setIsLoadingApps(true); setApps([]);
         try {
@@ -88,23 +75,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
         finally { setIsLoadingApps(false); }
     };
     fetch();
-  }, [config.collectionId, apiConfig]);
+  }, [apiConfig.projectId, apiConfig.appLocation, apiConfig.collectionId]);
 
   useEffect(() => {
-    if (!config.appId) { setAssistants([]); return; }
-    const fetch = async () => {
-        setIsLoadingAssistants(true); setAssistants([]);
-        try {
-            const res = await api.listResources('assistants', apiConfig);
-            setAssistants(res.assistants || []);
-        } catch (err: any) { setError(err.message); }
-        finally { setIsLoadingAssistants(false); }
-    };
-    fetch();
-  }, [config.appId, apiConfig]);
-
-  useEffect(() => {
-    if (!config.assistantId) { setAgents([]); return; }
+    if (!config.appId) { setAgents([]); return; }
     const fetch = async () => {
         setIsLoadingAgents(true); setAgents([]);
         try {
@@ -114,7 +88,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
         finally { setIsLoadingAgents(false); }
     };
     fetch();
-  }, [config.assistantId, apiConfig]);
+  }, [config.appId, apiConfig]);
 
 
   const renderContent = () => {
@@ -136,7 +110,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
     <div className="flex flex-col h-full space-y-6">
       <div className="bg-gray-800 p-4 rounded-lg shadow-md">
         <h2 className="text-lg font-semibold text-white mb-3">Chat Configuration</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
             <ProjectInput value={projectNumber} onChange={setProjectNumber} />
@@ -148,24 +122,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
             </select>
           </div>
           <div>
-            <label htmlFor="collectionId" className="block text-sm font-medium text-gray-400 mb-1">Collection</label>
-            <select name="collectionId" value={config.collectionId} onChange={handleConfigChange} disabled={isLoadingCollections} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] disabled:bg-gray-700/50">
-              <option value="">{isLoadingCollections ? 'Loading...' : '-- Select Collection --'}</option>
-              {collections.map(c => <option key={c.name} value={c.name.split('/').pop()!}>{c.displayName}</option>)}
-            </select>
-          </div>
-          <div>
             <label htmlFor="appId" className="block text-sm font-medium text-gray-400 mb-1">App / Engine</label>
             <select name="appId" value={config.appId} onChange={handleConfigChange} disabled={isLoadingApps} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] disabled:bg-gray-700/50">
               <option value="">{isLoadingApps ? 'Loading...' : '-- Select App --'}</option>
               {apps.map(a => <option key={a.name} value={a.name.split('/').pop()!}>{a.displayName}</option>)}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="assistantId" className="block text-sm font-medium text-gray-400 mb-1">Assistant</label>
-            <select name="assistantId" value={config.assistantId} onChange={handleConfigChange} disabled={isLoadingAssistants} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] disabled:bg-gray-700/50">
-              <option value="">{isLoadingAssistants ? 'Loading...' : '-- Select Assistant --'}</option>
-              {assistants.map(a => <option key={a.name} value={a.name.split('/').pop()!}>{a.displayName}</option>)}
             </select>
           </div>
           <div>

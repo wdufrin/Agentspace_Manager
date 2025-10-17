@@ -44,6 +44,7 @@ const ALL_REQUIRED_PERMISSIONS = [
     'aiplatform.reasoningEngines.get',
     'aiplatform.reasoningEngines.list',
     'aiplatform.reasoningEngines.update',
+    'aiplatform.reasoningEngines.query', // For direct query
   
     // Cloud Resource Manager
     'resourcemanager.projects.get',
@@ -660,6 +661,79 @@ export const deleteReasoningEngine = (engineName: string, config: Config) => {
     const path = `${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/${engineName}`;
     return gapiRequest(path, 'DELETE', projectId);
 };
+
+// NOTE: streamQueryReasoningEngine must use fetch due to streaming responses not supported by gapi.
+export const streamQueryReasoningEngine = async (
+    engineName: string,
+    query: string,
+    userId: string,
+    config: Config,
+    accessToken: string,
+    onChunk: (chunk: any) => void
+) => {
+    const { projectId, reasoningEngineLocation } = config;
+    if (!reasoningEngineLocation) throw new Error("Reasoning Engine location is required.");
+    
+    const url = `${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/${engineName}:streamQuery`;
+
+    const data = {
+        input: {
+            message: query,
+            user_id: userId,
+        },
+    };
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Goog-User-Project': projectId,
+        },
+        body: JSON.stringify(data),
+    });
+
+    if (!response.ok || !response.body) {
+        const errorText = await response.text();
+        throw new Error(`HTTP Error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        
+        // The stream returns one or more complete JSON objects, not always newline-separated.
+        let jsonStart = buffer.indexOf('{');
+        let openBraces = 0;
+        
+        for (let i = jsonStart; i < buffer.length; i++) {
+            if (buffer[i] === '{') {
+                openBraces++;
+            } else if (buffer[i] === '}') {
+                openBraces--;
+                if (openBraces === 0 && jsonStart !== -1) {
+                    const jsonString = buffer.substring(jsonStart, i + 1);
+                    try {
+                        const parsed = JSON.parse(jsonString);
+                        onChunk(parsed);
+                    } catch (e) {
+                        console.warn("Failed to parse stream chunk:", jsonString, e);
+                    }
+                    // Reset buffer to what's left
+                    buffer = buffer.substring(i + 1);
+                    jsonStart = buffer.indexOf('{');
+                    i = jsonStart - 1; // Adjust loop counter
+                }
+            }
+        }
+    }
+};
+
 
 // --- Cloud Run API ---
 export async function listCloudRunServices(config: Config, location: string): Promise<{ services: CloudRunService[] }> {

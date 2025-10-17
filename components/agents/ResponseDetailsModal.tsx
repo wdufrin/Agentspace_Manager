@@ -6,110 +6,122 @@ interface ResponseDetailsModalProps {
   details: {
     diagnostics?: any;
     citations?: any[];
+    groundingMetadata?: any;
   } | null;
 }
 
 const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onClose, details }) => {
   if (!isOpen || !details) return null;
 
-  // Identify refused data stores from diagnostics before processing citations.
-  const refusedDataStoreResources = new Set<string>();
-  const plannerStepsForRefusalCheck = details.diagnostics?.plannerSteps || [];
+  let toolSteps: any[] = [];
+  let dataSources: { name: string; title: string }[] = [];
 
-  for (let i = 0; i < plannerStepsForRefusalCheck.length; i++) {
-    const step = plannerStepsForRefusalCheck[i];
-    const executableCodePart = step.planStep?.parts?.find((p: any) => p.executableCode);
+  // --- Logic for streamAssist (diagnostics & citations) ---
+  if (details.diagnostics || details.citations) {
+    // Identify refused data stores from diagnostics before processing citations.
+    const refusedDataStoreResources = new Set<string>();
+    const plannerStepsForRefusalCheck = details.diagnostics?.plannerSteps || [];
 
-    if (executableCodePart) {
-      let toolOutput = '';
-      // Look ahead for the corresponding result
-      for (let j = i + 1; j < plannerStepsForRefusalCheck.length; j++) {
-        const nextStep = plannerStepsForRefusalCheck[j];
-        const resultPart = nextStep.planStep?.parts?.find((p: any) => p.codeExecutionResult);
-        if (resultPart) {
-          const outputValue = resultPart.codeExecutionResult.output;
-          if (typeof outputValue === 'string') {
-              toolOutput = outputValue;
+    for (let i = 0; i < plannerStepsForRefusalCheck.length; i++) {
+      const step = plannerStepsForRefusalCheck[i];
+      const executableCodePart = step.planStep?.parts?.find((p: any) => p.executableCode);
+
+      if (executableCodePart) {
+        let toolOutput = '';
+        // Look ahead for the corresponding result
+        for (let j = i + 1; j < plannerStepsForRefusalCheck.length; j++) {
+          const nextStep = plannerStepsForRefusalCheck[j];
+          const resultPart = nextStep.planStep?.parts?.find((p: any) => p.codeExecutionResult);
+          if (resultPart) {
+            const outputValue = resultPart.codeExecutionResult.output;
+            if (typeof outputValue === 'string') {
+                toolOutput = outputValue;
+            }
+            break; // Found the result for this step
           }
-          break; // Found the result for this step
         }
-      }
-      
-      const lowerOutput = toolOutput.toLowerCase();
-      if (lowerOutput.includes('permission_denied') || lowerOutput.includes('permission denied') || lowerOutput.includes('access was denied')) {
-        // Try to parse the resource name from the error message.
-        const resourceMatch = toolOutput.match(/(projects\/[^\s/]+\/locations\/[^\s/]+\/collections\/[^\s/]+\/dataStores\/[^\s"']+)/);
-        if (resourceMatch && resourceMatch[1]) {
-          refusedDataStoreResources.add(resourceMatch[1]);
+        
+        const lowerOutput = toolOutput.toLowerCase();
+        if (lowerOutput.includes('permission_denied') || lowerOutput.includes('permission denied') || lowerOutput.includes('access was denied')) {
+          // Try to parse the resource name from the error message.
+          const resourceMatch = toolOutput.match(/(projects\/[^\s/]+\/locations\/[^\s/]+\/collections\/[^\s/]+\/dataStores\/[^\s"']+)/);
+          if (resourceMatch && resourceMatch[1]) {
+            refusedDataStoreResources.add(resourceMatch[1]);
+          }
         }
       }
     }
+
+    // Parse tool usage from diagnosticInfo.plannerSteps by looking for executable code.
+    const plannerSteps = details.diagnostics?.plannerSteps || [];
+    for (let i = 0; i < plannerSteps.length; i++) {
+      const step = plannerSteps[i];
+      const executableCodePart = step.planStep?.parts?.find((p: any) => p.executableCode);
+      if (executableCodePart) {
+        const code = executableCodePart.executableCode.code;
+        let toolName = 'Code Execution';
+        const searchMatch = code.match(/print\(([^.]+)\.search/);
+        if (searchMatch && searchMatch[1]) {
+          toolName = `Tool: ${searchMatch[1]}`;
+        }
+
+        let toolOutput = '[No output found in subsequent steps]';
+        for (let j = i + 1; j < plannerSteps.length; j++) {
+          const nextStep = plannerSteps[j];
+          const resultPart = nextStep.planStep?.parts?.find((p: any) => p.codeExecutionResult);
+          if (resultPart) {
+            toolOutput = resultPart.codeExecutionResult.output;
+            i = j; 
+            break;
+          }
+        }
+        
+        toolSteps.push({
+          toolStep: { tool: toolName, toolInput: code, toolOutput: toolOutput }
+        });
+      }
+    }
+
+    // Parse data sources from citations (which contain 'references')
+    const uniqueDataStores = new Map<string, { name: string; title: string }>();
+    (details.citations || []).forEach(reference => {
+      const docPath = reference?.documentMetadata?.document;
+      if (docPath) {
+        const parts = docPath.split('/');
+        const dsIndex = parts.indexOf('dataStores');
+        if (dsIndex > -1 && dsIndex < parts.length - 1) {
+          const dataStoreId = parts[dsIndex + 1];
+          const dataStoreKey = parts.slice(0, dsIndex + 2).join('/');
+          if (!refusedDataStoreResources.has(dataStoreKey) && !uniqueDataStores.has(dataStoreKey)) {
+            uniqueDataStores.set(dataStoreKey, { name: dataStoreKey, title: dataStoreId });
+          }
+        }
+      }
+    });
+    dataSources = Array.from(uniqueDataStores.values());
   }
 
-  // Parse tool usage from diagnosticInfo.plannerSteps by looking for executable code.
-  const plannerSteps = details.diagnostics?.plannerSteps || [];
-  const toolSteps: any[] = [];
-  for (let i = 0; i < plannerSteps.length; i++) {
-    const step = plannerSteps[i];
-    // Find a step with executable code
-    const executableCodePart = step.planStep?.parts?.find((p: any) => p.executableCode);
-    if (executableCodePart) {
-      const code = executableCodePart.executableCode.code;
-      // Attempt to parse a tool name from the code string
-      let toolName = 'Code Execution';
-      const searchMatch = code.match(/print\(([^.]+)\.search/);
-      if (searchMatch && searchMatch[1]) {
-        toolName = `Tool: ${searchMatch[1]}`;
-      }
-
-      let toolOutput = '[No output found in subsequent steps]';
-      // Look ahead for the corresponding result
-      for (let j = i + 1; j < plannerSteps.length; j++) {
-        const nextStep = plannerSteps[j];
-        const resultPart = nextStep.planStep?.parts?.find((p: any) => p.codeExecutionResult);
-        if (resultPart) {
-          toolOutput = resultPart.codeExecutionResult.output;
-          i = j; // Advance the outer loop past this result step to avoid re-processing
-          break;
+  // --- Logic for streamQuery (groundingMetadata) ---
+  if (details.groundingMetadata) {
+    const groundingChunks = details.groundingMetadata.grounding_chunks || [];
+    const uniqueDataStores = new Map<string, { name: string; title: string }>();
+    
+    groundingChunks.forEach((chunk: any) => {
+      const docPath = chunk.retrieved_context?.document_name;
+      if (docPath) {
+        const parts = docPath.split('/');
+        const dsIndex = parts.indexOf('dataStores');
+        if (dsIndex > -1 && dsIndex < parts.length - 1) {
+          const dataStoreId = parts[dsIndex + 1];
+          const dataStoreKey = parts.slice(0, dsIndex + 2).join('/');
+          if (!uniqueDataStores.has(dataStoreKey)) {
+            uniqueDataStores.set(dataStoreKey, { name: dataStoreKey, title: dataStoreId });
+          }
         }
       }
-      
-      // Create a synthetic object that mimics the 'toolStep' structure for consistent rendering
-      toolSteps.push({
-        toolStep: {
-          tool: toolName,
-          toolInput: code,
-          toolOutput: toolOutput
-        }
-      });
-    }
+    });
+    dataSources = Array.from(uniqueDataStores.values());
   }
-
-  // Parse data sources from citations (which now contain 'references')
-  const allCitations = details.citations || [];
-  
-  // Deduplicate data stores by their resource name from the document path
-  const uniqueDataStores = new Map<string, { name: string; title: string }>();
-  allCitations.forEach(reference => {
-    const docPath = reference?.documentMetadata?.document;
-    if (docPath) {
-      const parts = docPath.split('/');
-      const dsIndex = parts.indexOf('dataStores');
-      if (dsIndex > -1 && dsIndex < parts.length - 1) {
-        const dataStoreId = parts[dsIndex + 1];
-        // Reconstruct the full path up to the data store ID to use as a unique key
-        const dataStoreKey = parts.slice(0, dsIndex + 2).join('/');
-        // Only add the data store if it wasn't refused and hasn't been added yet.
-        if (!refusedDataStoreResources.has(dataStoreKey) && !uniqueDataStores.has(dataStoreKey)) {
-          uniqueDataStores.set(dataStoreKey, {
-            name: dataStoreKey, // The unique key/path
-            title: dataStoreId, // Just the ID for display
-          });
-        }
-      }
-    }
-  });
-  const dataSources = Array.from(uniqueDataStores.values());
   
   const hasTools = toolSteps.length > 0;
   const hasDataSources = dataSources.length > 0;
@@ -141,7 +153,7 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
                           </div>
                           <div>
                             <p className="font-bold text-gray-400">Output:</p>
-                            <pre className="bg-gray-800 p-2 rounded mt-1 whitespace-pre-wrap font-mono text-gray-300"><code>{step.toolStep.toolOutput}</code></pre>
+                            <pre className="bg-gray-800 p-2 rounded mt-1 whitespace-pre-wrap font-mono text-gray-300"><code>{JSON.stringify(step.toolStep.toolOutput, null, 2)}</code></pre>
                           </div>
                         </div>
                       </div>
@@ -152,7 +164,7 @@ const ResponseDetailsModal: React.FC<ResponseDetailsModalProps> = ({ isOpen, onC
 
               {hasDataSources && (
                 <div>
-                  <h3 className="text-lg font-semibold text-white mb-2">Data Sources</h3>
+                  <h3 className="text-lg font-semibold text-white mb-2">Data Sources Accessed</h3>
                    <ul className="space-y-2">
                     {dataSources.map((source: any, index: number) => (
                       <li key={index} className="bg-gray-900/50 p-3 rounded-lg border border-gray-700">
