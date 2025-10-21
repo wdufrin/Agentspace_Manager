@@ -1,6 +1,6 @@
-# Agentspace Manager
+# Gemini Enterprise Manager
 
-A web interface to manage Google Cloud Agentspace resources, including agents, authorizations, and reasoning engines. This UI provides a user-friendly way to perform operations similar to the `gcloud` CLI tool for Agentspace.
+A web interface to manage Google Cloud Gemini Enterprise resources, including agents, authorizations, and reasoning engines. This UI provides a user-friendly way to perform operations similar to the `gcloud` CLI tool for Gemini Enterprise. It includes a guided setup process to validate and enable necessary Google Cloud APIs, making project configuration straightforward.
 
 This application is built using React and communicates with Google Cloud APIs via the **Google API JavaScript Client (`gapi`)**.
 
@@ -9,16 +9,24 @@ This application is built using React and communicates with Google Cloud APIs vi
 -   **Manage Agents**: List, create, update, delete, enable/disable, and chat with agents.
 -   **Manage Authorizations**: List, create, update, and delete OAuth client authorizations.
 -   **Manage Reasoning Engines**: List engines, view agent dependencies, and delete unused engines.
--   **Agent Builder**: A powerful UI to construct and configure ADK-based agents from scratch. It automatically generates the necessary Python code (`agent.py`), environment (`.env`), and dependency (`requirements.txt`) files. Features include:
+-   **Explore Data Stores**: List data stores within a collection, view their details, and inspect individual documents and their content.
+-   **Model Armor Log Viewer**: Fetch and inspect safety policy violation logs from Cloud Logging.
+-   **Comprehensive Backup & Restore**: Backup and restore agents, assistants, data stores, authorizations, and entire Discovery Engine configurations.
+-   **Guided Setup & API Validation**: An initial setup screen that validates if all required GCP APIs are enabled for your project and provides a one-click solution to enable any that are missing.
+
+### Beta Features
+
+-   **Architecture Visualizer**: Scans your project to discover all Gemini Enterprise resources and renders an interactive, top-down graph of their relationships and dependencies.
+-   **Chat**: A dedicated, full-page interface for chatting with any of your registered agents.
+-   **Agent Builder**: A powerful UI to construct ADK-based agents from scratch. It automatically generates the necessary Python code (`agent.py`), environment (`.env`), and dependency (`requirements.txt`) files. Features include:
     -   A tool builder for easily adding Vertex AI Search tools.
     -   Options to download the complete agent code as a `.zip` file.
     -   An integrated uploader to stage agent files (`agent.pkl` and `requirements.txt`) directly to a GCS bucket.
     -   A deployment wizard to deploy the staged agent to a new or existing Reasoning Engine.
--   **Explore Data Stores**: List data stores within a collection, view their details, and inspect individual documents and their content.
--   **Explore MCP Servers**: Scan for Cloud Run services in a specified region. Identifies potential MCP servers if a service's labels contain "MCP". Provides a detailed view of each service's configuration, including container images and environment variables.
--   **Model Armor Log Viewer**: Fetch and inspect safety policy violation logs from Cloud Logging, showing the verdict, reason, triggered filter, and source assistant for each event.
--   **Comprehensive Backup & Restore**: Backup and restore agents, assistants, data stores, authorizations, and entire Discovery Engine configurations.
--   **Dynamic Configuration**: Automatically resolves Project IDs to Project Numbers and populates dropdowns for collections, apps, and assistants.
+-   **A2A Function Builder**: A tool to generate the source code (`main.py`, `Dockerfile`, `requirements.txt`) for a secure, serverless A2A (Agent-to-Agent) function on Cloud Run.
+-   **Agent Registration**: A guided UI to register a deployed A2A function with a Gemini Enterprise Engine, making it discoverable as a tool.
+-   **A2A Tester**: A simple utility to test the discovery endpoint (`agent.json`) of a deployed A2A function.
+-   **Explore MCP Servers**: Scan for Cloud Run services in a specified region. Identifies potential MCP servers if a service's labels contain "MCP". Provides a detailed view of each service's configuration.
 
 ## Prerequisites
 
@@ -32,6 +40,7 @@ Before using this application, ensure you have the following:
     -   Cloud Logging API
     -   Cloud Run Admin API
     -   Cloud Storage API
+    -   Service Usage API
 3.  **`gcloud` CLI**: You need the Google Cloud CLI installed and authenticated to obtain an access token.
 4.  **Access Token**: Generate a temporary access token by running the following command in your terminal:
     ```sh
@@ -53,8 +62,8 @@ This method is recommended for development and uses the standard Node.js ecosyst
     This command will launch a development server and should automatically open the application in your default browser (usually at `http://localhost:3000` or a similar address).
 3.  **Configure the App**:
     -   Paste the access token generated from the `gcloud` command into the **"Paste GCP Access Token"** field.
-    -   Enter your GCP Project ID or Project Number into the configuration section on the **"Agents"** page and click **"Set"**.
-4.  **Ready to Use**: You can now use the application to manage your Agentspace resources.
+    -   Follow the on-screen instructions to set your GCP Project ID/Number and validate/enable the required APIs.
+4.  **Ready to Use**: You can now use the application to manage your Gemini Enterprise resources.
 
 ## Underlying Google Cloud APIs
 
@@ -73,6 +82,7 @@ The application interacts with the following Google Cloud APIs, using their resp
 -   [Cloud Logging API (v2)](https://logging.googleapis.com/$discovery/rest?version=v2)
 -   [Cloud Run Admin API (v2)](https://run.googleapis.com/$discovery/rest?version=v2)
 -   [Cloud Storage API (v1)](https://www.googleapis.com/discovery/v1/apis/storage/v1/rest)
+-   [Service Usage API (v1)](https://serviceusage.googleapis.com/$discovery/rest?version=v1)
 
 ---
 
@@ -217,6 +227,57 @@ curl -X POST \
         "pageSize": 50
       }' \
   "https://logging.googleapis.com/v2/entries:list"
+```
+
+---
+
+### Beta Feature `curl` Examples
+
+#### **Chat**
+
+**Chat with an Agent (Streaming):** Sends a prompt to an agent and receives a streaming response.
+
+```sh
+curl -X POST \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "Content-Type: application/json" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
+  -d '{
+        "query": { "text": "Hello, what can you do?" },
+        "agentsConfig": {
+          "agent": "projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents/[AGENT_ID]"
+        }
+      }' \
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]:streamAssist"
+```
+
+#### **A2A Agent Management**
+
+**Register an A2A Agent:** Creates a new agent resource from a deployed Cloud Run function.
+
+```sh
+# The 'jsonAgentCard' is a stringified JSON object.
+curl -X POST \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "Content-Type: application/json" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
+  -d '{
+        "displayName": "My A2A Agent",
+        "description": "An agent that provides weather information.",
+        "a2aAgentDefinition": {
+          "jsonAgentCard": "{\"provider\":{\"organization\":\"My Company\",\"url\":\"https://my-a2a-function-....run.app\"},\"name\":\"My A2A Agent\", ...}"
+        }
+      }' \
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[...]/agents?agentId=my-weather-agent"
+```
+
+**Test an A2A Agent (Discovery):** Fetches the `agent.json` discovery file from a deployed A2A function. **Note:** This requires an **Identity Token**, not an Access Token.
+
+```sh
+# Generate the Identity Token and make the request in one command
+curl -X GET \
+  -H "Authorization: Bearer $(gcloud auth print-identity-token --audience https://[YOUR_SERVICE_URL].run.app)" \
+  "https://[YOUR_SERVICE_URL].run.app/.well-known/agent.json"
 ```
 
 #### **Backup & Recovery Tab**

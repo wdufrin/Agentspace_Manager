@@ -120,17 +120,29 @@ async function gapiRequest<T>(
   } catch (err: any) {
     console.error("GAPI Error Response:", err);
     let errorMessage = 'An unknown error occurred.';
+    let statusCode = err.code || 'N/A';
+
     if (err.result?.error?.message) {
         errorMessage = err.result.error.message;
+        statusCode = err.result.error.code || statusCode;
     } else if (typeof err.body === 'string') {
         try {
             const parsedBody = JSON.parse(err.body);
-            errorMessage = parsedBody.error?.message || err.body;
+            if (parsedBody.error?.message) {
+                errorMessage = parsedBody.error.message;
+                statusCode = parsedBody.error.code || statusCode;
+            } else {
+                 errorMessage = err.body;
+            }
         } catch (e) {
             errorMessage = err.body;
         }
+    } else if (err.message) {
+        // Handle cases where `err` is a standard Error object
+        errorMessage = err.message;
     }
-    const message = `API request failed with status ${err.code || 'N/A'}: ${errorMessage}`;
+
+    const message = `API request failed with status ${statusCode}: ${errorMessage}`;
     throw new Error(message);
   }
 }
@@ -349,10 +361,28 @@ export const getProjectNumber = async (projectId: string): Promise<string> => {
     } catch (err: any) {
         console.error("GAPI Error during getProjectNumber:", err);
         let errorMessage = 'An unknown error occurred.';
+        let statusCode = err.code || 'N/A';
+        
         if (err.result?.error?.message) {
             errorMessage = err.result.error.message;
+            statusCode = err.result.error.code || statusCode;
+        } else if (typeof err.body === 'string') {
+            try {
+                const parsedBody = JSON.parse(err.body);
+                 if (parsedBody.error?.message) {
+                    errorMessage = parsedBody.error.message;
+                    statusCode = parsedBody.error.code || statusCode;
+                } else {
+                     errorMessage = err.body;
+                }
+            } catch (e) {
+                errorMessage = err.body;
+            }
+        } else if (err.message) {
+            errorMessage = err.message;
         }
-        const message = `API request failed with status ${err.code || 'N/A'}: ${errorMessage}`;
+        
+        const message = `API request failed with status ${statusCode}: ${errorMessage}`;
         throw new Error(message);
     }
 };
@@ -395,9 +425,25 @@ export async function createAgent(apiPayload: any, config: Config, agentId?: str
     const { projectId, appLocation, collectionId, appId, assistantId } = config;
     const parent = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}`;
     const path = `${getDiscoveryEngineUrl(appLocation)}/v1alpha/${parent}/agents`;
-    const params = agentId ? { agent_id: agentId } : undefined;
+    const params = agentId ? { agentId } : undefined;
     const headers = { 'Content-Type': 'application/json' };
     return gapiRequest<Agent>(path, 'POST', projectId, params, apiPayload, headers);
+}
+
+export async function registerA2aAgent(
+    config: Config,
+    agentId: string,
+    payload: any
+): Promise<Agent> {
+    const { projectId, appLocation, appId, assistantId, collectionId } = config;
+    if (!appId) throw new Error("App/Engine ID is required for agent registration.");
+    
+    const parent = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}`;
+    const path = `${getDiscoveryEngineUrl(appLocation)}/v1alpha/${parent}/agents`;
+    const headers = { 'Content-Type': 'application/json' };
+    const params = { agentId };
+
+    return gapiRequest<Agent>(path, 'POST', projectId, params, payload, headers);
 }
 
 export async function updateAgent(originalAgent: Agent, updatedAgent: Partial<Agent>, config: Config): Promise<Agent> {
@@ -519,6 +565,33 @@ export const streamChat = async (agentName: string, query: string, sessionId: st
         }
     }
 };
+
+// --- A2A Agent APIs ---
+
+export const fetchA2aAgentCard = async (
+    agentUrl: string,
+    identityToken: string
+): Promise<any> => {
+    const cardUrl = `${agentUrl}/.well-known/agent.json`;
+
+    const response = await fetch(cardUrl, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${identityToken}`,
+        },
+    });
+
+    const responseBody = await response.json();
+
+    if (!response.ok) {
+        const errorMessage = responseBody.error || `Request failed with status ${response.status}`;
+        const errorDetails = responseBody.details || 'No additional details provided.';
+        throw new Error(`${errorMessage} - Details: ${errorDetails}`);
+    }
+
+    return responseBody;
+};
+
 
 // --- Authorization APIs ---
 export const listAuthorizations = (config: Config) => {
@@ -659,6 +732,20 @@ export const deleteReasoningEngine = (engineName: string, config: Config) => {
     const { projectId, reasoningEngineLocation } = config;
     if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
     const path = `${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/${engineName}`;
+    return gapiRequest(path, 'DELETE', projectId);
+};
+
+export const listReasoningEngineSessions = (engineName: string, config: Config): Promise<{ sessions?: { name: string }[] }> => {
+    const { projectId, reasoningEngineLocation } = config;
+    if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
+    const path = `${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/${engineName}/sessions`;
+    return gapiRequest<{ sessions?: { name: string }[] }>(path, 'GET', projectId);
+};
+
+export const deleteReasoningEngineSession = (sessionName: string, config: Config): Promise<void> => {
+    const { projectId, reasoningEngineLocation } = config;
+    if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
+    const path = `${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/${sessionName}`;
     return gapiRequest(path, 'DELETE', projectId);
 };
 

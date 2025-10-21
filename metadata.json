@@ -1,5 +1,5 @@
 {
-  "name": "Agentspace Manager",
-  "description": "A web interface to manage Google Cloud Agentspace resources, including agents and authorizations. This UI provides a user-friendly way to perform operations similar to the Agentspace CLI tool.",
+  "name": "Gemini Enterprise Manager",
+  "description": "A web interface to manage Google Cloud Gemini Enterprise resources, including agents and authorizations. This UI provides a user-friendly way to perform operations for managing these resources.",
   "requestFramePermissions": []
 }

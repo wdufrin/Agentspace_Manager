@@ -249,7 +249,7 @@ If successful, you will see a new file named \`agent.pkl\` in your folder.
 
 You are now ready to deploy your agent.
 
-1.  **Return to the Agentspace Manager UI.**
+1.  **Return to the Gemini Enterprise Manager UI.**
 2.  Go to the **"Step 2: Upload Agent Package to GCS"** section.
 3.  Select both the \`agent.pkl\` file you just created and the \`requirements.txt\` file.
 4.  Upload them to your chosen GCS bucket.
@@ -548,7 +548,7 @@ Rewritten Instruction:`;
                 addLog(`Creating new Reasoning Engine: ${deployInfo.newEngineDisplayName}...`);
                 const createPayload = {
                     displayName: deployInfo.newEngineDisplayName,
-                    description: "An agent deployed via the Agentspace Manager.",
+                    description: "An agent deployed via the Gemini Enterprise Manager.",
                     spec: spec,
                 };
                 const newEngine = await api.createReasoningEngine(createPayload, deployConfig);

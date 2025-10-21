@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import AgentsPage from './pages/AgentsPage';
@@ -9,11 +10,15 @@ import DataStoresPage from './pages/DataStoresPage';
 import BackupPage from './pages/BackupPage';
 import ModelArmorPage from './pages/ModelArmorPage';
 import AgentBuilderPage from './pages/AgentBuilderPage';
+import A2aFunctionsPage from './pages/A2aFunctionsPage';
+import A2aTesterPage from './pages/A2aTesterPage';
 import McpServersPage from './pages/McpServersPage';
 import ProjectInput from './components/ProjectInput';
 import { initGapiClient, getGapiClient } from './services/gapiService';
 import * as api from './services/apiService';
 import ChatPage from './pages/ChatPage';
+import AgentRegistrationPage from './pages/AgentRegistrationPage';
+import ArchitecturePage from './pages/ArchitecturePage';
 
 
 const App: React.FC = () => {
@@ -209,6 +214,12 @@ const App: React.FC = () => {
         return <AuthorizationsPage {...commonProps} />;
       case Page.AGENT_ENGINES:
         return <AgentEnginesPage {...commonProps} accessToken={accessToken} />;
+      case Page.A2A_FUNCTIONS:
+        return <A2aFunctionsPage {...projectProps} />;
+      case Page.AGENT_REGISTRATION:
+        return <AgentRegistrationPage {...projectProps} />;
+      case Page.A2A_TESTER:
+        return <A2aTesterPage {...projectProps} />;
       case Page.AGENT_BUILDER:
         return <AgentBuilderPage {...commonProps} />;
       case Page.CHAT:
@@ -221,6 +232,8 @@ const App: React.FC = () => {
         return <ModelArmorPage {...projectProps} />;
       case Page.BACKUP_RECOVERY:
         return <BackupPage {...projectProps} accessToken={accessToken} />;
+      case Page.ARCHITECTURE:
+        return <ArchitecturePage {...projectProps} />;
       default:
         return <AgentsPage {...projectProps} accessToken={accessToken} />;
     }
@@ -318,7 +331,7 @@ const App: React.FC = () => {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                         </svg>
                     </div>
-                    <h1 className="text-3xl font-bold text-white">Welcome to Agentspace Manager</h1>
+                    <h1 className="text-3xl font-bold text-white">Welcome to Gemini Enterprise Manager</h1>
                 </div>
 
                 {!isGapiReady ? (
@@ -394,7 +407,7 @@ const App: React.FC = () => {
       <Sidebar currentPage={currentPage} setCurrentPage={setCurrentPage} />
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="bg-gray-800 border-b border-gray-700 p-4 flex flex-col gap-4 md:flex-row md:justify-between md:items-center">
-          <h1 className="text-xl font-bold text-white text-center md:text-left">Agentspace Manager</h1>
+          <h1 className="text-xl font-bold text-white text-center md:text-left">Gemini Enterprise Manager</h1>
           <AccessTokenInput accessToken={accessToken} setAccessToken={handleSetAccessToken} />
         </header>
         <div className="flex-1 overflow-y-auto p-6">

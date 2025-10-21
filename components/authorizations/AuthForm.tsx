@@ -13,7 +13,7 @@ const initialFormData = {
     authId: 'your-auth-id',
     oauthClientId: 'your-oauth-client-id',
     oauthClientSecret: '', // Start empty
-    scopes: 'https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/gmail.send',
+    scopes: 'https://www.googleapis.com/auth/cloud-platform',
     oauthTokenUri: 'https://oauth2.googleapis.com/token',
     redirectUri: 'https://vertexaisearch.cloud.google.com/oauth-redirect',
 };
@@ -31,6 +31,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
   const [formData, setFormData] = useState(initialFormData);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showScopesTooltip, setShowScopesTooltip] = useState(false);
 
   // State for cURL command preview
   const [curlCommand, setCurlCommand] = useState('');
@@ -220,7 +221,49 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
                 <FormField name="authId" label="Authorization ID" value={formData.authId} onChange={handleChange} required disabled={!!authToEdit} helpText={!authToEdit ? 'Enter a unique ID or paste the full resource name.' : ''} />
                 <FormField name="oauthClientId" label="OAuth 2.0 Client ID" value={formData.oauthClientId} onChange={handleChange} required />
                 <FormField name="oauthClientSecret" label="OAuth 2.0 Client Secret" value={formData.oauthClientSecret} onChange={handleChange} required={!authToEdit} type="password" helpText={authToEdit ? 'Leave blank to keep existing secret. Enter a new value to update.' : ''} />
-                <FormField name="scopes" label="OAuth 2.0 Scopes" value={formData.scopes} onChange={handleChange} required helpText="Comma-separated list of scopes." />
+                
+                <div>
+                    <div className="flex items-center space-x-2">
+                        <label htmlFor="scopes" className="block text-sm font-medium text-gray-300">OAuth 2.0 Scopes</label>
+                        <div className="relative">
+                            <button
+                                type="button"
+                                onMouseEnter={() => setShowScopesTooltip(true)}
+                                onMouseLeave={() => setShowScopesTooltip(false)}
+                                className="text-gray-400 hover:text-white"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                                </svg>
+                            </button>
+                            {showScopesTooltip && (
+                                <div className="absolute z-10 w-80 p-3 mt-2 text-sm text-white transform -translate-x-1/2 left-1/2 bg-gray-700 rounded-lg shadow-lg bottom-full mb-2">
+                                    <p className="font-semibold">Common OAuth Scopes:</p>
+                                    <ul className="list-disc list-inside mt-2 space-y-1 text-xs">
+                                        <li><code>https://www.googleapis.com/auth/cloud-platform</code> (Broad access)</li>
+                                        <li><code>https://www.googleapis.com/auth/drive.readonly</code></li>
+                                        <li><code>https://www.googleapis.com/auth/calendar.events</code></li>
+                                    </ul>
+                                    <p className="mt-3">For a full list, visit:</p>
+                                    <a href="https://developers.google.com/identity/protocols/oauth2/scopes" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline text-xs break-all">
+                                        developers.google.com/identity/protocols/oauth2/scopes
+                                    </a>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    <input
+                        type="text"
+                        name="scopes"
+                        id="scopes"
+                        value={formData.scopes}
+                        onChange={handleChange}
+                        className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm text-white"
+                        required
+                    />
+                    <p className="mt-1 text-xs text-gray-400">Comma-separated list of scopes.</p>
+                </div>
+
                 <FormField name="oauthTokenUri" label="OAuth Token URI" value={formData.oauthTokenUri} onChange={handleChange} />
                 <FormField name="redirectUri" label="OAuth Redirect URI" value={formData.redirectUri} onChange={handleChange} />
             </form>

@@ -1,8 +1,3 @@
-
-
-
-
-
 import React, { useState, useCallback, useMemo } from 'react';
 import { ReasoningEngine, Config, Agent } from '../types';
 import * as api from '../services/apiService';
@@ -176,30 +171,61 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
   
   const confirmDelete = async () => {
     if (selectedEngines.size === 0) return;
-    
+
     setIsDeleting(true);
     setError(null);
-    
+
     const enginesToDelete = Array.from(selectedEngines);
-    const results = await Promise.allSettled(
-        enginesToDelete.map(engineName => api.deleteReasoningEngine(engineName, apiConfig))
-    );
+
+    const deletionPromises = enginesToDelete.map(async (engineName) => {
+        try {
+            await api.deleteReasoningEngine(engineName, apiConfig);
+        } catch (err: any) {
+            // If deletion fails because of active sessions ("Resource has children"),
+            // try to delete the sessions and then retry deleting the engine.
+            if (err.message && err.message.toLowerCase().includes('resource has children')) {
+                console.log(`Engine ${engineName.split('/').pop()} has active sessions. Attempting to delete them...`);
+                
+                const sessionsResponse = await api.listReasoningEngineSessions(engineName, apiConfig);
+                const sessions = sessionsResponse.sessions || [];
+                
+                if (sessions.length > 0) {
+                    console.log(`Found ${sessions.length} sessions to delete.`);
+                    const deleteSessionPromises = sessions.map(session => 
+                        api.deleteReasoningEngineSession(session.name, apiConfig)
+                    );
+                    await Promise.all(deleteSessionPromises);
+                    console.log(`All sessions for ${engineName.split('/').pop()} deleted.`);
+                }
+                
+                // Retry deleting the engine
+                console.log(`Retrying deletion of engine ${engineName.split('/').pop()}...`);
+                await api.deleteReasoningEngine(engineName, apiConfig);
+
+            } else {
+                // If it's a different error, re-throw it.
+                throw err;
+            }
+        }
+    });
+
+    const results = await Promise.allSettled(deletionPromises);
 
     const failures: string[] = [];
     results.forEach((result, index) => {
         if (result.status === 'rejected') {
             const engineName = String(enginesToDelete[index]).split('/').pop();
-            // FIX: The 'reason' for a rejected promise from Promise.allSettled is of type 'unknown'. It must be type-checked before being used as a string to prevent a TypeScript error.
             const reason: unknown = result.reason;
             let message: string;
-            
+
             if (reason instanceof Error) {
                 message = reason.message;
             } else if (typeof reason === 'string') {
                 message = reason;
             } else {
                 try {
-                    message = JSON.stringify(reason as any) ?? 'Reason could not be serialized to a string.';
+                    const stringified = JSON.stringify(reason);
+                    message = stringified ?? 'An un-stringifiable error object was caught.';
                 } catch {
                     message = 'A non-serializable error object was caught.';
                 }
@@ -231,6 +257,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                 engine={selectedEngine} 
                 usingAgents={agentsByEngine[selectedEngine.name] || []}
                 onBack={() => { setViewMode('list'); setSelectedEngine(null); }}
+                config={apiConfig}
             />
         );
     }

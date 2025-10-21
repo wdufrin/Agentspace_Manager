@@ -1,14 +1,19 @@
+
 // FIX: Replaced incorrect component code with proper type definitions.
 export enum Page {
   AGENTS = 'Agents',
   AUTHORIZATIONS = 'Authorizations',
   AGENT_ENGINES = 'Agent Engines',
+  A2A_FUNCTIONS = 'A2A Functions',
+  AGENT_REGISTRATION = 'Agent Registration',
+  A2A_TESTER = 'A2A Tester',
   AGENT_BUILDER = 'Agent Builder',
   CHAT = 'Chat',
   DATA_STORES = 'Data Stores',
   MCP_SERVERS = 'MCP Servers',
   MODEL_ARMOR = 'Model Armor',
   BACKUP_RECOVERY = 'Backup & Recovery',
+  ARCHITECTURE = 'Architecture',
 }
 
 export type SortableAgentKey = 'displayName' | 'state' | 'name' | 'updateTime';
@@ -192,4 +197,20 @@ export interface CloudRunService {
     createTime: string;
     updateTime: string;
     template?: ServiceTemplate;
+}
+
+// Architecture Graph Types
+export type NodeType = 'Project' | 'Location' | 'Engine' | 'Assistant' | 'Agent' | 'ReasoningEngine' | 'DataStore' | 'Authorization';
+
+export interface GraphNode {
+  id: string; // full resource name
+  type: NodeType;
+  label: string; // short display name
+  data: any; // full resource object
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
 }
