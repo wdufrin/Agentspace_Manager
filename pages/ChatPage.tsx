@@ -122,7 +122,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
             </select>
           </div>
           <div>
-            <label htmlFor="appId" className="block text-sm font-medium text-gray-400 mb-1">App / Engine</label>
+            <label htmlFor="appId" className="block text-sm font-medium text-gray-400 mb-1">Gemini Enterprise</label>
             <select name="appId" value={config.appId} onChange={handleConfigChange} disabled={isLoadingApps} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] disabled:bg-gray-700/50">
               <option value="">{isLoadingApps ? 'Loading...' : '-- Select App --'}</option>
               {apps.map(a => <option key={a.name} value={a.name.split('/').pop()!}>{a.displayName}</option>)}

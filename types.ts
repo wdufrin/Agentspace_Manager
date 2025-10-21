@@ -1,7 +1,7 @@
 
 // FIX: Replaced incorrect component code with proper type definitions.
 export enum Page {
-  AGENTS = 'Agents',
+  AGENTS = 'Agents Manager',
   AUTHORIZATIONS = 'Authorizations',
   AGENT_ENGINES = 'Agent Engines',
   A2A_FUNCTIONS = 'A2A Functions',

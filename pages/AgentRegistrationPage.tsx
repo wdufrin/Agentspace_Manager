@@ -282,7 +282,7 @@ Short description (2-3 sentences) regarding which A2A agent to use: This agent w
                         </select>
                     </div>
                     <div>
-                        <label htmlFor="engineId" className="block text-sm font-medium text-gray-400 mb-1">Target App / Engine ID</label>
+                        <label htmlFor="engineId" className="block text-sm font-medium text-gray-400 mb-1">Target Gemini Enterprise ID</label>
                         <select id="engineId" name="engineId" value={config.engineId} onChange={handleConfigChange} disabled={isLoadingEngines} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] disabled:bg-gray-700/50">
                             <option value="">{isLoadingEngines ? 'Loading...' : '-- Select Target Engine --'}</option>
                             {engines.map(e => <option key={e.name} value={e.name.split('/').pop()!}>{e.displayName}</option>)}

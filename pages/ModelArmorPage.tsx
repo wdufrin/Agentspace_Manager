@@ -68,6 +68,10 @@ const LogEntryCard: React.FC<{ log: LogEntry }> = ({ log }) => {
     const correlationId = log.labels?.['modelarmor.googleapis.com/client_correlation_id'] || '';
     const sourceAssistant = parseAssistantFromCorrelationId(correlationId);
 
+    const verdict = sanitizationResult?.sanitizationVerdict || 'N/A';
+    const isBlocked = verdict === 'BLOCKED' || verdict === 'MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK';
+    const verdictColorClass = verdict === 'ALLOWED' ? 'text-green-400' : isBlocked ? 'text-red-400' : 'text-gray-400';
+
     return (
         <div className="bg-gray-900/50 rounded-lg border border-gray-700 overflow-hidden">
             <header className="p-3 flex justify-between items-center cursor-pointer hover:bg-gray-700/50" onClick={() => setIsExpanded(!isExpanded)}>
@@ -88,7 +92,7 @@ const LogEntryCard: React.FC<{ log: LogEntry }> = ({ log }) => {
             
             <div className="p-4 border-t border-gray-700 space-y-2">
                  <p className="text-sm text-white">
-                    <span className="font-semibold text-red-400">Verdict:</span> {sanitizationResult?.sanitizationVerdict || 'N/A'}
+                    <span className={`font-semibold ${verdictColorClass}`}>Verdict:</span> {verdict}
                 </p>
                 {triggeredFilter && (
                      <p className="text-sm text-white">
@@ -125,6 +129,7 @@ const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (proje
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
+  const [filterBlockedOnly, setFilterBlockedOnly] = useState(false);
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectNumber,
@@ -145,15 +150,24 @@ const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (proje
     setError(null);
     setLogs([]);
 
+    const filters = [];
+    if (filterBlockedOnly) {
+        filters.push(`(jsonPayload.sanitizationResult.sanitizationVerdict="BLOCKED" OR jsonPayload.sanitizationResult.sanitizationVerdict="MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK")`);
+    }
+    if (filterText.trim()) {
+        filters.push(`(${filterText.trim()})`);
+    }
+    const combinedCustomFilter = filters.join(' AND ');
+
     try {
-      const response = await api.fetchViolationLogs(apiConfig, filterText);
+      const response = await api.fetchViolationLogs(apiConfig, combinedCustomFilter);
       setLogs(response.entries || []);
     } catch (err: any) {
       setError(err.message || 'Failed to fetch violation logs.');
     } finally {
       setIsLoading(false);
     }
-  }, [apiConfig, filterText, projectNumber]);
+  }, [apiConfig, filterText, projectNumber, filterBlockedOnly]);
   
   const renderContent = () => {
     if (!projectNumber) {
@@ -185,15 +199,36 @@ const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (proje
                 <ProjectInput value={projectNumber} onChange={setProjectNumber} />
             </div>
             <div>
-                 <label htmlFor="filterText" className="block text-sm font-medium text-gray-400 mb-1">Additional Filter (Optional)</label>
+                 <label htmlFor="filterText" className="block text-sm font-medium text-gray-400 mb-1">Filters</label>
                  <input
                     type="text"
                     id="filterText"
                     value={filterText}
                     onChange={(e) => setFilterText(e.target.value)}
-                    placeholder='e.g., labels."modelarmor.googleapis.com/operation_type"="SANITIZE_PROMPT"'
-                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px]"
+                    placeholder='Custom filter, e.g., jsonPayload.sanitizationInput.text:"credit card"'
+                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full"
                  />
+                 <div className="flex items-center mt-2">
+                    <button
+                        type="button"
+                        className={`${
+                            filterBlockedOnly ? 'bg-blue-600' : 'bg-gray-600'
+                        } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800`}
+                        role="switch"
+                        aria-checked={filterBlockedOnly}
+                        onClick={() => setFilterBlockedOnly(!filterBlockedOnly)}
+                    >
+                        <span
+                            aria-hidden="true"
+                            className={`${
+                                filterBlockedOnly ? 'translate-x-5' : 'translate-x-0'
+                            } pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`}
+                        />
+                    </button>
+                    <span onClick={() => setFilterBlockedOnly(!filterBlockedOnly)} className="ml-3 text-sm text-gray-300 cursor-pointer">
+                        Show only blocked verdicts
+                    </span>
+                </div>
             </div>
              <div className="flex items-end">
                 <button 

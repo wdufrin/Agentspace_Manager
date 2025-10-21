@@ -131,7 +131,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     if (!apiConfig.projectId || !apiConfig.appId) {
       setAgents([]);
       if (apiConfig.projectId && !apiConfig.appId) {
-        setError("Project and App/Engine must be selected to list agents.");
+        setError("Project and Gemini Enterprise must be selected to list agents.");
       }
       return;
     }
@@ -293,9 +293,9 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             </select>
           </div>
           <div>
-            <label htmlFor="appId" className="block text-sm font-medium text-gray-400 mb-1">App / Engine ID</label>
+            <label htmlFor="appId" className="block text-sm font-medium text-gray-400 mb-1">Gemini Enterprise ID</label>
             <select name="appId" value={config.appId} onChange={handleConfigChange} disabled={isLoadingApps || apps.length === 0} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px] disabled:bg-gray-700/50">
-              <option value="">{isLoadingApps ? 'Loading...' : '-- Select an App --'}</option>
+              <option value="">{isLoadingApps ? 'Loading...' : '-- Select Gemini Enterprise --'}</option>
               {apps.map(a => {
                   const appId = a.name.split('/').pop() || '';
                   return <option key={a.name} value={appId}>{a.displayName || appId}</option>

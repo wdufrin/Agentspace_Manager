@@ -225,11 +225,13 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
                 <div>
                     <div className="flex items-center space-x-2">
                         <label htmlFor="scopes" className="block text-sm font-medium text-gray-300">OAuth 2.0 Scopes</label>
-                        <div className="relative">
+                        <div 
+                            className="relative"
+                            onMouseEnter={() => setShowScopesTooltip(true)}
+                            onMouseLeave={() => setShowScopesTooltip(false)}
+                        >
                             <button
                                 type="button"
-                                onMouseEnter={() => setShowScopesTooltip(true)}
-                                onMouseLeave={() => setShowScopesTooltip(false)}
                                 className="text-gray-400 hover:text-white"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

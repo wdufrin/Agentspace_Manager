@@ -274,7 +274,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   
   const handleBackupAppEngine = async () => executeOperation('BackupAppEngine', async () => {
     if (!apiConfig.appId) {
-      throw new Error("App / Engine ID must be set in the configuration to back up a single engine.");
+      throw new Error("Gemini Enterprise ID must be set in the configuration to back up a single engine.");
     }
     addLog(`Starting backup for App/Engine: ${apiConfig.appId}...`);
     const engineName = `projects/${apiConfig.projectId}/locations/${apiConfig.appLocation}/collections/${apiConfig.collectionId}/engines/${apiConfig.appId}`;
@@ -291,7 +291,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
   const handleBackupAssistant = async () => executeOperation('BackupAssistant', async () => {
     if (!apiConfig.appId) {
-      throw new Error("App/Engine ID must be set to back up an assistant.");
+      throw new Error("Gemini Enterprise ID must be set to back up an assistant.");
     }
     addLog(`Starting backup for Assistant: ${apiConfig.assistantId}...`);
     const assistantName = `projects/${apiConfig.projectId}/locations/${apiConfig.appLocation}/collections/${apiConfig.collectionId}/engines/${apiConfig.appId}/assistants/${apiConfig.assistantId}`;
@@ -308,7 +308,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   
   const handleBackupAgents = async () => executeOperation('BackupAgents', async () => {
     if (!apiConfig.appId) {
-      throw new Error("App/Engine ID must be set to back up agents.");
+      throw new Error("Gemini Enterprise ID must be set to back up agents.");
     }
     addLog(`Starting backup for agents in Assistant: ${apiConfig.assistantId}...`);
     
@@ -672,7 +672,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
               const restoreConfig = apiConfig; // Uses the UI config, including the target assistantId
 
               if (!restoreConfig.appId) {
-                  throw new Error("You must select a target App/Engine in the configuration before restoring agents from an assistant backup.");
+                  throw new Error("You must select a target Gemini Enterprise in the configuration before restoring agents from an assistant backup.");
               }
               
               addLog(`Restoring ${agentsToRestore.length} agent(s) into selected assistant '${restoreConfig.assistantId}'...`);
@@ -754,7 +754,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
     const restoreConfig = apiConfig;
     if (!restoreConfig.appId) {
-        throw new Error("You must select a target App/Engine in the configuration before restoring agents.");
+        throw new Error("You must select a target Gemini Enterprise in the configuration before restoring agents.");
     }
 
     setModalData({
@@ -903,7 +903,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
             </select>
           </div>
           <div>
-            <label htmlFor="appId" className="block text-sm font-medium text-gray-400 mb-1">Target App / Engine ID</label>
+            <label htmlFor="appId" className="block text-sm font-medium text-gray-400 mb-1">Target Gemini Enterprise ID</label>
              <select name="appId" value={config.appId} onChange={handleConfigChange} disabled={isLoadingApps || apps.length === 0} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px] disabled:bg-gray-700/50">
               <option value="">{isLoadingApps ? 'Loading...' : '-- Select App --'}</option>
               {apps.map(a => {

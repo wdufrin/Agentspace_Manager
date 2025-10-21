@@ -37,8 +37,10 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
     displayName: 'My New Agent',
     description: 'An agent registered via the web UI.',
     agentId: '', // For specifying name on create
+    initialState: 'DISABLED' as 'ENABLED' | 'DISABLED',
     iconUri: 'https://www.svgrepo.com/show/533810/chef-man-cap.svg',
-    toolDescription: 'A tool that can do amazing things.',
+    createdBy: '',
+    additionalInfo: '',
     reasoningEngineLocation: 'us-central1',
     reasoningEngineId: '901164128171720704',
     authId: '',
@@ -77,13 +79,29 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
     if (agentToEdit) {
       const rePath = agentToEdit.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine || '';
       const reParts = rePath.split('/');
+
+      const desc = agentToEdit.adkAgentDefinition?.toolSettings?.toolDescription || '';
+      const createdByMatch = desc.match(/Created By: (.*)/);
+      const infoMatch = desc.match(/Additional Info: ([\s\S]*)/);
+
+      const createdBy = createdByMatch ? createdByMatch[1].trim() : '';
+      let additionalInfo = '';
+
+      if (createdByMatch || infoMatch) {
+          additionalInfo = infoMatch ? infoMatch[1].trim() : '';
+      } else {
+          // Not in the new format, so treat the whole thing as additional info
+          additionalInfo = desc;
+      }
       
       setFormData({
         displayName: agentToEdit.displayName || '',
         description: agentToEdit.description || '',
         agentId: '', // Not used for editing
+        initialState: agentToEdit.state || 'DISABLED',
         iconUri: agentToEdit.icon?.uri || '',
-        toolDescription: agentToEdit.adkAgentDefinition?.toolSettings?.toolDescription || '',
+        createdBy: createdBy,
+        additionalInfo: additionalInfo,
         reasoningEngineLocation: reParts.length > 3 ? reParts[3] : getCompatibleReasoningEngineLocation(config.appLocation),
         reasoningEngineId: reParts.length > 5 ? reParts[5] : '',
         authId: (agentToEdit.authorizations?.[0] || '').split('/').pop() || '',
@@ -110,6 +128,11 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
             .map(text => ({ text }));
         
         const reasoningEnginePath = `projects/${projectId}/locations/${formData.reasoningEngineLocation}/reasoningEngines/${formData.reasoningEngineId}`;
+        const newToolDescription = `[Agent Metadata]
+Created By: ${formData.createdBy || 'N/A'}
+Agent Engine: ${reasoningEnginePath}
+Additional Info: ${formData.additionalInfo || 'None'}`;
+
 
         if (agentToEdit) {
             // --- UPDATE (PATCH) LOGIC ---
@@ -138,11 +161,11 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
             }
             
             const originalAdkDef = agentToEdit.adkAgentDefinition;
-            if (originalAdkDef?.toolSettings?.toolDescription !== formData.toolDescription ||
+            if (originalAdkDef?.toolSettings?.toolDescription !== newToolDescription ||
                 originalAdkDef?.provisionedReasoningEngine?.reasoningEngine !== reasoningEnginePath) {
                 updateMask.push('adk_agent_definition');
                 payload.adk_agent_definition = {
-                    tool_settings: { tool_description: formData.toolDescription },
+                    tool_settings: { tool_description: newToolDescription },
                     provisioned_reasoning_engine: { reasoning_engine: reasoningEnginePath }
                 };
             }
@@ -177,7 +200,7 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
                 icon: formData.iconUri ? { uri: formData.iconUri } : undefined,
                 starterPrompts: finalStarterPrompts.length > 0 ? finalStarterPrompts : undefined,
                 adkAgentDefinition: {
-                    tool_settings: { tool_description: formData.toolDescription },
+                    tool_settings: { tool_description: newToolDescription },
                     provisioned_reasoning_engine: {
                       reasoning_engine: reasoningEnginePath,
                     },
@@ -214,7 +237,7 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
     setIconPreviewError(false);
   }, [formData.iconUri]);
   
-  const handleRewrite = async (field: 'description' | 'toolDescription') => {
+  const handleRewrite = async (field: 'description') => {
     setRewritingField(field);
     setRewriteError(null);
     const currentValue = formData[field];
@@ -227,19 +250,13 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
     let prompt = '';
 
     if (field === 'description') {
-        const toolDesc = formData.toolDescription;
-        prompt = `An agent has a tool with the following description: "${toolDesc}". 
+        const toolDesc = `Agent Engine: ${formData.reasoningEngineId}, Created By: ${formData.createdBy}, Info: ${formData.additionalInfo}`;
+        prompt = `An agent has a tool with the following metadata: "${toolDesc}". 
 Based on this capability, rewrite the agent's main description to clearly explain what the agent does for an end-user. The new description should be a single paragraph. Do not offer multiple options.
 
 Original agent description: "${currentValue}"
 
 Rewritten agent description:`;
-    } else { // toolDescription
-        prompt = `You are an expert prompt engineer. Rewrite the following tool description to be more clear, concise, and effective for an LLM to understand and use. The description should accurately represent the tool's capabilities and be a single paragraph. Do not offer multiple options.
-
-Original tool description: "${currentValue}"
-
-Rewritten tool description:`;
     }
 
     try {
@@ -258,7 +275,7 @@ Rewritten tool description:`;
     }
   };
 
-  const AiRewriteButton: React.FC<{ field: 'description' | 'toolDescription' }> = ({ field }) => {
+  const AiRewriteButton: React.FC<{ field: 'description' }> = ({ field }) => {
         const isRewriting = rewritingField === field;
         return (
             <button
@@ -266,7 +283,7 @@ Rewritten tool description:`;
                 onClick={() => handleRewrite(field)}
                 disabled={isRewriting || isEditingDisabled}
                 className="p-1.5 text-gray-400 bg-gray-700 hover:bg-indigo-600 hover:text-white rounded-md transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed"
-                title={`Rewrite ${field.replace('tool', 'tool ')} with AI`}
+                title={`Rewrite description with AI`}
             >
                 {isRewriting ? (
                     <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
@@ -305,7 +322,7 @@ Rewritten tool description:`;
 
   const handleLoadEngines = async () => {
     if (!formData.reasoningEngineLocation) {
-        setEngineLoadError("Please enter a location to load engines from.");
+        setEngineLoadError("Please enter a location to load agent engines from.");
         return;
     }
     setIsLoadingEngines(true);
@@ -316,10 +333,10 @@ Rewritten tool description:`;
         const response = await api.listReasoningEngines(engineConfig);
         setReasoningEngines(response.reasoningEngines || []);
         if (!response.reasoningEngines || response.reasoningEngines.length === 0) {
-            setEngineLoadError(`No reasoning engines found in ${formData.reasoningEngineLocation}.`);
+            setEngineLoadError(`No agent engines found in ${formData.reasoningEngineLocation}.`);
         }
     } catch (err: any) {
-        setEngineLoadError(err.message || "Failed to load reasoning engines.");
+        setEngineLoadError(err.message || "Failed to load agent engines.");
     } finally {
         setIsLoadingEngines(false);
     }
@@ -369,6 +386,11 @@ Rewritten tool description:`;
         .map(text => ({ text }));
     
     const reasoningEnginePath = `projects/${config.projectId}/locations/${formData.reasoningEngineLocation}/reasoningEngines/${formData.reasoningEngineId}`;
+    const newToolDescription = `[Agent Metadata]
+Created By: ${formData.createdBy || 'N/A'}
+Agent Engine: ${reasoningEnginePath}
+Additional Info: ${formData.additionalInfo || 'None'}`;
+
 
     try {
       if (agentToEdit) {
@@ -379,7 +401,7 @@ Rewritten tool description:`;
             icon: { uri: formData.iconUri },
             starterPrompts: finalStarterPrompts,
             adkAgentDefinition: {
-                toolSettings: { toolDescription: formData.toolDescription },
+                toolSettings: { toolDescription: newToolDescription },
                 provisionedReasoningEngine: {
                   reasoningEngine: reasoningEnginePath,
                 },
@@ -395,7 +417,7 @@ Rewritten tool description:`;
             icon: { uri: formData.iconUri },
             starterPrompts: finalStarterPrompts.length > 0 ? finalStarterPrompts : undefined,
             adkAgentDefinition: {
-                tool_settings: { tool_description: formData.toolDescription },
+                tool_settings: { tool_description: newToolDescription },
                 provisioned_reasoning_engine: {
                   reasoning_engine: reasoningEnginePath,
                 },
@@ -413,7 +435,12 @@ Rewritten tool description:`;
         
         // The agentId is passed as a query parameter via the apiService, not in the request body.
         const agentId = formData.agentId.trim() || undefined;
-        await api.createAgent(createPayload, config, agentId);
+        const newAgent = await api.createAgent(createPayload, config, agentId);
+
+        // Post-creation state change
+        if (formData.initialState === 'ENABLED') {
+            await api.enableAgent(newAgent.name, config);
+        }
       }
       onSuccess();
     } catch (err: any) {
@@ -459,11 +486,27 @@ Rewritten tool description:`;
                     <textarea name="description" value={formData.description} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" required />
                 </div>
                 {!agentToEdit && (
-                  <div>
-                    <label htmlFor="agentId" className="block text-sm font-medium text-gray-300">Agent ID (Optional)</label>
-                    <input type="text" name="agentId" value={formData.agentId} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" pattern="[a-z0-9-]{1,63}" title="Must be lowercase letters, numbers, and hyphens, up to 63 characters." />
-                    <p className="mt-1 text-xs text-gray-400">If left blank, a unique ID will be generated. Must be lowercase, numbers, and hyphens.</p>
-                  </div>
+                  <>
+                    <div>
+                      <label htmlFor="agentId" className="block text-sm font-medium text-gray-300">Agent ID (Optional)</label>
+                      <input type="text" name="agentId" value={formData.agentId} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" pattern="[a-z0-9-]{1,63}" title="Must be lowercase letters, numbers, and hyphens, up to 63 characters." />
+                      <p className="mt-1 text-xs text-gray-400">If left blank, a unique ID will be generated. Must be lowercase, numbers, and hyphens.</p>
+                    </div>
+                    <div>
+                      <label htmlFor="initialState" className="block text-sm font-medium text-gray-300">Initial State</label>
+                      <select 
+                        name="initialState" 
+                        id="initialState" 
+                        value={formData.initialState} 
+                        onChange={handleChange} 
+                        className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm p-2 h-[42px]"
+                      >
+                        <option value="DISABLED">Disabled (Default)</option>
+                        <option value="ENABLED">Enabled</option>
+                      </select>
+                      <p className="mt-1 text-xs text-gray-400">The state of the agent immediately after creation.</p>
+                    </div>
+                  </>
                 )}
                 <div>
                     <label htmlFor="iconUri" className="block text-sm font-medium text-gray-300">Icon URI</label>
@@ -558,15 +601,18 @@ Rewritten tool description:`;
 
                 <div className="space-y-4 border-t border-gray-700 p-4 rounded-md">
                     <h3 className="text-lg font-semibold text-white">ADK Agent Details</h3>
-                    <div>
-                        <div className="flex justify-between items-center">
-                            <label htmlFor="toolDescription" className="block text-sm font-medium text-gray-300">Tool Description (Prompt)</label>
-                            <AiRewriteButton field="toolDescription" />
+                     <div className="space-y-3">
+                        <div>
+                            <label htmlFor="createdBy" className="block text-sm font-medium text-gray-300">Created By</label>
+                            <input type="text" name="createdBy" value={formData.createdBy} onChange={handleChange} placeholder="e.g., your-name@example.com" className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" />
                         </div>
-                        <textarea name="toolDescription" value={formData.toolDescription} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" required />
+                        <div>
+                            <label htmlFor="additionalInfo" className="block text-sm font-medium text-gray-300">Additional Info</label>
+                            <textarea name="additionalInfo" value={formData.additionalInfo} onChange={handleChange} rows={3} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" />
+                        </div>
                     </div>
                     <div>
-                        <label htmlFor="reasoningEngineLocation" className="block text-sm font-medium text-gray-300">Reasoning Engine Location</label>
+                        <label htmlFor="reasoningEngineLocation" className="block text-sm font-medium text-gray-300">Agent Engine Location</label>
                         <div className="flex items-center space-x-2 mt-1">
                             <input 
                                 type="text" 
@@ -583,14 +629,14 @@ Rewritten tool description:`;
                     {engineLoadError && <p className="text-sm text-red-400">{engineLoadError}</p>}
                     {reasoningEngines.length > 0 && (
                         <div>
-                            <label htmlFor="engineSelect" className="block text-sm font-medium text-gray-300">Select an Engine</label>
+                            <label htmlFor="engineSelect" className="block text-sm font-medium text-gray-300">Select an Agent Engine</label>
                             <select id="engineSelect" onChange={handleEngineSelect} value={reasoningEngines.find(re => re.name.endsWith(`/${formData.reasoningEngineId}`))?.name || ''} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white disabled:bg-gray-700/50 disabled:cursor-not-allowed">
                                 <option value="">-- Manually Entered --</option>
                                 {reasoningEngines.map(engine => (<option key={engine.name} value={engine.name}>{engine.displayName} ({engine.name.split('/').pop()})</option>))}
                             </select>
                         </div>
                     )}
-                    <div><label htmlFor="reasoningEngineId" className="block text-sm font-medium text-gray-300">Reasoning Engine ID</label><input type="text" name="reasoningEngineId" value={formData.reasoningEngineId} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" required /></div>
+                    <div><label htmlFor="reasoningEngineId" className="block text-sm font-medium text-gray-300">Agent Engine ID</label><input type="text" name="reasoningEngineId" value={formData.reasoningEngineId} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" required /></div>
                 </div>
             </fieldset>
         </form>
