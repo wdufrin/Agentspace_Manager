@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useMemo } from 'react';
 import { ReasoningEngine, Config, Agent } from '../types';
 import * as api from '../services/apiService';
@@ -211,23 +212,28 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
 
     const results = await Promise.allSettled(deletionPromises);
 
+    // FIX: Replaced an unsafe block for handling promise rejections with a robust, type-safe implementation.
+    // This resolves multiple errors where the 'reason' for rejection (of type 'unknown') was being incorrectly treated as a string,
+    // leading to potential runtime errors like calling '.split()' on a non-string and TypeScript compilation failures.
     const failures: string[] = [];
     results.forEach((result, index) => {
         if (result.status === 'rejected') {
             const engineName = String(enginesToDelete[index]).split('/').pop();
-            const reason: unknown = result.reason;
+            const reason = result.reason as any;
+            
             let message: string;
 
             if (reason instanceof Error) {
                 message = reason.message;
             } else if (typeof reason === 'string') {
                 message = reason;
+            } else if (reason && typeof reason.message === 'string') {
+                message = reason.message;
             } else {
                 try {
-                    const stringified = JSON.stringify(reason);
-                    message = stringified ?? 'An un-stringifiable error object was caught.';
+                    message = JSON.stringify(reason);
                 } catch {
-                    message = 'A non-serializable error object was caught.';
+                    message = 'A non-serializable error was caught.';
                 }
             }
             failures.push(`- ${engineName}: ${message}`);

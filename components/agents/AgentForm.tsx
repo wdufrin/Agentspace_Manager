@@ -37,7 +37,6 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
     displayName: 'My New Agent',
     description: 'An agent registered via the web UI.',
     agentId: '', // For specifying name on create
-    initialState: 'DISABLED' as 'ENABLED' | 'DISABLED',
     iconUri: 'https://www.svgrepo.com/show/533810/chef-man-cap.svg',
     createdBy: '',
     additionalInfo: '',
@@ -98,7 +97,6 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
         displayName: agentToEdit.displayName || '',
         description: agentToEdit.description || '',
         agentId: '', // Not used for editing
-        initialState: agentToEdit.state || 'DISABLED',
         iconUri: agentToEdit.icon?.uri || '',
         createdBy: createdBy,
         additionalInfo: additionalInfo,
@@ -435,12 +433,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
         
         // The agentId is passed as a query parameter via the apiService, not in the request body.
         const agentId = formData.agentId.trim() || undefined;
-        const newAgent = await api.createAgent(createPayload, config, agentId);
-
-        // Post-creation state change
-        if (formData.initialState === 'ENABLED') {
-            await api.enableAgent(newAgent.name, config);
-        }
+        await api.createAgent(createPayload, config, agentId);
       }
       onSuccess();
     } catch (err: any) {
@@ -486,27 +479,11 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                     <textarea name="description" value={formData.description} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" required />
                 </div>
                 {!agentToEdit && (
-                  <>
-                    <div>
-                      <label htmlFor="agentId" className="block text-sm font-medium text-gray-300">Agent ID (Optional)</label>
-                      <input type="text" name="agentId" value={formData.agentId} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" pattern="[a-z0-9-]{1,63}" title="Must be lowercase letters, numbers, and hyphens, up to 63 characters." />
-                      <p className="mt-1 text-xs text-gray-400">If left blank, a unique ID will be generated. Must be lowercase, numbers, and hyphens.</p>
-                    </div>
-                    <div>
-                      <label htmlFor="initialState" className="block text-sm font-medium text-gray-300">Initial State</label>
-                      <select 
-                        name="initialState" 
-                        id="initialState" 
-                        value={formData.initialState} 
-                        onChange={handleChange} 
-                        className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm p-2 h-[42px]"
-                      >
-                        <option value="DISABLED">Disabled (Default)</option>
-                        <option value="ENABLED">Enabled</option>
-                      </select>
-                      <p className="mt-1 text-xs text-gray-400">The state of the agent immediately after creation.</p>
-                    </div>
-                  </>
+                  <div>
+                    <label htmlFor="agentId" className="block text-sm font-medium text-gray-300">Agent ID (Optional)</label>
+                    <input type="text" name="agentId" value={formData.agentId} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" pattern="[a-z0-9-]{1,63}" title="Must be lowercase letters, numbers, and hyphens, up to 63 characters." />
+                    <p className="mt-1 text-xs text-gray-400">If left blank, a unique ID will be generated. Must be lowercase, numbers, and hyphens.</p>
+                  </div>
                 )}
                 <div>
                     <label htmlFor="iconUri" className="block text-sm font-medium text-gray-300">Icon URI</label>
