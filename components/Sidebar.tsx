@@ -1,34 +1,56 @@
+
 import React, { useState } from 'react';
 import { Page } from '../types';
 
 interface SidebarProps {
   currentPage: Page;
   setCurrentPage: (page: Page) => void;
+  onShowInfo: (page: Page) => void;
 }
 
 const NavItem: React.FC<{
   page: Page;
   currentPage: Page;
   setCurrentPage: (page: Page) => void;
-  // FIX: Replaced JSX.Element with React.ReactElement to resolve "Cannot find namespace 'JSX'" error.
   icon: React.ReactElement;
-}> = ({ page, currentPage, setCurrentPage, icon }) => (
-  <button
-    onClick={() => setCurrentPage(page)}
-    className={`flex items-center w-full px-4 py-3 text-sm font-medium rounded-lg transition-colors duration-200 ${
-      currentPage === page
-        ? 'bg-blue-600 text-white'
-        : 'text-gray-400 hover:bg-gray-700 hover:text-white'
-    }`}
-  >
-    {icon}
-    <span className="ml-3 flex items-center gap-2">
-      <span>{page}</span>
-    </span>
-  </button>
-);
+  onShowInfo: (page: Page) => void;
+}> = ({ page, currentPage, setCurrentPage, icon, onShowInfo }) => {
+  const isCurrent = currentPage === page;
 
-const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage }) => {
+  return (
+    <div className="flex items-center w-full group">
+      <button
+        onClick={() => setCurrentPage(page)}
+        className={`flex items-center flex-grow pl-4 pr-2 py-3 text-sm font-medium rounded-l-lg transition-colors duration-200 focus:outline-none focus:z-10 ${
+          isCurrent
+            ? 'bg-blue-600 text-white'
+            : 'text-gray-400 bg-gray-800 group-hover:bg-gray-700 group-hover:text-white'
+        }`}
+      >
+        {icon}
+        <span className="ml-3">{page}</span>
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onShowInfo(page);
+        }}
+        className={`px-2 py-3 h-full rounded-r-lg transition-colors duration-200 focus:outline-none focus:z-10 ${
+          isCurrent
+            ? 'bg-blue-600 text-blue-200 hover:bg-blue-500 hover:text-white'
+            : 'text-gray-500 bg-gray-800 group-hover:bg-gray-700 group-hover:text-white'
+        }`}
+        title={`Show API commands for ${page}`}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+        </svg>
+      </button>
+    </div>
+  );
+};
+
+const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowInfo }) => {
   const [isBetaExpanded, setIsBetaExpanded] = useState(false);
 
   const mainFeatures = [
@@ -68,6 +90,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage }) => {
                 currentPage={currentPage} 
                 setCurrentPage={setCurrentPage}
                 icon={item.icon}
+                onShowInfo={onShowInfo}
               />
             ))}
           </nav>
@@ -93,6 +116,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage }) => {
                           currentPage={currentPage} 
                           setCurrentPage={setCurrentPage}
                           icon={item.icon}
+                          onShowInfo={onShowInfo}
                         />
                       ))}
                     </div>

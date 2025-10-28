@@ -19,6 +19,7 @@ import * as api from './services/apiService';
 import ChatPage from './pages/ChatPage';
 import AgentRegistrationPage from './pages/AgentRegistrationPage';
 import ArchitecturePage from './pages/ArchitecturePage';
+import CurlInfoModal from './components/CurlInfoModal';
 
 
 const App: React.FC = () => {
@@ -42,6 +43,8 @@ const App: React.FC = () => {
   const [apisToEnable, setApisToEnable] = useState<Set<string>>(new Set());
   const [isApiEnablingLoading, setIsApiEnablingLoading] = useState(false);
   const [apiEnablementLogs, setApiEnablementLogs] = useState<string[]>([]);
+
+  const [infoModalPage, setInfoModalPage] = useState<Page | null>(null);
 
 
   const handleSetAccessToken = (token: string) => {
@@ -192,6 +195,14 @@ const App: React.FC = () => {
     } else {
         setGapiError("Cannot enter application. Ensure the API client is initialized and a project is set.");
     }
+  };
+
+  const handleShowInfo = (page: Page) => {
+    setInfoModalPage(page);
+  };
+
+  const handleCloseInfoModal = () => {
+    setInfoModalPage(null);
   };
 
 
@@ -403,18 +414,23 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen bg-gray-900 text-gray-100 font-sans">
-      <Sidebar currentPage={currentPage} setCurrentPage={setCurrentPage} />
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="bg-gray-800 border-b border-gray-700 p-4 flex flex-col gap-4 md:flex-row md:justify-between md:items-center">
-          <h1 className="text-xl font-bold text-white text-center md:text-left">Gemini Enterprise Manager</h1>
-          <AccessTokenInput accessToken={accessToken} setAccessToken={handleSetAccessToken} />
-        </header>
-        <div className="flex-1 overflow-y-auto p-6">
-          {renderPage()}
-        </div>
-      </main>
-    </div>
+    <>
+      <div className="flex h-screen bg-gray-900 text-gray-100 font-sans">
+        <Sidebar currentPage={currentPage} setCurrentPage={setCurrentPage} onShowInfo={handleShowInfo} />
+        <main className="flex-1 flex flex-col overflow-hidden">
+          <header className="bg-gray-800 border-b border-gray-700 p-4 flex flex-col gap-4 md:flex-row md:justify-between md:items-center">
+            <h1 className="text-xl font-bold text-white text-center md:text-left">Gemini Enterprise Manager</h1>
+            <AccessTokenInput accessToken={accessToken} setAccessToken={handleSetAccessToken} />
+          </header>
+          <div className="flex-1 overflow-y-auto p-6">
+            {renderPage()}
+          </div>
+        </main>
+      </div>
+      {infoModalPage && (
+        <CurlInfoModal page={infoModalPage} onClose={handleCloseInfoModal} />
+      )}
+    </>
   );
 };
 

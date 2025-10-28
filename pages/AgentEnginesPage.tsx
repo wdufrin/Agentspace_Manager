@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useMemo } from 'react';
 import { ReasoningEngine, Config, Agent } from '../types';
 import * as api from '../services/apiService';
@@ -212,9 +213,9 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
 
     const results = await Promise.allSettled(deletionPromises);
 
-    // FIX: Replaced an unsafe block for handling promise rejections with a robust, type-safe implementation.
-    // This resolves multiple errors where the 'reason' for rejection (of type 'unknown') was being incorrectly treated as a string,
-    // leading to potential runtime errors like calling '.split()' on a non-string and TypeScript compilation failures.
+    // FIX: Safely handle promise rejection reasons. The 'reason' is of type 'unknown' and cannot be used
+    // directly as a string or have methods called on it. This block performs type checks to handle various
+    // possible error shapes from the API.
     const failures: string[] = [];
     results.forEach((result, index) => {
         if (result.status === 'rejected') {
