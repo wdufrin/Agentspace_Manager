@@ -3,6 +3,7 @@ import { Agent, AppEngine, Assistant, Authorization, Config, DataStore, GraphEdg
 import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
 import ArchitectureGraph from '../components/architecture/ArchitectureGraph';
+import CurlInfoModal from '../components/CurlInfoModal';
 
 const ALL_REASONING_ENGINE_LOCATIONS = [
     'us-central1', 'us-east1', 'us-east4', 'us-west1',
@@ -10,6 +11,12 @@ const ALL_REASONING_ENGINE_LOCATIONS = [
     'asia-east1', 'asia-southeast1'
 ];
 const ALL_DISCOVERY_LOCATIONS = ['global', 'us', 'eu'];
+
+const InfoIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+    </svg>
+);
 
 const ArchitecturePage: React.FC<{ projectNumber: string; setProjectNumber: (projectNumber: string) => void; }> = ({ projectNumber, setProjectNumber }) => {
     const [nodes, setNodes] = useState<GraphNode[]>([]);
@@ -19,6 +26,7 @@ const ArchitecturePage: React.FC<{ projectNumber: string; setProjectNumber: (pro
     const [logs, setLogs] = useState<string[]>([]);
     const [filterNodeId, setFilterNodeId] = useState<string | null>(null);
     const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+    const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
 
     const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectNumber,
@@ -255,6 +263,9 @@ const ArchitecturePage: React.FC<{ projectNumber: string; setProjectNumber: (pro
 
     return (
         <div className="space-y-6 flex flex-col h-full">
+            {isInfoModalOpen && (
+                <CurlInfoModal infoKey="ArchitectureScan" onClose={() => setIsInfoModalOpen(false)} />
+            )}
             <div className="bg-gray-800 p-4 rounded-lg shadow-md">
                 <h2 className="text-lg font-semibold text-white mb-3">Project Architecture</h2>
                 <div className="flex flex-col md:flex-row gap-4 items-end">
@@ -262,18 +273,27 @@ const ArchitecturePage: React.FC<{ projectNumber: string; setProjectNumber: (pro
                         <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
                         <ProjectInput value={projectNumber} onChange={setProjectNumber} />
                     </div>
-                    <button
-                        onClick={handleScan}
-                        disabled={isLoading || !projectNumber}
-                        className="w-full md:w-auto px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 h-[42px] flex items-center justify-center"
-                    >
-                        {isLoading ? (
-                             <>
-                                <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
-                                Scanning...
-                            </>
-                        ) : 'Scan Project Architecture'}
-                    </button>
+                    <div className="flex items-end gap-2 w-full md:w-auto">
+                        <button
+                            onClick={handleScan}
+                            disabled={isLoading || !projectNumber}
+                            className="w-full md:w-auto px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 h-[42px] flex items-center justify-center"
+                        >
+                            {isLoading ? (
+                                <>
+                                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
+                                    Scanning...
+                                </>
+                            ) : 'Scan Project Architecture'}
+                        </button>
+                        <button
+                            onClick={() => setIsInfoModalOpen(true)}
+                            className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 hover:text-white h-[42px]"
+                            title="Show API commands for scanning"
+                        >
+                            <InfoIcon />
+                        </button>
+                    </div>
                 </div>
                 {filterNodeId && (
                     <div className="mt-4 pt-4 border-t border-gray-700 flex justify-between items-center">

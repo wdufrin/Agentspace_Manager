@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import AgentsPage from './pages/AgentsPage';
@@ -44,7 +43,7 @@ const App: React.FC = () => {
   const [isApiEnablingLoading, setIsApiEnablingLoading] = useState(false);
   const [apiEnablementLogs, setApiEnablementLogs] = useState<string[]>([]);
 
-  const [infoModalPage, setInfoModalPage] = useState<Page | null>(null);
+  const [infoModalKey, setInfoModalKey] = useState<string | null>(null);
 
 
   const handleSetAccessToken = (token: string) => {
@@ -197,12 +196,12 @@ const App: React.FC = () => {
     }
   };
 
-  const handleShowInfo = (page: Page) => {
-    setInfoModalPage(page);
+  const handleShowInfo = (infoKey: string) => {
+    setInfoModalKey(infoKey);
   };
 
   const handleCloseInfoModal = () => {
-    setInfoModalPage(null);
+    setInfoModalKey(null);
   };
 
 
@@ -427,8 +426,8 @@ const App: React.FC = () => {
           </div>
         </main>
       </div>
-      {infoModalPage && (
-        <CurlInfoModal page={infoModalPage} onClose={handleCloseInfoModal} />
+      {infoModalKey && (
+        <CurlInfoModal infoKey={infoModalKey} onClose={handleCloseInfoModal} />
       )}
     </>
   );

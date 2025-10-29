@@ -1,13 +1,12 @@
-
 import React, { useState } from 'react';
 import { Page } from '../types';
 
 interface CurlInfoModalProps {
-  page: Page;
+  infoKey: string;
   onClose: () => void;
 }
 
-const PAGE_INFO: { [key in Page]?: { description: string; commands: { title: string; command: string }[] } } = {
+const ALL_INFO: { [key: string]: { description: string; commands: { title: string; command: string }[] } } = {
     [Page.AGENTS]: {
         description: "These are the underlying REST API calls for managing agents. They interact with the v1alpha Discovery Engine API.",
         commands: [
@@ -34,15 +33,6 @@ const PAGE_INFO: { [key in Page]?: { description: string; commands: { title: str
         }
       }' \\
   "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents?agentId=[OPTIONAL_AGENT_ID]"`
-            },
-            {
-                title: 'Enable Agent',
-                command: `curl -X POST \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "Content-Type: application/json" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  -d '{}' \\
-  "https://discoveryengine.googleapis.com/v1alpha/[AGENT_RESOURCE_NAME]:enableAgent"`
             },
         ]
     },
@@ -84,20 +74,6 @@ const PAGE_INFO: { [key in Page]?: { description: string; commands: { title: str
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   "https://[LOCATION]-aiplatform.googleapis.com/v1beta1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/reasoningEngines"`
             },
-            {
-                title: 'Direct Query (Streaming)',
-                command: `curl -X POST \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "Content-Type: application/json" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  -d '{
-        "input": {
-          "message": "What is the capital of France?",
-          "user_id": "[UNIQUE_SESSION_ID]"
-        }
-      }' \\
-  "https://[LOCATION]-aiplatform.googleapis.com/v1beta1/[ENGINE_RESOURCE_NAME]:streamQuery"`
-            }
         ]
     },
     [Page.DATA_STORES]: {
@@ -110,132 +86,92 @@ const PAGE_INFO: { [key in Page]?: { description: string; commands: { title: str
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   "https://discoveryengine.googleapis.com/v1beta/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores"`
             },
+        ]
+    },
+    'Backup:DiscoveryResources': {
+        description: "A full discovery resource backup involves recursively listing all collections, engines, assistants, and agents. The primary starting point is listing collections.",
+        commands: [{ title: 'List Collections (Primary Step)', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/collections"` }]
+    },
+    'Restore:DiscoveryResources': {
+        description: "Restoring discovery resources involves a series of `create` operations. The first step is to create the collection.",
+        commands: [{ title: 'Create Collection (First Step)', command: `curl -X POST -H "Authorization: Bearer [TOKEN]" -H "Content-Type: application/json" -d '{"displayName": "[COLLECTION_DISPLAY_NAME]"}' "https://[LOCATION]-discoveryengine.googleapis.com/v1beta/projects/[PROJECT_ID]/locations/[LOCATION]/collections?collectionId=[COLLECTION_ID]"` }]
+    },
+    'Backup:AppEngine': {
+        description: "Backing up a single App/Engine involves getting its details and then listing its assistants and agents recursively.",
+        commands: [{ title: 'Get Engine Details', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]"` }]
+    },
+    'Restore:AppEngine': {
+        description: "Restoring an App/Engine requires creating a data store for it first, then creating the engine itself.",
+        commands: [{ title: 'Create Engine', command: `curl -X POST -H "Authorization: Bearer [TOKEN]" -H "Content-Type: application/json" -d '{"displayName": "[ENGINE_DISPLAY_NAME]", "solutionType": "SOLUTION_TYPE_SEARCH", "dataStoreIds": ["[NEW_DATA_STORE_ID]"]}' "https://[LOCATION]-discoveryengine.googleapis.com/v1beta/projects/[PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines?engineId=[ENGINE_ID]"` }]
+    },
+    'Backup:Assistant': {
+        description: "Backing up a single Assistant involves getting its details and then listing its agents.",
+        commands: [{ title: 'Get Assistant Details', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]"` }]
+    },
+    'Restore:Assistant': {
+        description: "Restoring an Assistant involves creating it within a target App/Engine.",
+        commands: [{ title: 'Create Assistant', command: `curl -X POST -H "Authorization: Bearer [TOKEN]" -H "Content-Type: application/json" -d '{"displayName": "[ASSISTANT_DISPLAY_NAME]"}' "https://[LOCATION]-discoveryengine.googleapis.com/v1beta/projects/[PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants?assistantId=[ASSISTANT_ID]"` }]
+    },
+    'Backup:Agents': {
+        description: "Backing up agents involves listing all agents within a specific assistant.",
+        commands: [{ title: 'List Agents', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents"` }]
+    },
+    'Restore:Agents': {
+        description: "Restoring agents involves creating them within a target assistant. The `createAgent` call from the main Agents page is used.",
+        commands: [{ title: 'Create Agent', command: `curl -X POST -H "Authorization: Bearer [TOKEN]" -H "Content-Type: application/json" -d '{...}' "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents"` }]
+    },
+    'Backup:DataStores': {
+        description: "Backing up data stores involves listing all data stores within a specific collection.",
+        commands: [{ title: 'List Data Stores', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://[LOCATION]-discoveryengine.googleapis.com/v1beta/projects/[PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores"` }]
+    },
+    'Restore:DataStores': {
+        description: "Restoring a data store involves creating it within a target collection.",
+        commands: [{ title: 'Create Data Store', command: `curl -X POST -H "Authorization: Bearer [TOKEN]" -H "Content-Type: application/json" -d '{"displayName": "[DS_DISPLAY_NAME]", "industryVertical": "GENERIC", "solutionTypes": ["SOLUTION_TYPE_SEARCH"], "contentConfig": "NO_CONTENT"}' "https://[LOCATION]-discoveryengine.googleapis.com/v1beta/projects/[PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores?dataStoreId=[DATA_STORE_ID]"` }]
+    },
+    'Backup:Authorizations': {
+        description: "Backing up authorizations involves listing all authorizations in the project.",
+        commands: [{ title: 'List Authorizations', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/global/authorizations"` }]
+    },
+    'Restore:Authorizations': {
+        description: "Restoring an authorization involves creating it. The `createAuthorization` call from the Authorizations page is used. Note that you must provide the client secret, which is not included in the backup file.",
+        commands: [{ title: 'Create Authorization', command: `curl -X POST -H "Authorization: Bearer [TOKEN]" -H "Content-Type: application/json" -d '{ "serverSideOauth2": { ... } }' "https://discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/global/authorizations?authorizationId=[AUTH_ID]"` }]
+    },
+    'ArchitectureScan': {
+        description: "The architecture scan performs a series of 'list' operations across multiple regions and resource types to discover all connected components. It starts by listing global resources like Authorizations, then scans all regions for Reasoning Engines, and finally explores Discovery Engine locations to find Engines, Assistants, and Agents recursively.",
+        commands: [
             {
-                title: 'List Documents',
+                title: 'List Authorizations (Global)',
                 command: `curl -X GET \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores/[DATASTORE_ID]/branches/0/documents"`
-            }
-        ]
-    },
-    [Page.MODEL_ARMOR]: {
-        description: "This feature fetches safety policy violation logs from the Cloud Logging API.",
-        commands: [
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/global/authorizations"`
+            },
             {
-                title: 'List Violation Logs',
-                command: `curl -X POST \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-        "projectIds": ["[YOUR_PROJECT_ID]"],
-        "filter": "log_id(\\"modelarmor.googleapis.com/sanitize_operations\\")",
-        "orderBy": "timestamp desc",
-        "pageSize": 50
-      }' \\
-  "https://logging.googleapis.com/v2/entries:list"`
-            }
-        ]
-    },
-    [Page.CHAT]: {
-        description: "This feature sends a prompt to an agent and receives a streaming response.",
-        commands: [
-            {
-                title: 'Chat with an Agent (Streaming)',
-                command: `curl -X POST \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "Content-Type: application/json" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  -d '{
-        "query": { "text": "Hello, what can you do?" },
-        "agentsConfig": {
-          "agent": "projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents/[AGENT_ID]"
-        }
-      }' \\
-  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]:streamAssist"`
-            }
-        ]
-    },
-    [Page.AGENT_BUILDER]: {
-        description: "The deploy step in the Agent Builder creates a new Reasoning Engine with a deployed ADK agent package from GCS.",
-        commands: [
-            {
-                title: 'Deploy to a New Reasoning Engine',
-                command: `curl -X POST \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "Content-Type: application/json" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  -d '{
-        "displayName": "My New Deployed Agent",
-        "spec": {
-          "agentFramework": "google-adk",
-          "packageSpec": {
-            "pickleObjectGcsUri": "gs://[BUCKET_NAME]/[PATH]/agent.pkl",
-            "requirementsGcsUri": "gs://[BUCKET_NAME]/[PATH]/requirements.txt",
-            "pythonVersion": "3.10"
-          }
-        }
-      }' \\
-  "https://[LOCATION]-aiplatform.googleapis.com/v1beta1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/reasoningEngines"`
-            }
-        ]
-    },
-    [Page.AGENT_REGISTRATION]: {
-        description: "This feature registers a new agent resource from a deployed Cloud Run function by providing its 'agent card' JSON.",
-        commands: [
-            {
-                title: 'Register an A2A Agent',
-                command: `# The 'jsonAgentCard' is a stringified JSON object.
-curl -X POST \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "Content-Type: application/json" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  -d '{
-        "displayName": "My A2A Agent",
-        "description": "An agent that provides weather information.",
-        "a2aAgentDefinition": {
-          "jsonAgentCard": "{\\"provider\\":{\\"organization\\":\\"My Company\\",\\"url\\":\\"https://my-a2a-function-....run.app\\"},\\"name\\":\\"My A2A Agent\\", ...}"
-        }
-      }' \\
-  "https://discoveryengine.googleapis.com/v1alpha/projects/[...]/agents?agentId=my-weather-agent"`
-            }
-        ]
-    },
-    [Page.A2A_TESTER]: {
-        description: "This feature fetches the `agent.json` discovery file from a deployed A2A function. This requires an Identity Token, not an Access Token.",
-        commands: [
-            {
-                title: 'Test an A2A Agent (Discovery)',
-                command: `# Generate the Identity Token and make the request in one command
+                title: 'List Reasoning Engines (Per-Region)',
+                command: `# The scan iterates over locations like us-central1, europe-west1, etc.
 curl -X GET \\
-  -H "Authorization: Bearer $(gcloud auth print-identity-token --audience https://[YOUR_SERVICE_URL].run.app)" \\
-  "https://[YOUR_SERVICE_URL].run.app/.well-known/agent.json"`
-            }
-        ]
-    },
-    [Page.MCP_SERVERS]: {
-        description: "This page scans for Cloud Run services in a specified region to identify potential MCP servers.",
-        commands: [
-            {
-                title: 'List Cloud Run Services',
-                command: `curl -X GET \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  "https://[LOCATION]-run.googleapis.com/v2/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/services"`
-            }
+  "https://[LOCATION]-aiplatform.googleapis.com/v1beta1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/reasoningEngines"`
+            },
+            {
+                title: 'List Discovery Engines (Per-Location)',
+                command: `# The scan iterates over discovery locations like global, us, eu.
+# Then it recursively lists assistants and agents found within each engine.
+curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[DISCOVERY_LOCATION]/collections/default_collection/engines"`
+            },
+            {
+                title: 'Get Agent View (For Dependencies)',
+                command: `# After finding an agent, its 'view' is fetched to find linked Data Stores.
+curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/[FULL_AGENT_RESOURCE_NAME]:getAgentView"`
+            },
         ]
-    },
-    [Page.BACKUP_RECOVERY]: {
-        description: "The Backup & Restore feature orchestrates a series of `list` and `create` calls to save and rebuild resources. The API calls are specific to the resources being backed up (e.g., Agents, Data Stores).",
-        commands: []
-    },
-    [Page.ARCHITECTURE]: {
-        description: "The Architecture Visualizer performs a comprehensive scan across multiple regions and resource types to discover and map your Gemini Enterprise resources. It uses a series of `list` API calls similar to those shown on other pages.",
-        commands: []
-    },
-    [Page.A2A_FUNCTIONS]: {
-        description: "The A2A Function Builder generates source code and deployment scripts. It does not directly make API calls itself, but the generated scripts use `gcloud` to deploy to Cloud Run.",
-        commands: []
     },
 };
 
@@ -260,14 +196,18 @@ const CodeBlock: React.FC<{ title: string, command: string }> = ({ title, comman
   );
 };
 
-const CurlInfoModal: React.FC<CurlInfoModalProps> = ({ page, onClose }) => {
-  const info = PAGE_INFO[page];
+const CurlInfoModal: React.FC<CurlInfoModalProps> = ({ infoKey, onClose }) => {
+  const info = ALL_INFO[infoKey];
+  const titleText = infoKey.startsWith('Backup:') || infoKey.startsWith('Restore:') 
+    ? infoKey.replace(':', ' - ')
+    : infoKey === 'ArchitectureScan' ? 'Architecture Scan'
+    : infoKey;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4" aria-modal="true" role="dialog">
       <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
         <header className="p-4 border-b border-gray-700 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-white">API Commands for {page}</h2>
+          <h2 className="text-xl font-bold text-white">API Commands for {titleText}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-white">&times;</button>
         </header>
         <main className="p-6 overflow-y-auto space-y-4">

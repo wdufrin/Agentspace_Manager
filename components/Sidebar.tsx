@@ -1,11 +1,10 @@
-
 import React, { useState } from 'react';
 import { Page } from '../types';
 
 interface SidebarProps {
   currentPage: Page;
   setCurrentPage: (page: Page) => void;
-  onShowInfo: (page: Page) => void;
+  onShowInfo: (infoKey: string) => void;
 }
 
 const NavItem: React.FC<{
@@ -13,7 +12,7 @@ const NavItem: React.FC<{
   currentPage: Page;
   setCurrentPage: (page: Page) => void;
   icon: React.ReactElement;
-  onShowInfo: (page: Page) => void;
+  onShowInfo: (infoKey: string) => void;
 }> = ({ page, currentPage, setCurrentPage, icon, onShowInfo }) => {
   const isCurrent = currentPage === page;
 

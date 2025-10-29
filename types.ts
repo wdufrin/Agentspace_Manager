@@ -82,6 +82,7 @@ export interface Authorization {
 export interface ReasoningEngine {
   name: string;
   displayName: string;
+  sessionCount?: number;
 }
 
 export interface ChatMessage {

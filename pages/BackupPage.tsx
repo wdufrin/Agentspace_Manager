@@ -4,6 +4,7 @@ import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
 import RestoreSelectionModal from '../components/backup/RestoreSelectionModal';
 import ClientSecretPrompt from '../components/backup/ClientSecretPrompt';
+import CurlInfoModal from '../components/CurlInfoModal';
 
 interface BackupPageProps {
   accessToken: string;
@@ -14,8 +15,13 @@ interface BackupPageProps {
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- Sub-Components ---
+const InfoIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+    </svg>
+);
 
-// FIX: Changed component definition to use a typed interface and React.FC to resolve a props typing issue where the 'key' prop was incorrectly being considered part of the component's props.
+
 interface BackupRestoreCardProps {
   section: string;
   title: string;
@@ -27,6 +33,7 @@ interface BackupRestoreCardProps {
   restoreFileInputRefs: React.MutableRefObject<{ [key: string]: HTMLInputElement | null }>;
   loadingSection: string | null;
   isGloballyLoading: boolean;
+  onShowInfo: (infoKey: string) => void;
 }
 
 const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({ 
@@ -39,7 +46,8 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
   onFileChange,
   restoreFileInputRefs,
   loadingSection,
-  isGloballyLoading
+  isGloballyLoading,
+  onShowInfo
 }) => {
     const isBackupLoading = loadingSection === `Backup${section}`;
     const isRestoreLoading = loadingSection === `Restore${section}`;
@@ -51,18 +59,23 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
         
         {/* Backup Action */}
         <div className="flex-1 mb-4">
-          <button 
-            onClick={onBackup} 
-            disabled={isGloballyLoading} 
-            className="w-full px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center h-10"
-          >
-            {isBackupLoading ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
-                Backing up...
-              </>
-            ) : 'Backup'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+                onClick={onBackup} 
+                disabled={isGloballyLoading} 
+                className="w-full px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center h-10"
+            >
+                {isBackupLoading ? (
+                <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
+                    Backing up...
+                </>
+                ) : 'Backup'}
+            </button>
+            <button onClick={() => onShowInfo(`Backup:${section}`)} title="Show backup API command" className="p-2 text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md shrink-0 h-10">
+                <InfoIcon />
+            </button>
+          </div>
         </div>
 
         {/* Separator */}
@@ -75,28 +88,31 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
         {/* Restore Action */}
         <div className="flex-1 mt-4">
           <p className="text-xs text-center text-gray-400 mb-2">Restore from a .json backup file.</p>
-          <div className="flex flex-col sm:flex-row gap-2">
+          <div className="flex items-center gap-2">
             <input
               type="file"
               accept=".json"
-              // FIX: Corrected the ref callback to return void by using a block statement, resolving a TypeScript type error.
               ref={el => { restoreFileInputRefs.current[section] = el; }}
               onChange={(e) => onFileChange(section, e.target.files ? e.target.files[0] : null)}
               disabled={isGloballyLoading}
               className="block w-full text-xs text-gray-400 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-gray-700 file:text-gray-300 hover:file:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            <button
-              onClick={() => onRestore(section, processor)}
-              disabled={isGloballyLoading || !restoreFile}
-              className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed w-full sm:w-auto flex items-center justify-center h-8"
-            >
-              {isRestoreLoading ? (
-                <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
-                    <span>Restoring...</span>
-                </>
-              ) : 'Restore'}
-            </button>
+            <div className="flex shrink-0">
+                <button
+                onClick={() => onRestore(section, processor)}
+                disabled={isGloballyLoading || !restoreFile}
+                className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-l-md hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center h-8"
+                >
+                {isRestoreLoading ? (
+                    <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                    </>
+                ) : 'Restore'}
+                </button>
+                 <button onClick={() => onShowInfo(`Restore:${section}`)} title="Show restore API command" className="p-1.5 text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-r-md h-8">
+                    <InfoIcon />
+                </button>
+            </div>
           </div>
         </div>
       </div>
@@ -130,6 +146,8 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   } | null>(null);
   
   const [secretPrompt, setSecretPrompt] = useState<{ auth: Authorization; resolve: (secret: string | null) => void; customMessage?: string; } | null>(null);
+  
+  const [infoModalKey, setInfoModalKey] = useState<string | null>(null);
 
   // State for dropdown options
   const [apps, setApps] = useState<AppEngine[]>([]);
@@ -429,7 +447,6 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
           authorizations: currentAgent.authorizations || undefined,
         };
 
-        // FIX: Replaced non-existent 'a2aAgentDefinition' with 'managedAgentDefinition' to correctly handle private/managed agents.
         if (currentAgent.managedAgentDefinition) {
           payload.managedAgentDefinition = currentAgent.managedAgentDefinition;
         } else if (currentAgent.adkAgentDefinition) {
@@ -886,6 +903,9 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
           customMessage={secretPrompt.customMessage}
         />
       )}
+      {infoModalKey && (
+        <CurlInfoModal infoKey={infoModalKey} onClose={() => setInfoModalKey(null)} />
+      )}
 
       <div className="bg-gray-800 p-4 rounded-lg shadow-md">
         <h2 className="text-lg font-semibold text-white mb-3">Configuration for Backup & Restore</h2>
@@ -933,6 +953,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
                     restoreFileInputRefs={restoreFileInputRefs}
                     loadingSection={loadingSection}
                     isGloballyLoading={isLoading}
+                    onShowInfo={setInfoModalKey}
                 />
             ))}
         </div>

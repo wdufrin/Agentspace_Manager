@@ -29,6 +29,11 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
   const [selectedEngines, setSelectedEngines] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  
+  // State for clearing sessions
+  const [engineToClearSessions, setEngineToClearSessions] = useState<ReasoningEngine | null>(null);
+  const [isClearingSessions, setIsClearingSessions] = useState(false);
+
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectNumber,
@@ -71,7 +76,32 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
       // Step 1: Fetch the primary resource list (Reasoning Engines). This is critical.
       const enginesResponse = await api.listReasoningEngines(apiConfig);
       const fetchedEngines = enginesResponse.reasoningEngines || [];
-      setEngines(fetchedEngines);
+
+      // Step 1.5: Fetch session counts for each engine.
+      if (fetchedEngines.length > 0) {
+        const sessionPromises = fetchedEngines.map(engine =>
+            api.listReasoningEngineSessions(engine.name, apiConfig)
+                .then(res => ({
+                    engineName: engine.name,
+                    sessionCount: res.sessions?.length || 0,
+                }))
+                .catch(err => {
+                    console.warn(`Could not fetch sessions for engine ${engine.name.split('/').pop()}:`, err.message);
+                    return { engineName: engine.name, sessionCount: undefined };
+                })
+        );
+        const sessionResults = await Promise.all(sessionPromises);
+        const sessionCountMap = new Map(sessionResults.map(res => [res.engineName, res.sessionCount]));
+        
+        const enginesWithSessions = fetchedEngines.map(engine => ({
+            ...engine,
+            sessionCount: sessionCountMap.get(engine.name),
+        }));
+        setEngines(enginesWithSessions);
+      } else {
+         setEngines(fetchedEngines);
+      }
+
 
       if (fetchedEngines.length === 0) {
         return; // The finally block will handle isLoading
@@ -213,14 +243,12 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
 
     const results = await Promise.allSettled(deletionPromises);
 
-    // FIX: Safely handle promise rejection reasons. The 'reason' is of type 'unknown' and cannot be used
-    // directly as a string or have methods called on it. This block performs type checks to handle various
-    // possible error shapes from the API.
     const failures: string[] = [];
+    // FIX: Safely handle promise rejection `reason` which is of type 'unknown'.
     results.forEach((result, index) => {
         if (result.status === 'rejected') {
             const engineName = String(enginesToDelete[index]).split('/').pop();
-            const reason = result.reason as any;
+            const reason = result.reason;
             
             let message: string;
 
@@ -228,13 +256,13 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                 message = reason.message;
             } else if (typeof reason === 'string') {
                 message = reason;
-            } else if (reason && typeof reason.message === 'string') {
-                message = reason.message;
+            } else if (reason && typeof (reason as any).message === 'string') {
+                message = (reason as any).message;
             } else {
                 try {
                     message = JSON.stringify(reason);
                 } catch {
-                    message = 'A non-serializable error was caught.';
+                    message = 'A non-serializable error object was caught.';
                 }
             }
             failures.push(`- ${engineName}: ${message}`);
@@ -253,6 +281,67 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
   const handleViewEngine = (engine: ReasoningEngine) => {
     setSelectedEngine(engine);
     setViewMode('details');
+  };
+
+  const handleConfirmClearSessions = async () => {
+    if (!engineToClearSessions) return;
+
+    setIsClearingSessions(true);
+    setError(null);
+
+    try {
+        const sessionsResponse = await api.listReasoningEngineSessions(engineToClearSessions.name, apiConfig);
+        const sessions = sessionsResponse.sessions || [];
+        
+        if (sessions.length === 0) {
+            // No sessions to delete, just close and refresh
+            setIsClearingSessions(false);
+            setEngineToClearSessions(null);
+            await fetchEngines();
+            return;
+        }
+        
+        const deletionPromises = sessions.map(session => 
+            api.deleteReasoningEngineSession(session.name, apiConfig)
+        );
+        
+        const results = await Promise.allSettled(deletionPromises);
+        
+        const failures: string[] = [];
+        // FIX: Safely handle promise rejection `reason` which is of type 'unknown'.
+        results.forEach((result, index) => {
+            if (result.status === 'rejected') {
+                const sessionName = sessions[index].name.split('/').pop();
+                const reason = result.reason;
+                let message: string;
+                if (reason instanceof Error) {
+                    message = reason.message;
+                } else if (typeof reason === 'string') {
+                    message = reason;
+                } else if (reason && typeof (reason as any).message === 'string') {
+                    message = (reason as any).message;
+                } else {
+                    try {
+                        message = JSON.stringify(reason);
+                    } catch {
+                        message = 'A non-serializable error was caught.';
+                    }
+                }
+                failures.push(`- Session ${sessionName}: ${message}`);
+            }
+        });
+        
+        if (failures.length > 0) {
+            setError(`Failed to terminate ${failures.length} of ${sessions.length} session(s):\n${failures.join('\n')}`);
+        }
+
+    } catch (err: any) {
+        setError(`Failed to clear sessions: ${err.message}`);
+    } finally {
+        setIsClearingSessions(false);
+        setEngineToClearSessions(null);
+        await fetchEngines(); // Refresh the list to show updated counts
+    }
   };
 
   const renderContent = () => {
@@ -347,26 +436,55 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                                                 <span className="text-xs text-gray-500 italic">Not in use</span>
                                             )}
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
-                                            <button 
-                                                onClick={() => setChatEngine(engine)} 
-                                                className="font-semibold text-green-400 hover:text-green-300"
-                                            >
-                                                Direct Query
-                                            </button>
-                                            <button 
-                                                onClick={() => handleViewEngine(engine)} 
-                                                className="font-semibold text-blue-400 hover:text-blue-300"
-                                            >
-                                                Details
-                                            </button>
-                                            <button 
-                                                onClick={() => openDeleteModal(engine)} 
-                                                disabled={isDeleting}
-                                                className="font-semibold text-red-400 hover:text-red-300 disabled:text-gray-500"
-                                            >
-                                                Delete
-                                            </button>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                            <div className="flex justify-end items-center gap-4">
+                                                <div className="flex items-center gap-2">
+                                                    {typeof engine.sessionCount === 'number' ? (
+                                                        <button
+                                                            onClick={() => setEngineToClearSessions(engine)}
+                                                            disabled={engine.sessionCount === 0 || isClearingSessions}
+                                                            className={`flex items-center justify-center text-xs font-bold rounded-full h-5 w-5 transition-colors ${
+                                                                engine.sessionCount > 0 
+                                                                    ? 'bg-green-500 text-white hover:bg-green-400 disabled:bg-green-700 disabled:cursor-not-allowed' 
+                                                                    : 'bg-gray-600 text-gray-300 cursor-not-allowed'
+                                                            }`}
+                                                            title={engine.sessionCount > 0 ? `Terminate ${engine.sessionCount} active session(s)` : `${engine.sessionCount} active session(s)`}
+                                                        >
+                                                            {isClearingSessions && engineToClearSessions?.name === engine.name ? (
+                                                                <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-white"></div>
+                                                            ) : (
+                                                                engine.sessionCount
+                                                            )}
+                                                        </button>
+                                                    ) : (engine.sessionCount === undefined && !isLoading) ? (
+                                                        <span 
+                                                            className="flex items-center justify-center text-xs font-bold rounded-full h-5 w-5 bg-yellow-500 text-black"
+                                                            title="Could not fetch session count"
+                                                        >
+                                                            !
+                                                        </span>
+                                                    ): null}
+                                                    <button 
+                                                        onClick={() => setChatEngine(engine)} 
+                                                        className="font-semibold text-green-400 hover:text-green-300"
+                                                    >
+                                                        Direct Query
+                                                    </button>
+                                                </div>
+                                                <button 
+                                                    onClick={() => handleViewEngine(engine)} 
+                                                    className="font-semibold text-blue-400 hover:text-blue-300"
+                                                >
+                                                    Details
+                                                </button>
+                                                <button 
+                                                    onClick={() => openDeleteModal(engine)} 
+                                                    disabled={isDeleting}
+                                                    className="font-semibold text-red-400 hover:text-red-300 disabled:text-gray-500"
+                                                >
+                                                    Delete
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 );
@@ -452,6 +570,24 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                 })}
             </ul>
             <p className="mt-4 text-sm text-yellow-300">This action cannot be undone and may break agents that rely on these engines.</p>
+        </ConfirmationModal>
+      )}
+
+      {engineToClearSessions && (
+        <ConfirmationModal
+            isOpen={!!engineToClearSessions}
+            onClose={() => setEngineToClearSessions(null)}
+            onConfirm={handleConfirmClearSessions}
+            title={`Terminate All Sessions?`}
+            confirmText={isClearingSessions ? 'Terminating...' : 'Terminate All'}
+            isConfirming={isClearingSessions}
+        >
+            <p>Are you sure you want to terminate all {engineToClearSessions.sessionCount} active session(s) for the engine?</p>
+            <div className="mt-2 p-3 bg-gray-700/50 rounded-md border border-gray-600">
+                <p className="font-bold text-white">{engineToClearSessions.displayName}</p>
+                <p className="text-xs font-mono text-gray-400 mt-1">{engineToClearSessions.name.split('/').pop()}</p>
+            </div>
+            <p className="mt-4 text-sm text-yellow-300">This action cannot be undone and will interrupt any ongoing conversations.</p>
         </ConfirmationModal>
       )}
     </div>
