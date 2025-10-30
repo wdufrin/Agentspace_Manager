@@ -88,6 +88,22 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
             },
         ]
     },
+    [Page.CHAT]: {
+        description: "This is the underlying REST API call for testing a Gemini Enterprise (G.E.) assistant. It sends a prompt and receives a streaming response.",
+        commands: [
+            {
+                title: 'Test Assistant (Streaming)',
+                command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "query": { "text": "Hello, what can you do?" }
+      }' \\
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]:streamAssist"`
+            },
+        ]
+    },
     'Backup:DiscoveryResources': {
         description: "A full discovery resource backup involves recursively listing all collections, engines, assistants, and agents. The primary starting point is listing collections.",
         commands: [{ title: 'List Collections (Primary Step)', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/collections"` }]

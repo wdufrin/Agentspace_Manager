@@ -244,7 +244,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
     const results = await Promise.allSettled(deletionPromises);
 
     const failures: string[] = [];
-    // FIX: Safely handle promise rejection `reason` which is of type 'unknown'.
+    // FIX: Safely handle promise rejection reasons which are of type 'unknown'.
     results.forEach((result, index) => {
         if (result.status === 'rejected') {
             const engineName = String(enginesToDelete[index]).split('/').pop();
@@ -256,8 +256,8 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                 message = reason.message;
             } else if (typeof reason === 'string') {
                 message = reason;
-            } else if (reason && typeof (reason as any).message === 'string') {
-                message = (reason as any).message;
+            } else if (reason && typeof reason === 'object' && 'message' in reason && typeof (reason as { message: unknown }).message === 'string') {
+                message = (reason as { message: string }).message;
             } else {
                 try {
                     message = JSON.stringify(reason);
@@ -308,7 +308,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
         const results = await Promise.allSettled(deletionPromises);
         
         const failures: string[] = [];
-        // FIX: Safely handle promise rejection `reason` which is of type 'unknown'.
+        // FIX: Safely handle promise rejection reasons which are of type 'unknown'.
         results.forEach((result, index) => {
             if (result.status === 'rejected') {
                 const sessionName = sessions[index].name.split('/').pop();
@@ -318,8 +318,8 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                     message = reason.message;
                 } else if (typeof reason === 'string') {
                     message = reason;
-                } else if (reason && typeof (reason as any).message === 'string') {
-                    message = (reason as any).message;
+                } else if (reason && typeof reason === 'object' && 'message' in reason && typeof (reason as { message: unknown }).message === 'string') {
+                    message = (reason as { message: string }).message;
                 } else {
                     try {
                         message = JSON.stringify(reason);

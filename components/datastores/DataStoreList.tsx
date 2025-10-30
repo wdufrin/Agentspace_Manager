@@ -5,22 +5,26 @@ interface DataStoreListProps {
   dataStores: DataStore[];
   onSelectDataStore: (dataStore: DataStore) => void;
   onDeleteDataStore: (dataStore: DataStore) => void;
+  onEditDataStore: (dataStore: DataStore) => void;
   deletingDataStoreIds: Set<string>;
   selectedDataStores: Set<string>;
   onToggleSelect: (name: string) => void;
   onToggleSelectAll: () => void;
   onDeleteSelected: () => void;
+  onCreateNew: () => void;
 }
 
 const DataStoreList: React.FC<DataStoreListProps> = ({ 
   dataStores, 
   onSelectDataStore, 
   onDeleteDataStore, 
+  onEditDataStore,
   deletingDataStoreIds,
   selectedDataStores,
   onToggleSelect,
   onToggleSelectAll,
-  onDeleteSelected
+  onDeleteSelected,
+  onCreateNew
 }) => {
   const isAllSelected = dataStores.length > 0 && selectedDataStores.size === dataStores.length;
   
@@ -28,17 +32,25 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
     <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">
       <div className="p-4 border-b border-gray-700 flex justify-between items-center">
         <h2 className="text-xl font-bold text-white">Data Stores</h2>
-        {selectedDataStores.size > 0 && (
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-300">{selectedDataStores.size} selected</span>
-            <button
-              onClick={onDeleteSelected}
-              className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700"
+        <div className="flex items-center gap-4">
+          {selectedDataStores.size > 0 && (
+            <>
+              <span className="text-sm text-gray-300">{selectedDataStores.size} selected</span>
+              <button
+                onClick={onDeleteSelected}
+                className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700"
+              >
+                Delete Selected
+              </button>
+            </>
+          )}
+           <button
+                onClick={onCreateNew}
+                className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700"
             >
-              Delete Selected
+                Create New
             </button>
-          </div>
-        )}
+        </div>
       </div>
       {dataStores.length === 0 ? (
         <p className="text-gray-400 p-6 text-center">No data stores found for the provided configuration. Click "Fetch Data Stores" to load them.</p>
@@ -86,6 +98,13 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
                             disabled={isDeleting}
                         >
                             View
+                        </button>
+                        <button
+                            onClick={() => onEditDataStore(store)}
+                            className="font-semibold text-indigo-400 hover:text-indigo-300 disabled:text-gray-500"
+                            disabled={isDeleting}
+                        >
+                            Edit
                         </button>
                         <button
                             onClick={() => onDeleteDataStore(store)}

@@ -34,6 +34,8 @@ const ALL_REQUIRED_PERMISSIONS = [
     'discoveryengine.dataStores.delete',
     'discoveryengine.dataStores.get',
     'discoveryengine.dataStores.list',
+    'discoveryengine.dataStores.update',
+    'discoveryengine.documents.import',
     'discoveryengine.documents.list',
     'discoveryengine.engines.get',
     'discoveryengine.engines.list',
@@ -475,11 +477,11 @@ export async function updateAgent(originalAgent: Agent, updatedAgent: Partial<Ag
              provisioned_reasoning_engine: { reasoning_engine: updatedAgent.adkAgentDefinition.provisionedReasoningEngine?.reasoningEngine }
         };
     }
-    if (updatedAgent.icon !== undefined && JSON.stringify(originalAgent.icon) !== JSON.stringify(updatedAgent.icon)) {
+    if (updatedAgent.icon !== undefined && JSON.stringify(originalAgent.icon) !== JSON.stringify(originalAgent.icon)) {
         updateMask.push('icon');
         payload.icon = updatedAgent.icon;
     }
-    if (updatedAgent.starterPrompts !== undefined && JSON.stringify(originalAgent.starterPrompts) !== JSON.stringify(updatedAgent.starterPrompts)) {
+    if (updatedAgent.starterPrompts !== undefined && JSON.stringify(originalAgent.starterPrompts) !== JSON.stringify(originalAgent.starterPrompts)) {
         updateMask.push('starter_prompts');
         payload.starterPrompts = updatedAgent.starterPrompts;
     }
@@ -504,15 +506,18 @@ export async function disableAgent(agentName: string, config: Config): Promise<A
 
 // NOTE: streamChat CANNOT be converted to gapi as it does not support streaming responses.
 // It must continue to use fetch and requires the accessToken to be passed manually.
-export const streamChat = async (agentName: string, query: string, sessionId: string | null, config: Config, accessToken: string, onChunk: (chunk: any) => void) => {
+export const streamChat = async (agentName: string | null, query: string, sessionId: string | null, config: Config, accessToken: string, onChunk: (chunk: any) => void) => {
     const { projectId, appLocation, collectionId, appId, assistantId } = config;
     const assistantName = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}`;
     const url = `${getDiscoveryEngineUrl(appLocation)}/v1alpha/${assistantName}:streamAssist`;
 
     const data: any = {
         query: { text: query },
-        agentsConfig: { agent: agentName },
     };
+    
+    if (agentName) {
+        data.agentsConfig = { agent: agentName };
+    }
 
     if (sessionId) {
         data.session = sessionId;
@@ -639,6 +644,13 @@ export async function deleteDataStore(dataStoreName: string, config: Config): Pr
     return gapiRequest<any>(path, 'DELETE', config.projectId, undefined, undefined, headers);
 }
 
+export async function updateDataStore(dataStoreName: string, payload: { displayName: string }, config: Config): Promise<DataStore> {
+    const resourceLocation = dataStoreName.split('/')[3] || config.appLocation;
+    const path = `${getDiscoveryEngineUrl(resourceLocation)}/v1beta/${dataStoreName}`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<DataStore>(path, 'PATCH', config.projectId, { updateMask: 'displayName' }, payload, headers);
+}
+
 export async function getDocument(documentName: string, config: Config): Promise<Document> {
     const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1alpha/${documentName}`;
     return gapiRequest<Document>(path, 'GET', config.projectId);
@@ -648,6 +660,26 @@ export async function listDocuments(dataStoreName: string, config: Config): Prom
     const parent = `${dataStoreName}/branches/default_branch`;
     const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1alpha/${parent}/documents`;
     return gapiRequest(path, 'GET', config.projectId);
+}
+
+export async function importDocuments(dataStoreName: string, gcsUris: string[], gcsBucket: string, config: Config): Promise<any> {
+    const parent = `${dataStoreName}/branches/default_branch`;
+    const resourceLocation = dataStoreName.split('/')[3] || config.appLocation;
+    const path = `${getDiscoveryEngineUrl(resourceLocation)}/v1alpha/${parent}/documents:import`;
+    const dataStoreId = dataStoreName.split('/').pop();
+    
+    const body = {
+        gcsSource: {
+            inputUris: gcsUris,
+            dataSchema: "content"
+        },
+        reconciliationMode: 'INCREMENTAL',
+        errorConfig: {
+            gcsPrefix: `gs://${gcsBucket}/import_errors/${dataStoreId}/`
+        }
+    };
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<any>(path, 'POST', config.projectId, undefined, body, headers);
 }
 
 // --- Discovery Resource Creation APIs ---

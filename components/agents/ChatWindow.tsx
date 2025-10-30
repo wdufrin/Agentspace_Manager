@@ -1,16 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Agent, ChatMessage, Config } from '../../types';
+import { ChatMessage, Config } from '../../types';
 import * as api from '../../services/apiService';
 import ResponseDetailsModal from './ResponseDetailsModal';
 
 interface ChatWindowProps {
-    agent: Agent;
+    targetDisplayName: string;
     config: Config;
     accessToken: string;
     onClose: () => void;
 }
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ agent, config, accessToken, onClose }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, accessToken, onClose }) => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -31,7 +31,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ agent, config, accessToken, onC
         setSessionId(null);
         setError(null);
         setInput('');
-    }, [agent]);
+    }, [targetDisplayName]);
 
     const handleSend = async () => {
         if (!input.trim()) return;
@@ -52,7 +52,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ agent, config, accessToken, onC
 
         try {
             await api.streamChat(
-                agent.name,
+                null, // No specific agent is targeted, chat with the assistant directly
                 currentQuery,
                 sessionId, // Pass the current session ID
                 config,
@@ -155,11 +155,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ agent, config, accessToken, onC
 
             <div className="p-4 flex justify-between items-center border-b border-gray-700">
                 <div className="flex items-center overflow-hidden">
-                    {agent.icon?.uri && <img src={agent.icon.uri} alt="icon" className="h-8 w-8 rounded-full mr-3 shrink-0" />}
-                    <h2 className="text-lg font-bold text-white truncate" title={`Chat with ${agent.displayName}`}>Chat with {agent.displayName}</h2>
+                    <h2 className="text-lg font-bold text-white truncate" title={`Test Agent: ${targetDisplayName}`}>Test Agent: {targetDisplayName}</h2>
                 </div>
                 <button onClick={onClose} className="px-3 py-1.5 text-xs bg-gray-600 text-white font-semibold rounded-md hover:bg-gray-700">
-                    &larr; Change Agent
+                    &larr; Change Engine
                 </button>
             </div>
             

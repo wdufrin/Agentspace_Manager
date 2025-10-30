@@ -6,6 +6,274 @@ import DataStoreList from '../components/datastores/DataStoreList';
 import DataStoreDetails from '../components/datastores/DataStoreDetails';
 import ConfirmationModal from '../components/ConfirmationModal';
 
+interface CreateDataStoreModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+  config: Config;
+}
+
+const CreateDataStoreModal: React.FC<CreateDataStoreModalProps> = ({ isOpen, onClose, onSuccess, config }) => {
+  const [displayName, setDisplayName] = useState('');
+  const [dataStoreId, setDataStoreId] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // State for advanced parser config
+  const [defaultParser, setDefaultParser] = useState<'layout' | 'ocr'>('layout');
+  const [overrides, setOverrides] = useState<Record<string, 'default' | 'layout' | 'ocr'>>({
+    pdf: 'default',
+    docx: 'default',
+    xlsx: 'default',
+    pptx: 'default',
+    html: 'default',
+  });
+  const SUPPORTED_EXTENSIONS = ['pdf', 'docx', 'xlsx', 'pptx', 'html'];
+
+  useEffect(() => {
+    if (isOpen) {
+      setDisplayName('');
+      setDataStoreId('');
+      setError(null);
+      setDefaultParser('layout');
+      setOverrides({
+        pdf: 'default',
+        docx: 'default',
+        xlsx: 'default',
+        pptx: 'default',
+        html: 'default',
+      });
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+  
+  const handleOverrideChange = (ext: string, value: 'default' | 'layout' | 'ocr') => {
+    setOverrides(prev => ({ ...prev, [ext]: value }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!displayName.trim() || !dataStoreId.trim()) {
+      setError("Display Name and Data Store ID are required.");
+      return;
+    }
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+        const buildDocumentProcessingConfig = () => {
+            const config: any = { defaultParsingConfig: {} };
+            if (defaultParser === 'layout') {
+                config.defaultParsingConfig.layoutParsingConfig = {};
+            } else {
+                config.defaultParsingConfig.ocrParsingConfig = {};
+            }
+
+            const parsingConfigOverrides: any = {};
+            for (const ext of SUPPORTED_EXTENSIONS) {
+                const overrideSetting = overrides[ext];
+                if (overrideSetting !== 'default') {
+                    parsingConfigOverrides[ext] = {};
+                    if (overrideSetting === 'layout') {
+                        parsingConfigOverrides[ext].layoutParsingConfig = {};
+                    } else {
+                        parsingConfigOverrides[ext].ocrParsingConfig = {};
+                    }
+                }
+            }
+
+            if (Object.keys(parsingConfigOverrides).length > 0) {
+                config.parsingConfigOverrides = parsingConfigOverrides;
+            }
+            return config;
+        };
+
+      const payload = {
+        displayName,
+        industryVertical: 'GENERIC',
+        solutionTypes: ["SOLUTION_TYPE_SEARCH"],
+        contentConfig: "CONTENT_REQUIRED",
+        documentProcessingConfig: buildDocumentProcessingConfig(),
+      };
+      await api.createDataStore(dataStoreId, payload, config);
+      onSuccess();
+    } catch (err: any) {
+      setError(err.message || 'Failed to create data store.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
+      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <form onSubmit={handleSubmit} className="flex flex-col h-full">
+          <header className="p-4 border-b border-gray-700">
+            <h2 className="text-xl font-bold text-white">Create New Data Store</h2>
+          </header>
+          <main className="p-6 space-y-4 overflow-y-auto">
+            <div>
+              <label htmlFor="displayName" className="block text-sm font-medium text-gray-300">Display Name</label>
+              <input
+                id="displayName"
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm"
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="dataStoreId" className="block text-sm font-medium text-gray-300">Data Store ID</label>
+              <input
+                id="dataStoreId"
+                type="text"
+                value={dataStoreId}
+                onChange={(e) => setDataStoreId(e.target.value)}
+                className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm"
+                pattern="[a-z0-9-]{1,63}"
+                title="Must be lowercase letters, numbers, and hyphens, up to 63 characters."
+                required
+              />
+              <p className="mt-1 text-xs text-gray-400">A unique ID for the data store. Must use lowercase, numbers, and hyphens.</p>
+            </div>
+            
+            <div className="pt-4 border-t border-gray-700">
+              <h3 className="text-lg font-semibold text-white">Document Processing Configuration</h3>
+              <p className="text-xs text-gray-400 mt-1 mb-3">Configure how documents will be parsed upon import. This is essential for preparing the data store for folder syncing and batch uploads.</p>
+              
+              <div className="space-y-4">
+                <div>
+                    <label htmlFor="defaultParser" className="block text-sm font-medium text-gray-300">Default Parser</label>
+                    <select
+                        id="defaultParser"
+                        value={defaultParser}
+                        onChange={(e) => setDefaultParser(e.target.value as 'layout' | 'ocr')}
+                        className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm h-10"
+                    >
+                        <option value="layout">Layout Parser (for digital documents)</option>
+                        <option value="ocr">OCR Parser (for scanned documents)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <h4 className="text-md font-medium text-gray-300 mb-2">Parser Overrides</h4>
+                    <div className="space-y-2 bg-gray-900/50 p-3 rounded-md">
+                        {SUPPORTED_EXTENSIONS.map(ext => (
+                            <div key={ext} className="grid grid-cols-3 items-center gap-4">
+                                <label htmlFor={`override-${ext}`} className="text-sm font-mono text-gray-300 justify-self-end">.{ext}</label>
+                                <select
+                                    id={`override-${ext}`}
+                                    value={overrides[ext]}
+                                    onChange={(e) => handleOverrideChange(ext, e.target.value as 'default' | 'layout' | 'ocr')}
+                                    className="col-span-2 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm h-9"
+                                >
+                                    <option value="default">Use Default ({defaultParser})</option>
+                                    <option value="layout">Layout Parser</option>
+                                    <option value="ocr">OCR Parser</option>
+                                </select>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+              </div>
+            </div>
+
+            {error && <p className="text-red-400 text-sm">{error}</p>}
+          </main>
+          <footer className="p-4 bg-gray-900/50 border-t border-gray-700 flex justify-end space-x-3 shrink-0">
+            <button type="button" onClick={onClose} disabled={isSubmitting} className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">Cancel</button>
+            <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-800">
+              {isSubmitting ? 'Creating...' : 'Create'}
+            </button>
+          </footer>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+interface EditDataStoreModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: (updatedDataStore: DataStore) => void;
+  config: Config;
+  dataStore: DataStore | null;
+}
+
+const EditDataStoreModal: React.FC<EditDataStoreModalProps> = ({ isOpen, onClose, onSuccess, config, dataStore }) => {
+  const [displayName, setDisplayName] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen && dataStore) {
+      setDisplayName(dataStore.displayName);
+      setError(null);
+    }
+  }, [isOpen, dataStore]);
+
+  if (!isOpen || !dataStore) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!displayName.trim()) {
+      setError("Display Name is required.");
+      return;
+    }
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      const payload = { displayName };
+      const updatedDataStore = await api.updateDataStore(dataStore.name, payload, config);
+      onSuccess(updatedDataStore);
+    } catch (err: any) {
+      setError(err.message || 'Failed to update data store.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
+      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-lg">
+        <form onSubmit={handleSubmit}>
+          <header className="p-4 border-b border-gray-700">
+            <h2 className="text-xl font-bold text-white">Edit Data Store</h2>
+          </header>
+          <main className="p-6 space-y-4">
+            <div>
+                <label className="block text-sm font-medium text-gray-400">Data Store ID</label>
+                <p className="mt-1 bg-gray-700 p-2 rounded-md text-sm font-mono text-gray-400">{dataStore.name.split('/').pop()}</p>
+            </div>
+            <div>
+              <label htmlFor="displayName" className="block text-sm font-medium text-gray-300">Display Name</label>
+              <input
+                id="displayName"
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm"
+                required
+              />
+            </div>
+            {error && <p className="text-red-400 text-sm">{error}</p>}
+          </main>
+          <footer className="p-4 bg-gray-900/50 border-t border-gray-700 flex justify-end space-x-3">
+            <button type="button" onClick={onClose} disabled={isSubmitting} className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">Cancel</button>
+            <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-800">
+              {isSubmitting ? 'Saving...' : 'Save Changes'}
+            </button>
+          </footer>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+
 interface DataStoresPageProps {
   projectNumber: string;
 }
@@ -41,6 +309,14 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
   const [dataStoresToDelete, setDataStoresToDelete] = useState<DataStore[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
   
+  // State for creation
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  
+  // State for editing
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [dataStoreToEdit, setDataStoreToEdit] = useState<DataStore | null>(null);
+
+
   const [config, setConfig] = useState(() => ({
     ...getInitialConfig(),
     collectionId: 'default_collection',
@@ -94,7 +370,7 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
     let currentOperation = operation;
     while (!currentOperation.done) {
         await new Promise(resolve => setTimeout(resolve, 5000));
-        currentOperation = await api.getDiscoveryOperation(currentOperation.name, apiConfig);
+        currentOperation = await api.getDiscoveryOperation(operation.name, apiConfig);
     }
     if (currentOperation.error) {
         throw new Error(`Operation failed: ${currentOperation.error.message}`);
@@ -185,6 +461,25 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
     setSelectedDataStore(null);
     setViewMode('list');
   };
+  
+  const handleCreateSuccess = () => {
+    setIsCreateModalOpen(false);
+    fetchDataStores();
+  };
+
+  const handleRequestEdit = (dataStore: DataStore) => {
+    setDataStoreToEdit(dataStore);
+    setIsEditModalOpen(true);
+  };
+
+  const handleEditSuccess = (updatedDataStore: DataStore) => {
+    setIsEditModalOpen(false);
+    setDataStoreToEdit(null);
+    setDataStores(prev => prev.map(ds => (ds.name === updatedDataStore.name ? updatedDataStore : ds)));
+    if (viewMode === 'details' && selectedDataStore?.name === updatedDataStore.name) {
+      setSelectedDataStore(updatedDataStore);
+    }
+  };
 
   const renderContent = () => {
     if (isLoading) { return <Spinner />; }
@@ -197,6 +492,7 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
                 onBack={handleBackToList}
                 onDelete={handleRequestDelete}
                 isDeleting={deletingDataStoreIds.has(selectedDataStore.name)}
+                onEdit={handleRequestEdit}
             />
         );
     }
@@ -208,11 +504,13 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
             dataStores={dataStores}
             onSelectDataStore={handleSelectDataStore}
             onDeleteDataStore={handleRequestDelete}
+            onEditDataStore={handleRequestEdit}
             deletingDataStoreIds={deletingDataStoreIds}
             selectedDataStores={selectedDataStores}
             onToggleSelect={handleToggleSelect}
             onToggleSelectAll={handleToggleSelectAll}
             onDeleteSelected={() => handleRequestDelete()}
+            onCreateNew={() => setIsCreateModalOpen(true)}
         />
       </>
     );
@@ -220,6 +518,19 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
 
   return (
     <div className="space-y-6">
+      <CreateDataStoreModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={handleCreateSuccess}
+        config={apiConfig}
+      />
+      <EditDataStoreModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        onSuccess={handleEditSuccess}
+        config={apiConfig}
+        dataStore={dataStoreToEdit}
+      />
       <div className="bg-gray-800 p-4 rounded-lg shadow-md">
             <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

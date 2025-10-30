@@ -1,4 +1,3 @@
-
 // FIX: Replaced incorrect component code with proper type definitions.
 export enum Page {
   AGENTS = 'Agents Manager',
@@ -8,7 +7,7 @@ export enum Page {
   AGENT_REGISTRATION = 'Agent Registration',
   A2A_TESTER = 'A2A Tester',
   AGENT_BUILDER = 'Agent Builder',
-  CHAT = 'Chat',
+  CHAT = 'Test G.E. Agent',
   DATA_STORES = 'Data Stores',
   MCP_SERVERS = 'MCP Servers',
   MODEL_ARMOR = 'Model Armor',
