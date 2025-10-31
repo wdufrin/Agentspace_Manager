@@ -8,6 +8,7 @@ interface ChatPageProps {
   accessToken: string;
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
+  context?: any;
 }
 
 const getInitialConfig = () => {
@@ -27,7 +28,7 @@ const getInitialConfig = () => {
   };
 };
 
-const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProjectNumber }) => {
+const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProjectNumber, context }) => {
   const [config, setConfig] = useState(() => ({
     ...getInitialConfig(),
     collectionId: 'default_collection',
@@ -37,6 +38,20 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
 
   const [apps, setApps] = useState<any[]>([]);
   const [isLoadingApps, setIsLoadingApps] = useState(false);
+
+  useEffect(() => {
+    if (context?.appEngineId) {
+      const resourceName = context.appEngineId;
+      const location = resourceName.split('/')[3] || 'global';
+      const engineId = resourceName.split('/').pop() || '';
+      
+      setConfig(prev => ({
+        ...prev,
+        appLocation: location,
+        appId: engineId
+      }));
+    }
+  }, [context]);
 
   useEffect(() => {
     const { appLocation, appId } = config;

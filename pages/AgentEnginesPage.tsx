@@ -1,19 +1,17 @@
-
-
 import React, { useState, useCallback, useMemo } from 'react';
 import { ReasoningEngine, Config, Agent } from '../types';
 import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
 import ConfirmationModal from '../components/ConfirmationModal';
 import EngineDetails from '../components/agent-engines/EngineDetails';
-import DirectQueryChatWindow from '../components/agent-engines/DirectQueryChatWindow';
 
 interface AgentEnginesPageProps {
   projectNumber: string;
-  accessToken: string; // Add accessToken to props
+  accessToken: string;
+  onDirectQuery: (engine: ReasoningEngine) => void;
 }
 
-const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, accessToken }) => {
+const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, accessToken, onDirectQuery }) => {
   const [engines, setEngines] = useState<ReasoningEngine[]>([]);
   const [allAgents, setAllAgents] = useState<Agent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -23,7 +21,6 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
   // State for view management
   const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
   const [selectedEngine, setSelectedEngine] = useState<ReasoningEngine | null>(null);
-  const [chatEngine, setChatEngine] = useState<ReasoningEngine | null>(null);
   
   // State for multi-select and delete confirmation
   const [selectedEngines, setSelectedEngines] = useState<Set<string>>(new Set());
@@ -86,7 +83,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                     sessionCount: res.sessions?.length || 0,
                 }))
                 .catch(err => {
-                    console.warn(`Could not fetch sessions for engine ${engine.name.split('/').pop()}:`, err.message);
+                    console.warn(`Could not fetch sessions for engine ${engine.name.split('/').pop()}:`, err instanceof Error ? err.message : String(err));
                     return { engineName: engine.name, sessionCount: undefined };
                 })
         );
@@ -212,26 +209,31 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
     const deletionPromises = enginesToDelete.map(async (engineName) => {
         try {
             await api.deleteReasoningEngine(engineName, apiConfig);
-        } catch (err: any) {
+        // FIX: Changed `err: any` to `err: unknown` and added type guards for safer error handling, which likely caused the reported errors.
+        } catch (err: unknown) {
             // If deletion fails because of active sessions ("Resource has children"),
             // try to delete the sessions and then retry deleting the engine.
-            if (err.message && err.message.toLowerCase().includes('resource has children')) {
-                console.log(`Engine ${engineName.split('/').pop()} has active sessions. Attempting to delete them...`);
+            // FIX: Safely convert unknown error to string for checking.
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            if (errorMessage.toLowerCase().includes('resource has children')) {
+                const engineId = String(engineName).split('/').pop() || engineName;
+                console.log(`Engine ${engineId} has active sessions. Attempting to delete them...`);
                 
                 const sessionsResponse = await api.listReasoningEngineSessions(engineName, apiConfig);
                 const sessions = sessionsResponse.sessions || [];
                 
                 if (sessions.length > 0) {
                     console.log(`Found ${sessions.length} sessions to delete.`);
+                    // FIX: Ensure session.name is treated as a string, resolving potential type issues.
                     const deleteSessionPromises = sessions.map(session => 
-                        api.deleteReasoningEngineSession(session.name, apiConfig)
+                        api.deleteReasoningEngineSession(String(session.name), apiConfig)
                     );
                     await Promise.all(deleteSessionPromises);
-                    console.log(`All sessions for ${engineName.split('/').pop()} deleted.`);
+                    console.log(`All sessions for ${engineId} deleted.`);
                 }
                 
                 // Retry deleting the engine
-                console.log(`Retrying deletion of engine ${engineName.split('/').pop()}...`);
+                console.log(`Retrying deletion of engine ${engineId}...`);
                 await api.deleteReasoningEngine(engineName, apiConfig);
 
             } else {
@@ -244,28 +246,27 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
     const results = await Promise.allSettled(deletionPromises);
 
     const failures: string[] = [];
-    // FIX: Safely handle promise rejection reasons which are of type 'unknown'.
     results.forEach((result, index) => {
         if (result.status === 'rejected') {
-            const engineName = String(enginesToDelete[index]).split('/').pop();
-            const reason = result.reason;
+            // FIX: Safely handle the `result.reason` which is of type `unknown`. The original code likely had a bug here trying to call methods like `.split()` directly on `reason`.
+            // The correct engine name is retrieved from `enginesToDelete` array.
+            // FIX: Explicitly cast to string and handle potential undefined from pop() to prevent type errors.
+            const engineName = (enginesToDelete[index] as string).split('/').pop() || enginesToDelete[index];
             
-            let message: string;
-
+            let errorMessage = "An unknown error occurred.";
+            const reason = result.reason;
             if (reason instanceof Error) {
-                message = reason.message;
+                errorMessage = reason.message;
             } else if (typeof reason === 'string') {
-                message = reason;
-            } else if (reason && typeof reason === 'object' && 'message' in reason && typeof (reason as { message: unknown }).message === 'string') {
-                message = (reason as { message: string }).message;
+                errorMessage = reason;
+            } else if (reason && typeof reason === 'object' && 'message' in reason) {
+                const msg = (reason as { message: unknown }).message;
+                errorMessage = typeof msg === 'string' ? msg : JSON.stringify(msg);
             } else {
-                try {
-                    message = JSON.stringify(reason);
-                } catch {
-                    message = 'A non-serializable error object was caught.';
-                }
+                errorMessage = String(reason);
             }
-            failures.push(`- ${engineName}: ${message}`);
+
+            failures.push(`- ${engineName}: ${errorMessage}`);
         }
     });
 
@@ -308,26 +309,19 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
         const results = await Promise.allSettled(deletionPromises);
         
         const failures: string[] = [];
-        // FIX: Safely handle promise rejection reasons which are of type 'unknown'.
         results.forEach((result, index) => {
             if (result.status === 'rejected') {
                 const sessionName = sessions[index].name.split('/').pop();
-                const reason = result.reason;
-                let message: string;
-                if (reason instanceof Error) {
-                    message = reason.message;
-                } else if (typeof reason === 'string') {
-                    message = reason;
-                } else if (reason && typeof reason === 'object' && 'message' in reason && typeof (reason as { message: unknown }).message === 'string') {
-                    message = (reason as { message: string }).message;
-                } else {
-                    try {
-                        message = JSON.stringify(reason);
-                    } catch {
-                        message = 'A non-serializable error was caught.';
-                    }
+                let errorMessage = "An unknown error occurred.";
+                if (result.reason instanceof Error) {
+                    errorMessage = result.reason.message;
+                } else if (typeof result.reason === 'string') {
+                    errorMessage = result.reason;
+                } else if (result.reason && typeof result.reason === 'object' && 'message' in result.reason) {
+                    const msg = (result.reason as { message: unknown }).message;
+                    errorMessage = typeof msg === 'string' ? msg : JSON.stringify(msg);
                 }
-                failures.push(`- Session ${sessionName}: ${message}`);
+                failures.push(`- Session ${sessionName}: ${errorMessage}`);
             }
         });
         
@@ -465,7 +459,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                                                         </span>
                                                     ): null}
                                                     <button 
-                                                        onClick={() => setChatEngine(engine)} 
+                                                        onClick={() => onDirectQuery(engine)} 
                                                         className="font-semibold text-green-400 hover:text-green-300"
                                                     >
                                                         Direct Query
@@ -499,14 +493,6 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
 
   return (
     <div>
-      {chatEngine && (
-        <DirectQueryChatWindow 
-          engine={chatEngine}
-          config={apiConfig}
-          accessToken={accessToken}
-          onClose={() => setChatEngine(null)}
-        />
-      )}
       <div className="bg-gray-800 p-4 rounded-lg mb-6 shadow-md">
         <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

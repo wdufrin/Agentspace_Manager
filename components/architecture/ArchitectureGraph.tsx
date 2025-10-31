@@ -6,7 +6,7 @@ interface ArchitectureGraphProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
   onNodeClick: (nodeId: string) => void;
-  filterNodeId: string | null;
+  selectedNodeId: string | null;
   highlightedNodeIds: Set<string> | null;
   highlightedEdgeIds: Set<string> | null;
   onNodeHover: (nodeId: string | null) => void;
@@ -20,7 +20,7 @@ const NODE_TYPE_ORDER: NodeType[] = [
 const ArchitectureGraph: React.FC<ArchitectureGraphProps> = ({
   nodes,
   onNodeClick,
-  filterNodeId,
+  selectedNodeId,
   highlightedNodeIds,
   onNodeHover,
 }) => {
@@ -58,7 +58,7 @@ const ArchitectureGraph: React.FC<ArchitectureGraphProps> = ({
                           <Node
                             key={node.id}
                             node={node}
-                            isFilteredCenter={filterNodeId === node.id}
+                            isSelected={selectedNodeId === node.id}
                             isDimmed={isDimmed}
                             onClick={() => onNodeClick(node.id)}
                             onMouseEnter={() => onNodeHover(node.id)}

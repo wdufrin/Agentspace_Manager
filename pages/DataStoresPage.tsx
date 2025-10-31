@@ -20,8 +20,8 @@ const CreateDataStoreModal: React.FC<CreateDataStoreModalProps> = ({ isOpen, onC
   const [error, setError] = useState<string | null>(null);
 
   // State for advanced parser config
-  const [defaultParser, setDefaultParser] = useState<'layout' | 'ocr'>('layout');
-  const [overrides, setOverrides] = useState<Record<string, 'default' | 'layout' | 'ocr'>>({
+  const [defaultParser, setDefaultParser] = useState<'digital' | 'layout' | 'ocr'>('digital');
+  const [overrides, setOverrides] = useState<Record<string, 'default' | 'digital' | 'layout' | 'ocr'>>({
     pdf: 'default',
     docx: 'default',
     xlsx: 'default',
@@ -35,7 +35,7 @@ const CreateDataStoreModal: React.FC<CreateDataStoreModalProps> = ({ isOpen, onC
       setDisplayName('');
       setDataStoreId('');
       setError(null);
-      setDefaultParser('layout');
+      setDefaultParser('digital');
       setOverrides({
         pdf: 'default',
         docx: 'default',
@@ -48,7 +48,7 @@ const CreateDataStoreModal: React.FC<CreateDataStoreModalProps> = ({ isOpen, onC
 
   if (!isOpen) return null;
   
-  const handleOverrideChange = (ext: string, value: 'default' | 'layout' | 'ocr') => {
+  const handleOverrideChange = (ext: string, value: 'default' | 'digital' | 'layout' | 'ocr') => {
     setOverrides(prev => ({ ...prev, [ext]: value }));
   };
 
@@ -66,8 +66,10 @@ const CreateDataStoreModal: React.FC<CreateDataStoreModalProps> = ({ isOpen, onC
             const config: any = { defaultParsingConfig: {} };
             if (defaultParser === 'layout') {
                 config.defaultParsingConfig.layoutParsingConfig = {};
-            } else {
+            } else if (defaultParser === 'ocr') {
                 config.defaultParsingConfig.ocrParsingConfig = {};
+            } else { // 'digital'
+                config.defaultParsingConfig.digitalParsingConfig = {};
             }
 
             const parsingConfigOverrides: any = {};
@@ -77,8 +79,10 @@ const CreateDataStoreModal: React.FC<CreateDataStoreModalProps> = ({ isOpen, onC
                     parsingConfigOverrides[ext] = {};
                     if (overrideSetting === 'layout') {
                         parsingConfigOverrides[ext].layoutParsingConfig = {};
-                    } else {
+                    } else if (overrideSetting === 'ocr') {
                         parsingConfigOverrides[ext].ocrParsingConfig = {};
+                    } else { // 'digital'
+                        parsingConfigOverrides[ext].digitalParsingConfig = {};
                     }
                 }
             }
@@ -141,7 +145,12 @@ const CreateDataStoreModal: React.FC<CreateDataStoreModalProps> = ({ isOpen, onC
             
             <div className="pt-4 border-t border-gray-700">
               <h3 className="text-lg font-semibold text-white">Document Processing Configuration</h3>
-              <p className="text-xs text-gray-400 mt-1 mb-3">Configure how documents will be parsed upon import. This is essential for preparing the data store for folder syncing and batch uploads.</p>
+              <p className="text-xs text-gray-400 mt-1 mb-3">
+                Specify how to parse documents for ingestion.
+                <a href="https://cloud.google.com/generative-ai-app-builder/docs/parse-chunk-documents" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline ml-1">
+                  Learn more about parsing and chunking.
+                </a>
+              </p>
               
               <div className="space-y-4">
                 <div>
@@ -149,11 +158,12 @@ const CreateDataStoreModal: React.FC<CreateDataStoreModalProps> = ({ isOpen, onC
                     <select
                         id="defaultParser"
                         value={defaultParser}
-                        onChange={(e) => setDefaultParser(e.target.value as 'layout' | 'ocr')}
+                        onChange={(e) => setDefaultParser(e.target.value as 'digital' | 'layout' | 'ocr')}
                         className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm h-10"
                     >
-                        <option value="layout">Layout Parser (for digital documents)</option>
-                        <option value="ocr">OCR Parser (for scanned documents)</option>
+                        <option value="digital">Digital Parser - Default for all file types unless overridden.</option>
+                        <option value="layout">Layout Parser - Recommended for HTML, PDF, or DOCX files for RAG.</option>
+                        <option value="ocr">OCR Parser - For scanned PDFs or PDFs with text inside images.</option>
                     </select>
                 </div>
 
@@ -166,10 +176,11 @@ const CreateDataStoreModal: React.FC<CreateDataStoreModalProps> = ({ isOpen, onC
                                 <select
                                     id={`override-${ext}`}
                                     value={overrides[ext]}
-                                    onChange={(e) => handleOverrideChange(ext, e.target.value as 'default' | 'layout' | 'ocr')}
+                                    onChange={(e) => handleOverrideChange(ext, e.target.value as 'default' | 'digital' | 'layout' | 'ocr')}
                                     className="col-span-2 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm h-9"
                                 >
                                     <option value="default">Use Default ({defaultParser})</option>
+                                    <option value="digital">Digital Parser</option>
                                     <option value="layout">Layout Parser</option>
                                     <option value="ocr">OCR Parser</option>
                                 </select>

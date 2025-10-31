@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import AgentsPage from './pages/AgentsPage';
 import AuthorizationsPage from './pages/AuthorizationsPage';
-import { Page } from './types';
+import { Page, ReasoningEngine, GraphNode, GraphEdge } from './types';
 import AccessTokenInput from './components/AccessTokenInput';
 import AgentEnginesPage from './pages/AgentEnginesPage';
 import DataStoresPage from './pages/DataStoresPage';
@@ -19,10 +19,19 @@ import ChatPage from './pages/ChatPage';
 import AgentRegistrationPage from './pages/AgentRegistrationPage';
 import ArchitecturePage from './pages/ArchitecturePage';
 import CurlInfoModal from './components/CurlInfoModal';
+import DirectQueryChatWindow from './components/agent-engines/DirectQueryChatWindow';
+
+const ALL_REASONING_ENGINE_LOCATIONS = [
+    'us-central1', 'us-east1', 'us-east4', 'us-west1',
+    'europe-west1', 'europe-west2', 'europe-west4',
+    'asia-east1', 'asia-southeast1'
+];
+const ALL_DISCOVERY_LOCATIONS = ['global', 'us', 'eu'];
 
 
 const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>(Page.AGENTS);
+  const [pageContext, setPageContext] = useState<any>(null);
   
   const [accessToken, setAccessToken] = useState<string>(() => sessionStorage.getItem('agentspace-accessToken') || '');
   const [projectNumber, setProjectNumber] = useState<string>(() => sessionStorage.getItem('agentspace-projectNumber') || '');
@@ -43,7 +52,16 @@ const App: React.FC = () => {
   const [isApiEnablingLoading, setIsApiEnablingLoading] = useState(false);
   const [apiEnablementLogs, setApiEnablementLogs] = useState<string[]>([]);
 
+  // State for modals
   const [infoModalKey, setInfoModalKey] = useState<string | null>(null);
+  const [directQueryEngine, setDirectQueryEngine] = useState<ReasoningEngine | null>(null);
+
+  // State for Architecture Page (lifted state for caching)
+  const [architectureNodes, setArchitectureNodes] = useState<GraphNode[]>([]);
+  const [architectureEdges, setArchitectureEdges] = useState<GraphEdge[]>([]);
+  const [architectureLogs, setArchitectureLogs] = useState<string[]>([]);
+  const [isArchitectureLoading, setIsArchitectureLoading] = useState(false);
+  const [architectureError, setArchitectureError] = useState<string | null>(null);
 
 
   const handleSetAccessToken = (token: string) => {
@@ -107,6 +125,10 @@ const App: React.FC = () => {
     setProjectNumber(projectNum);
     // Also reset any results that depend on the project number
     setApiValidationResult(null);
+    // Invalidate architecture cache on project change
+    setArchitectureNodes([]);
+    setArchitectureEdges([]);
+    setArchitectureLogs([]);
   };
   
   const handleValidateApis = async () => {
@@ -203,6 +225,158 @@ const App: React.FC = () => {
   const handleCloseInfoModal = () => {
     setInfoModalKey(null);
   };
+  
+  const handleNavigation = (page: Page, context: any = null) => {
+    setCurrentPage(page);
+    setPageContext(context);
+  };
+  
+  const handleDirectQuery = (engine: ReasoningEngine) => {
+    setDirectQueryEngine(engine);
+  };
+
+  const handleArchitectureScan = useCallback(async () => {
+        if (!projectNumber) {
+            setArchitectureError("Project ID/Number is required to scan the architecture.");
+            return;
+        }
+        setIsArchitectureLoading(true);
+        setArchitectureError(null);
+        setArchitectureLogs([]);
+        setArchitectureNodes([]);
+        setArchitectureEdges([]);
+
+        const addLog = (message: string) => {
+            setArchitectureLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${message}`]);
+        };
+
+        const newNodes: GraphNode[] = [];
+        const newEdges: GraphEdge[] = [];
+        const foundNodeIds = new Set<string>();
+
+        const addNode = (node: GraphNode) => {
+            if (!foundNodeIds.has(node.id)) {
+                newNodes.push(node);
+                foundNodeIds.add(node.id);
+            }
+        };
+
+        const addEdge = (sourceId: string, targetId: string) => {
+            const edgeId = `${sourceId}__to__${targetId}`;
+            if (foundNodeIds.has(sourceId) && foundNodeIds.has(targetId)) {
+                 newEdges.push({ id: edgeId, source: sourceId, target: targetId });
+            } else {
+                addLog(`SKIPPED_EDGE: Cannot draw link from ${sourceId.split('/').pop()} to ${targetId.split('/').pop()} as one of the resources was not found in the scan.`);
+            }
+        };
+        
+        const apiConfig = { projectId: projectNumber, appLocation: 'global', collectionId: '', appId: '', assistantId: ''};
+
+        try {
+            addLog("Starting architecture scan...");
+            
+            const projectNodeId = `projects/${projectNumber}`;
+            addNode({ id: projectNodeId, type: 'Project', label: `Project (${projectNumber})`, data: { name: projectNodeId } });
+
+            addLog("Fetching all Authorizations and Reasoning Engines...");
+            const [authResponse, allReasoningEngines] = await Promise.all([
+                api.listAuthorizations(apiConfig).catch(e => { addLog(`WARNING: Could not fetch authorizations: ${e.message}`); return { authorizations: [] }; }),
+                Promise.all(ALL_REASONING_ENGINE_LOCATIONS.map(loc =>
+                    api.listReasoningEngines({ ...apiConfig, reasoningEngineLocation: loc })
+                        .then(res => res.reasoningEngines || [])
+                        .catch(e => { addLog(`NOTE: Could not scan Reasoning Engines in ${loc}: ${e.message}`); return []; })
+                )).then(results => results.flat())
+            ]);
+
+            const authorizations = authResponse.authorizations || [];
+            authorizations.forEach(auth => addNode({ id: auth.name, type: 'Authorization', label: auth.name.split('/').pop()!, data: auth }));
+            allReasoningEngines.forEach(re => addNode({ id: re.name, type: 'ReasoningEngine', label: re.displayName, data: re }));
+            addLog(`Found ${authorizations.length} authorizations and ${allReasoningEngines.length} reasoning engines across all locations.`);
+
+            for (const location of ALL_DISCOVERY_LOCATIONS) {
+                addLog(`Scanning discovery location: ${location}...`);
+                const locationNodeId = `${projectNodeId}/locations/${location}`;
+                addNode({ id: locationNodeId, type: 'Location', label: location, data: { name: locationNodeId } });
+                addEdge(projectNodeId, locationNodeId);
+
+                const locationConfig = { ...apiConfig, appLocation: location, collectionId: 'default_collection' };
+                
+                try {
+                    const enginesResponse = await api.listResources('engines', locationConfig);
+                    const engines = enginesResponse.engines || [];
+                    if (engines.length === 0) continue;
+
+                    addLog(`  Found ${engines.length} App/Engine(s) in ${location}.`);
+                    for (const engine of engines) {
+                        addNode({ id: engine.name, type: 'Engine', label: engine.displayName, data: engine });
+                        addEdge(locationNodeId, engine.name);
+
+                        const assistantConfig = { ...locationConfig, appId: engine.name.split('/').pop()!, assistantId: 'default_assistant' };
+                        const assistantsResponse = await api.listResources('assistants', assistantConfig);
+                        const assistants = assistantsResponse.assistants || [];
+
+                        for (const assistant of assistants) {
+                            addNode({ id: assistant.name, type: 'Assistant', label: assistant.displayName, data: assistant });
+                            addEdge(engine.name, assistant.name);
+
+                            const agentsResponse = await api.listResources('agents', assistantConfig);
+                            const agents = agentsResponse.agents || [];
+                            
+                            for (const agent of agents) {
+                                addNode({ id: agent.name, type: 'Agent', label: agent.displayName, data: agent });
+                                addEdge(assistant.name, agent.name);
+
+                                const reName = agent.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine;
+                                if (reName) addEdge(agent.name, reName);
+
+                                (agent.authorizations || []).forEach(authName => addEdge(agent.name, authName));
+
+                                try {
+                                    const agentView = await api.getAgentView(agent.name, assistantConfig);
+                                    const findDataStoreIds = (obj: any): string[] => {
+                                        if (!obj || typeof obj !== 'object') return [];
+                                        return Object.values(obj).flatMap((value: any) => {
+                                            if (typeof value === 'string' && value.includes('/dataStores/')) return [value];
+                                            if (typeof value === 'object') return findDataStoreIds(value);
+                                            return [];
+                                        });
+                                    };
+                                    const dataStoreIds = [...new Set(findDataStoreIds(agentView))];
+                                    for (const dsId of dataStoreIds) {
+                                        if (!foundNodeIds.has(dsId)) {
+                                            try {
+                                                const dataStore = await api.getDataStore(dsId, assistantConfig);
+                                                addNode({ id: dsId, type: 'DataStore', label: dataStore.displayName, data: dataStore });
+                                            } catch (dsError: any) {
+                                                addLog(`WARNING: Could not fetch details for DataStore ${dsId}: ${dsError.message}`);
+                                                addNode({ id: dsId, type: 'DataStore', label: dsId.split('/').pop()!, data: { name: dsId, error: 'Could not fetch details' } });
+                                            }
+                                        }
+                                        addEdge(agent.name, dsId);
+                                    }
+                                } catch (viewError: any) {
+                                    addLog(`NOTE: Could not get agent view for ${agent.displayName} to find data stores: ${viewError.message}`);
+                                }
+                            }
+                        }
+                    }
+                } catch(e: any) {
+                    addLog(`NOTE: No resources found or error in location '${location}': ${e.message}`);
+                }
+            }
+
+            setArchitectureNodes(newNodes);
+            setArchitectureEdges(newEdges);
+            addLog("Scan complete. Rendering graph...");
+
+        } catch (err: any) {
+            const message = err instanceof Error ? err.message : 'An unknown error occurred';
+            setArchitectureError(message);
+            addLog(`FATAL ERROR: ${message}`);
+        } finally {
+            setIsArchitectureLoading(false);
+        }
+    }, [projectNumber]);
 
 
   // On initial component mount, check for an existing token and try to initialize.
@@ -223,7 +397,7 @@ const App: React.FC = () => {
       case Page.AUTHORIZATIONS:
         return <AuthorizationsPage {...commonProps} />;
       case Page.AGENT_ENGINES:
-        return <AgentEnginesPage {...commonProps} accessToken={accessToken} />;
+        return <AgentEnginesPage {...commonProps} accessToken={accessToken} onDirectQuery={handleDirectQuery} />;
       case Page.A2A_FUNCTIONS:
         return <A2aFunctionsPage {...projectProps} />;
       case Page.AGENT_REGISTRATION:
@@ -233,7 +407,7 @@ const App: React.FC = () => {
       case Page.AGENT_BUILDER:
         return <AgentBuilderPage {...commonProps} />;
       case Page.CHAT:
-        return <ChatPage {...projectProps} accessToken={accessToken} />;
+        return <ChatPage {...projectProps} accessToken={accessToken} context={pageContext} />;
       case Page.DATA_STORES:
         return <DataStoresPage {...commonProps} />;
       case Page.MCP_SERVERS:
@@ -243,7 +417,17 @@ const App: React.FC = () => {
       case Page.BACKUP_RECOVERY:
         return <BackupPage {...projectProps} accessToken={accessToken} />;
       case Page.ARCHITECTURE:
-        return <ArchitecturePage {...projectProps} />;
+        return <ArchitecturePage 
+                    {...projectProps} 
+                    onNavigate={handleNavigation} 
+                    onDirectQuery={handleDirectQuery}
+                    nodes={architectureNodes}
+                    edges={architectureEdges}
+                    logs={architectureLogs}
+                    isLoading={isArchitectureLoading}
+                    error={architectureError}
+                    onScan={handleArchitectureScan}
+                />;
       default:
         return <AgentsPage {...projectProps} accessToken={accessToken} />;
     }
@@ -428,6 +612,22 @@ const App: React.FC = () => {
       </div>
       {infoModalKey && (
         <CurlInfoModal infoKey={infoModalKey} onClose={handleCloseInfoModal} />
+      )}
+      {directQueryEngine && (
+        <DirectQueryChatWindow
+          engine={directQueryEngine}
+          config={{
+            projectId: projectNumber,
+            reasoningEngineLocation: directQueryEngine.name.split('/')[3],
+            // Dummy values
+            appLocation: 'global',
+            collectionId: '',
+            appId: '',
+            assistantId: ''
+          }}
+          accessToken={accessToken}
+          onClose={() => setDirectQueryEngine(null)}
+        />
       )}
     </>
   );
