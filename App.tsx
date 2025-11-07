@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import AgentsPage from './pages/AgentsPage';
 import AuthorizationsPage from './pages/AuthorizationsPage';
-import { Page, ReasoningEngine, GraphNode, GraphEdge } from './types';
+import { Page, ReasoningEngine, GraphNode, GraphEdge, NodeType, AppEngine } from './types';
 import AccessTokenInput from './components/AccessTokenInput';
 import AgentEnginesPage from './pages/AgentEnginesPage';
 import DataStoresPage from './pages/DataStoresPage';
@@ -258,6 +258,12 @@ const App: React.FC = () => {
             if (!foundNodeIds.has(node.id)) {
                 newNodes.push(node);
                 foundNodeIds.add(node.id);
+            } else {
+                // If node exists, update its data if new data is more complete
+                const existingNode = newNodes.find(n => n.id === node.id);
+                if (existingNode) {
+                    existingNode.data = { ...existingNode.data, ...node.data };
+                }
             }
         };
 
@@ -301,15 +307,62 @@ const App: React.FC = () => {
 
                 const locationConfig = { ...apiConfig, appLocation: location, collectionId: 'default_collection' };
                 
+                // Add collection node
+                const collectionNodeId = `projects/${projectNumber}/locations/${location}/collections/default_collection`;
+                addNode({ id: collectionNodeId, type: 'Collection', label: 'default_collection', data: { name: collectionNodeId } });
+                addEdge(locationNodeId, collectionNodeId);
+
+                // Scan for all Data Stores in the collection
+                try {
+                    addLog(`  Scanning for all Data Stores in ${location}...`);
+                    const dataStoresResponse = await api.listResources('dataStores', locationConfig);
+                    const dataStores = dataStoresResponse.dataStores || [];
+                    if (dataStores.length > 0) {
+                        addLog(`  Found ${dataStores.length} Data Store(s) in ${location}.`);
+                        for (const dataStore of dataStores) {
+                            if (!foundNodeIds.has(dataStore.name)) {
+                                addNode({ id: dataStore.name, type: 'DataStore', label: dataStore.displayName, data: dataStore });
+                            }
+                            addEdge(collectionNodeId, dataStore.name);
+                        }
+                    }
+                } catch (e: any) {
+                    addLog(`NOTE: Could not scan for Data Stores in ${location}: ${e.message}`);
+                }
+
                 try {
                     const enginesResponse = await api.listResources('engines', locationConfig);
-                    const engines = enginesResponse.engines || [];
+                    const engines: AppEngine[] = enginesResponse.engines || [];
                     if (engines.length === 0) continue;
 
                     addLog(`  Found ${engines.length} App/Engine(s) in ${location}.`);
                     for (const engine of engines) {
                         addNode({ id: engine.name, type: 'Engine', label: engine.displayName, data: engine });
-                        addEdge(locationNodeId, engine.name);
+                        addEdge(collectionNodeId, engine.name);
+
+                        // Fetch full engine details to find direct data store links
+                        try {
+                            const fullEngine = await api.getEngine(engine.name, locationConfig);
+                            // Update the node data with the full details, including dataStoreIds
+                            const existingNode = newNodes.find(n => n.id === engine.name);
+                            if (existingNode) existingNode.data = fullEngine;
+                            
+                            if (fullEngine.dataStoreIds && fullEngine.dataStoreIds.length > 0) {
+                                addLog(`    - Engine '${engine.displayName}' is linked to ${fullEngine.dataStoreIds.length} data store(s).`);
+                                for (const dsId of fullEngine.dataStoreIds) {
+                                    const fullDsName = `projects/${projectNumber}/locations/${location}/collections/default_collection/dataStores/${dsId}`;
+                                    
+                                    // The data store should have been found already. If not, add a placeholder.
+                                    if (!foundNodeIds.has(fullDsName)) {
+                                         addLog(`    - WARNING: Engine '${engine.displayName}' links to DataStore '${dsId}' which was not found in the initial scan. Adding a placeholder node.`);
+                                         addNode({ id: fullDsName, type: 'DataStore', label: dsId, data: { name: fullDsName, error: 'Not found in initial scan' } });
+                                    }
+                                    addEdge(engine.name, fullDsName);
+                                }
+                            }
+                        } catch (e: any) {
+                            addLog(`    - NOTE: Could not get full details for engine '${engine.displayName}' to find linked data stores: ${e.message}`);
+                        }
 
                         const assistantConfig = { ...locationConfig, appId: engine.name.split('/').pop()!, assistantId: 'default_assistant' };
                         const assistantsResponse = await api.listResources('assistants', assistantConfig);

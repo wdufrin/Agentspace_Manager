@@ -13,7 +13,7 @@ interface ArchitectureGraphProps {
 }
 
 const NODE_TYPE_ORDER: NodeType[] = [
-    'Project', 'Location', 'Engine', 'Assistant', 'Agent', 
+    'Project', 'Location', 'Collection', 'Engine', 'Assistant', 'Agent', 
     'ReasoningEngine', 'DataStore', 'Authorization'
 ];
 
@@ -44,6 +44,14 @@ const ArchitectureGraph: React.FC<ArchitectureGraphProps> = ({
                 const groupNodes = nodesByType.get(nodeType);
                 if (!groupNodes || groupNodes.length === 0) return null;
                 
+                // If a node is selected, only render the nodes that are part of the highlighted path.
+                // Otherwise (just hovering or nothing), render all nodes, and the `isDimmed` prop will handle hover highlighting.
+                const nodesToRender = selectedNodeId
+                    ? groupNodes.filter(node => highlightedNodeIds?.has(node.id))
+                    : groupNodes;
+
+                if (nodesToRender.length === 0) return null;
+                
                 return (
                   <div key={nodeType} className="relative flex items-start min-h-[80px]">
                     <div className="sticky left-0 top-4 w-32 shrink-0 self-center pr-4 z-10">
@@ -52,7 +60,9 @@ const ArchitectureGraph: React.FC<ArchitectureGraphProps> = ({
                       </h3>
                     </div>
                     <div className="flex-1 flex flex-wrap gap-4 pl-4">
-                      {groupNodes.map(node => {
+                      {nodesToRender.map(node => {
+                        // When a node is selected, `isDimmed` will be false because we filtered already.
+                        // When no node is selected, this correctly dims nodes not on the hover path.
                         const isDimmed = !!highlightedNodeIds && !highlightedNodeIds.has(node.id);
                         return (
                           <Node

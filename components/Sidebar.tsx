@@ -94,7 +94,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
             ))}
           </nav>
           
-          {/* --- BETA Section at the bottom --- */}
+          {/* --- Collapsible Sections at the bottom --- */}
           <div className="pt-4 mt-auto">
               <div className="pt-4 border-t border-gray-700">
                   <button

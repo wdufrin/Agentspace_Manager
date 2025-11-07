@@ -95,7 +95,9 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
     }, [edges]);
 
     const highlightedGraphElements = useMemo(() => {
-        const centralNodeId = hoveredNodeId || selectedNodeId;
+        // Selection takes precedence. If a node is selected, hovering should not change the main highlight path.
+        // If nothing is selected, then hovering will trigger the highlight.
+        const centralNodeId = selectedNodeId || hoveredNodeId;
         if (!centralNodeId) {
             return { nodeIds: null, edgeIds: null };
         }

@@ -21,7 +21,7 @@ interface AgentConfig {
     tools: AgentTool[];
     useGoogleSearch: boolean;
     enableOAuth: boolean;
-    oauthTokenKey: string;
+    authId: string;
 }
 
 export interface DeployInfo {
@@ -68,51 +68,48 @@ const generatePythonCode = (config: AgentConfig): string => {
     }
     
     if (config.enableOAuth) {
-        toolImports.add('from google.adk.tools import FunctionTool, ToolContext');
-        toolImports.add('import json');
-        toolImports.add('import requests');
+        toolImports.add('from google.adk.tools import ToolContext');
+        toolImports.add('from google.oauth2.credentials import Credentials');
+        toolImports.add('from googleapiclient.discovery import build');
         oauthToolCodeBlock = `
-# -- OAuth Sample Tool: Get User Info --
-def get_user_info(tool_context: ToolContext) -> str:
-    """
-    Gets the authenticated user's profile information using their OAuth token.
+def get_email_from_token(access_token):
+    """Get user info from access token"""
+    credentials = Credentials(token=access_token)
+    service = build('oauth2', 'v2', credentials=credentials)
+    user_info = service.userinfo().get().execute()
+    user_email = user_info.get('email')
+    
+    return user_email
 
-    This tool demonstrates how to access the user's access token from the tool_context.
-    It requires OAuth to be configured on the Reasoning Engine.
-    Args:
-        tool_context: The context of the tool call, provided by the ADK.
-    Returns:
-        A JSON string containing the user's profile information or an error message.
-    """
-    # The ADK framework populates the state with the necessary credentials
-    # when OAuth is configured for the agent.
-    access_token = tool_context.state.get("temp:${config.oauthTokenKey}")
+def lazy_mask_token(access_token):
+    """Mask access token for printing"""
+    start_mask = access_token[:4]
+    end_mask = access_token[-4:]
+    
+    return f"{start_mask}...{end_mask}"
 
-    if not access_token:
-        return json.dumps({
-            "error": "Authentication Error",
-            "message": "Access token not found in tool_context.state. Make sure OAuth is configured."
-        })
+def print_tool_context(tool_context: ToolContext):
+    """ADK Tool to get email and masked token from Gemini Enterprise"""
+    auth_id = os.getenv("AUTH_ID")
+    
+    # get access token using tool context
+    access_token = tool_context.state[f"temp:{auth_id}"]
+    
+    # mask the token to be returned to the agent
+    masked_token = lazy_mask_token(access_token)
 
-    # Call the Google User Info API
-    url = "https://www.googleapis.com/oauth2/v3/userinfo"
-    headers = { "Authorization": f"Bearer {access_token}" }
-
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()  # Raises an HTTPError for bad responses (4xx or 5xx)
-        return json.dumps(response.json())
-    except requests.exceptions.HTTPError as http_err:
-        return f"HTTP error occurred: {http_err} - Response: {response.text}"
-    except Exception as e:
-        return f"An unexpected error occurred: {e}"
-
-get_user_info_tool = FunctionTool(
-    func=get_user_info,
-)
-# -- End OAuth Sample Tool --
+    # get the user email using the token
+    user_email = get_email_from_token(access_token)
+    
+    # store email in tool context in case you want to keep referring to it
+    tool_context.state["user_email"] = user_email
+    
+    return {
+        f"temp:{auth_id}": lazy_mask_token(access_token),
+        "user_email": user_email
+    }
 `;
-        toolListForAgent.push('get_user_info_tool');
+        toolListForAgent.push('print_tool_context');
     }
 
     const formatPythonString = (str: string) => {
@@ -155,19 +152,26 @@ app = AdkApp(agent=root_agent)
 };
 
 const generateEnvFile = (config: AgentConfig, projectNumber: string, location: string): string => {
-    // GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are often set by the runtime environment.
-    // Including them here helps with local execution and clarity.
-    return `GOOGLE_GENAI_USE_VERTEXAI=TRUE
+    const baseContent = `GOOGLE_GENAI_USE_VERTEXAI=TRUE
 MODEL="${config.model}"
 GOOGLE_CLOUD_PROJECT="${projectNumber}"
-GOOGLE_CLOUD_LOCATION="${location}"
-`.trim();
+GOOGLE_CLOUD_LOCATION="${location}"`;
+
+    const authContent = config.enableOAuth && config.authId 
+        ? `\nAUTH_ID="${config.authId}"`
+        : '';
+    
+    return (baseContent + authContent).trim();
 };
 
 const generateRequirementsFile = (config: AgentConfig): string => {
-    const requirements = new Set(['google-cloud-aiplatform[adk,agent_engines]', 'python-dotenv']);
+    const requirements = new Set([
+        'google-cloud-aiplatform[adk,agent_engines]<1.17.0', 
+        'python-dotenv'
+    ]);
     if (config.enableOAuth) {
-        requirements.add('requests');
+        requirements.add('google-auth-oauthlib>=1.2.2');
+        requirements.add('google-api-python-client');
     }
     return Array.from(requirements).join('\n');
 };
@@ -267,7 +271,7 @@ const AgentBuilderPage: React.FC<{ projectNumber: string; }> = ({ projectNumber 
         tools: [],
         useGoogleSearch: false,
         enableOAuth: false,
-        oauthTokenKey: 'user_token',
+        authId: '',
     });
     
     // State for Vertex AI config
@@ -340,9 +344,6 @@ const AgentBuilderPage: React.FC<{ projectNumber: string; }> = ({ projectNumber 
         if (name === 'name') {
             // Replace spaces with underscores and remove invalid characters.
             const sanitizedValue = value.replace(/\s+/g, '_').replace(/[^a-z0-9_]/gi, '').toLowerCase();
-            setAgentConfig({ ...agentConfig, [name]: sanitizedValue });
-        } else if (name === 'oauthTokenKey') {
-            const sanitizedValue = value.replace(/\s+/g, '_').replace(/[^a-z0-9_]/gi, '');
             setAgentConfig({ ...agentConfig, [name]: sanitizedValue });
         } else {
             setAgentConfig({ ...agentConfig, [name]: isCheckbox ? checked : value });
@@ -782,21 +783,16 @@ Rewritten Instruction:`;
                     </div>
                     {agentConfig.enableOAuth && (
                         <div className="pl-6">
-                            <label className="block text-sm font-medium text-gray-400">Token Key</label>
-                            <div className="flex items-center mt-1">
-                                <span className="inline-flex items-center px-3 text-sm text-gray-400 bg-gray-800 border border-r-0 border-gray-600 rounded-l-md h-[42px]">
-                                    temp:
-                                </span>
-                                <input 
-                                    type="text" 
-                                    name="oauthTokenKey" 
-                                    value={agentConfig.oauthTokenKey} 
-                                    onChange={handleAgentConfigChange} 
-                                    className="w-full bg-gray-700 border-gray-600 rounded-r-md text-sm p-2 h-[42px]" 
-                                    placeholder="e.g., user_token"
-                                />
-                            </div>
-                            <p className="text-xs text-gray-500 mt-1">The key to retrieve the user's token from `tool_context.state`.</p>
+                            <label className="block text-sm font-medium text-gray-400">Authorization ID (AUTH_ID)</label>
+                            <input
+                                type="text"
+                                name="authId"
+                                value={agentConfig.authId}
+                                onChange={handleAgentConfigChange}
+                                className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2 h-[42px]"
+                                placeholder="e.g., my-google-workspace-auth"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">The ID of the Authorization object in Gemini Enterprise. This will be set as the AUTH_ID environment variable.</p>
                         </div>
                     )}
                 </div>

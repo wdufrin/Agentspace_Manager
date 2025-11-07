@@ -82,6 +82,20 @@ export interface ReasoningEngine {
   name: string;
   displayName: string;
   sessionCount?: number;
+  spec?: {
+    packageSpec?: {
+      pickleObjectGcsUri?: string;
+      dependencyFilesGcsUri?: string;
+      requirementsGcsUri?: string;
+      pythonVersion?: string;
+    };
+    deploymentSpec?: {
+      env?: EnvVar[];
+    };
+    agentFramework?: string;
+  };
+  createTime?: string;
+  updateTime?: string;
 }
 
 export interface ChatMessage {
@@ -105,6 +119,7 @@ export interface AppEngine { // Renamed from Engine to avoid conflict with Reaso
     displayName: string;
     solutionType: string;
     assistants?: Assistant[]; // For backup structure
+    dataStoreIds?: string[];
 }
 export interface Assistant {
     name: string;
@@ -200,7 +215,7 @@ export interface CloudRunService {
 }
 
 // Architecture Graph Types
-export type NodeType = 'Project' | 'Location' | 'Engine' | 'Assistant' | 'Agent' | 'ReasoningEngine' | 'DataStore' | 'Authorization';
+export type NodeType = 'Project' | 'Location' | 'Collection' | 'Engine' | 'Assistant' | 'Agent' | 'ReasoningEngine' | 'DataStore' | 'Authorization';
 
 export interface GraphNode {
   id: string; // full resource name

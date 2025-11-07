@@ -11,66 +11,89 @@ interface SetIamPolicyModalProps {
   currentPolicy: any;
 }
 
-const ALLOWED_ROLES = [
-    'roles/discoveryengine.agentUser',
-    'roles/discoveryengine.agentEditor',
-    'roles/discoveryengine.agentViewer',
-];
-
 const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, onSuccess, agent, config, currentPolicy }) => {
   const [editablePolicy, setEditablePolicy] = useState<any | null>(null);
-  const [newMembers, setNewMembers] = useState<{ [role: string]: string }>({});
+  const [newMemberInputs, setNewMemberInputs] = useState<{ [key: number]: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen && currentPolicy) {
-      // Create a deep copy to edit, and ensure bindings is an array
       const policyCopy = JSON.parse(JSON.stringify(currentPolicy));
       if (!policyCopy.bindings) {
         policyCopy.bindings = [];
       }
       setEditablePolicy(policyCopy);
-      
-      // Reset form state
-      setNewMembers({});
+      setNewMemberInputs({});
       setError(null);
     }
   }, [isOpen, currentPolicy]);
 
-  const handleRemoveMember = (role: string, memberToRemove: string) => {
+  const updateBindings = (updateFn: (draftBindings: any[]) => any[]) => {
     setEditablePolicy((prevPolicy: any) => {
       const newPolicy = JSON.parse(JSON.stringify(prevPolicy));
-      const binding = newPolicy.bindings.find((b: any) => b.role === role);
-      if (binding) {
-        binding.members = binding.members.filter((m: string) => m !== memberToRemove);
-      }
+      newPolicy.bindings = updateFn(newPolicy.bindings);
       return newPolicy;
     });
   };
 
-  const handleAddMember = (role: string) => {
-    const membersToAdd = (newMembers[role] || '').split(/[\s,]+/).filter(m => m.trim() !== '');
+  const handleAddBinding = () => {
+    updateBindings(bindings => [...bindings, { role: 'roles/discoveryengine.agentUser', members: [] }]);
+  };
+
+  const handleRemoveBinding = (index: number) => {
+    updateBindings(bindings => bindings.filter((_, i) => i !== index));
+  };
+  
+  const handleBindingChange = (index: number, field: string, value: string) => {
+      updateBindings(bindings => {
+          bindings[index][field] = value;
+          return bindings;
+      });
+  };
+
+  const handleRemoveMember = (bindingIndex: number, memberIndex: number) => {
+    updateBindings(bindings => {
+      bindings[bindingIndex].members.splice(memberIndex, 1);
+      return bindings;
+    });
+  };
+
+  const handleAddMember = (bindingIndex: number) => {
+    const membersToAdd = (newMemberInputs[bindingIndex] || '').split(/[\s,]+/).filter(m => m.trim() !== '');
     if (membersToAdd.length === 0) return;
 
-    setEditablePolicy((prevPolicy: any) => {
-      const newPolicy = JSON.parse(JSON.stringify(prevPolicy));
-      let binding = newPolicy.bindings.find((b: any) => b.role === role);
-
-      if (!binding) {
-        binding = { role, members: [] };
-        newPolicy.bindings.push(binding);
-      }
-      
+    updateBindings(bindings => {
+      const binding = bindings[bindingIndex];
       const existingMembers = new Set(binding.members);
       membersToAdd.forEach(member => existingMembers.add(member));
       binding.members = Array.from(existingMembers);
-      
-      return newPolicy;
+      return bindings;
     });
-
-    // Clear input field after adding
-    setNewMembers(prev => ({ ...prev, [role]: '' }));
+    setNewMemberInputs(prev => ({ ...prev, [bindingIndex]: '' }));
+  };
+  
+  const handleConditionChange = (bindingIndex: number, field: 'title' | 'description' | 'expression', value: string) => {
+      updateBindings(bindings => {
+          if (bindings[bindingIndex].condition) {
+              bindings[bindingIndex].condition[field] = value;
+          }
+          return bindings;
+      });
+  };
+  
+  const handleAddCondition = (bindingIndex: number) => {
+      updateBindings(bindings => {
+          bindings[bindingIndex].condition = { title: '', description: '', expression: '' };
+          return bindings;
+      });
+  };
+  
+  const handleRemoveCondition = (bindingIndex: number) => {
+      updateBindings(bindings => {
+          delete bindings[bindingIndex].condition;
+          return bindings;
+      });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -79,20 +102,28 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
         setError("Cannot update policy: ETag is missing. Please fetch the policy again.");
         return;
     }
-
     setIsSubmitting(true);
     setError(null);
 
     try {
         const finalPolicy = JSON.parse(JSON.stringify(editablePolicy));
-        // Remove any bindings that are now empty
-        finalPolicy.bindings = finalPolicy.bindings.filter((b: any) => b.members && b.members.length > 0);
-        // Ensure the etag from the original policy is present for optimistic concurrency control
+        finalPolicy.bindings = finalPolicy.bindings.filter((b: any) => b.members && b.members.length > 0 && b.role && b.role.trim() !== '');
         finalPolicy.etag = currentPolicy.etag;
+
+        const hasConditions = finalPolicy.bindings.some((b: any) => b.condition);
+        if (hasConditions) {
+            finalPolicy.version = 3;
+        } else if (finalPolicy.version === 3) {
+            // If we remove the last condition, we should still submit with v3 to correctly process the removal.
+            // GCP will handle downgrading the policy version if no conditions remain.
+            finalPolicy.version = 3;
+        } else {
+            // It was a v1 policy and remains a v1 policy
+            delete finalPolicy.version; 
+        }
         
         const responsePolicy = await api.setAgentIamPolicy(agent.name, finalPolicy, config);
         onSuccess(responsePolicy);
-
     } catch (err: any) {
         setError(err.message || "An unknown error occurred while updating the policy.");
     } finally {
@@ -112,66 +143,61 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
             </header>
 
             <main className="p-6 space-y-4 overflow-y-auto flex-1">
-              {ALLOWED_ROLES.map(role => {
-                const binding = editablePolicy.bindings.find((b: any) => b.role === role);
-                const currentMembers = binding?.members || [];
-                return (
-                  <div key={role} className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
-                    <h3 className="font-semibold text-white">{role.split('/').pop()}</h3>
-                    <p className="text-xs text-gray-400 font-mono">{role}</p>
+              {editablePolicy.bindings.map((binding: any, index: number) => (
+                <div key={index} className="bg-gray-900/50 p-4 rounded-lg border border-gray-700 space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-semibold text-white">Role Binding #{index + 1}</h3>
+                    <button type="button" onClick={() => handleRemoveBinding(index)} className="text-sm text-red-400 hover:text-red-300">Remove Binding</button>
+                  </div>
 
-                    <div className="mt-3">
-                      {currentMembers.length > 0 ? (
-                        <ul className="space-y-1 max-h-40 overflow-y-auto">
-                          {currentMembers.map((member: string) => (
-                            <li key={member} className="flex justify-between items-center text-sm bg-gray-700 p-2 rounded-md">
-                              <span className="font-mono text-gray-300">{member}</span>
-                              <button 
-                                type="button" 
-                                onClick={() => handleRemoveMember(role, member)}
-                                className="p-1 text-gray-400 hover:text-white hover:bg-red-500 rounded-full"
-                                aria-label={`Remove ${member}`}
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="text-sm text-gray-500 italic">No members assigned to this role.</p>
-                      )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400">Role</label>
+                    <input type="text" value={binding.role} onChange={(e) => handleBindingChange(index, 'role', e.target.value)} placeholder="e.g., roles/discoveryengine.agentUser" className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm p-2" />
+                  </div>
+
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-400">Members</h4>
+                    <div className="mt-2 space-y-2">
+                      {binding.members.length > 0 ? (
+                        binding.members.map((member: string, memberIndex: number) => (
+                          <div key={memberIndex} className="flex justify-between items-center text-sm bg-gray-700 px-3 py-1.5 rounded-md">
+                            <span className="font-mono text-gray-300">{member}</span>
+                            <button type="button" onClick={() => handleRemoveMember(index, memberIndex)} className="p-1 text-gray-400 hover:text-white hover:bg-red-500 rounded-full" aria-label={`Remove ${member}`}>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"/></svg>
+                            </button>
+                          </div>
+                        ))
+                      ) : ( <p className="text-xs text-gray-500 italic">No members assigned.</p> )}
                     </div>
-                    
-                    <div className="mt-4 flex items-center gap-2">
-                        <input
-                            type="text"
-                            placeholder="user:new@example.com"
-                            value={newMembers[role] || ''}
-                            onChange={(e) => setNewMembers(prev => ({...prev, [role]: e.target.value}))}
-                            className="flex-grow bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm text-white font-mono h-10 px-3"
-                        />
-                        <button 
-                            type="button"
-                            onClick={() => handleAddMember(role)}
-                            disabled={!(newMembers[role] || '').trim()}
-                            className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 disabled:bg-gray-500 disabled:cursor-not-allowed h-10 shrink-0"
-                        >
-                            Add Member
-                        </button>
+                    <div className="mt-3 flex items-center gap-2">
+                      <input type="text" placeholder="user:new@example.com, group:..." value={newMemberInputs[index] || ''} onChange={(e) => setNewMemberInputs(prev => ({...prev, [index]: e.target.value}))} className="flex-grow bg-gray-700 border-gray-600 rounded-md text-sm p-2" />
+                      <button type="button" onClick={() => handleAddMember(index)} disabled={!(newMemberInputs[index] || '').trim()} className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 disabled:bg-gray-500 shrink-0">Add Member</button>
                     </div>
                   </div>
-                )
-              })}
-              {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
+                  
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-400">Condition</h4>
+                    {!binding.condition ? (
+                       <button type="button" onClick={() => handleAddCondition(index)} className="mt-2 text-sm text-blue-400 hover:text-blue-300">+ Add Condition</button>
+                    ) : (
+                       <div className="mt-2 space-y-2 p-3 bg-gray-700/50 rounded-md">
+                           <input type="text" value={binding.condition.title} onChange={(e) => handleConditionChange(index, 'title', e.target.value)} placeholder="Title" className="w-full bg-gray-800 border-gray-600 rounded-md text-sm p-2" />
+                           <textarea value={binding.condition.description} onChange={(e) => handleConditionChange(index, 'description', e.target.value)} placeholder="Description" className="w-full bg-gray-800 border-gray-600 rounded-md text-sm p-2" rows={2} />
+                           <textarea value={binding.condition.expression} onChange={(e) => handleConditionChange(index, 'expression', e.target.value)} placeholder="CEL Expression, e.g., request.time < timestamp(...)" className="w-full bg-gray-800 border-gray-600 rounded-md text-sm p-2 font-mono" rows={3} />
+                           <button type="button" onClick={() => handleRemoveCondition(index)} className="text-xs text-red-400 hover:text-red-300">Remove Condition</button>
+                       </div>
+                    )}
+                  </div>
+
+                </div>
+              ))}
+              <button type="button" onClick={handleAddBinding} className="mt-4 w-full text-center px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600">+ Add Role Binding</button>
+              {error && <p className="text-red-400 text-sm mt-4 text-center">{error}</p>}
             </main>
 
             <footer className="p-4 bg-gray-900/50 border-t border-gray-700 flex justify-end space-x-3">
                 <button type="button" onClick={onClose} disabled={isSubmitting} className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50">Cancel</button>
-                <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed"
-                >
+                <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed">
                     {isSubmitting ? 'Saving...' : 'Save Changes'}
                 </button>
             </footer>

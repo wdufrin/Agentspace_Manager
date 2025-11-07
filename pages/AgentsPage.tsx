@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Agent, Config, SortableAgentKey, SortDirection } from '../types';
+import { Agent, Config, SortableAgentKey, SortDirection, Assistant } from '../types';
 import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
 import AgentList from '../components/agents/AgentList';
@@ -137,11 +137,50 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     }
     setIsLoading(true);
     setError(null);
+    
     try {
-      const response = await api.listResources('agents', apiConfig);
-      setAgents(response.agents || []);
+        // Step 1: List all assistants for the selected engine.
+        // The apiConfig already contains projectId, appLocation, collectionId, and appId.
+        // The assistantId is ignored by the apiService when listing assistants.
+        const assistantsResponse = await api.listResources('assistants', apiConfig);
+        const assistants: Assistant[] = assistantsResponse.assistants || [];
+        
+        if (assistants.length === 0) {
+            setAgents([]);
+            console.log("No assistants found for this engine. Cannot list agents.");
+            return;
+        }
+
+        // Step 2: For each assistant, list its agents.
+        const agentPromises = assistants.map(assistant => {
+            const assistantId = assistant.name.split('/').pop()!;
+            const agentListConfig = { ...apiConfig, assistantId };
+            return api.listResources('agents', agentListConfig);
+        });
+
+        const agentResults = await Promise.allSettled(agentPromises);
+
+        const allAgents: Agent[] = [];
+        const failedAssistants: string[] = [];
+
+        agentResults.forEach((result, index) => {
+            if (result.status === 'fulfilled') {
+                allAgents.push(...(result.value.agents || []));
+            } else {
+                const assistantName = assistants[index].displayName || assistants[index].name.split('/').pop()!;
+                failedAssistants.push(assistantName);
+                console.error(`Failed to fetch agents for assistant: ${assistantName}`, result.reason);
+            }
+        });
+        
+        setAgents(allAgents);
+        
+        if (failedAssistants.length > 0) {
+            setError(`Could not fetch agents for some assistants: ${failedAssistants.join(', ')}. This may be expected for some engine types.`);
+        }
+
     } catch (err: any) {
-      setError(err.message || 'Failed to fetch agents.');
+      setError(err.message || 'An unexpected error occurred while fetching assistants or agents.');
       setAgents([]);
     } finally {
       setIsLoading(false);

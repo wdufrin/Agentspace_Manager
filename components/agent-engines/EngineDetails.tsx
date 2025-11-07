@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Agent, ReasoningEngine, Config } from '../../types';
+import React, { useState, useEffect } from 'react';
+import { Agent, ReasoningEngine, Config, EnvVar } from '../../types';
 import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
 import ConfirmationModal from '../ConfirmationModal';
@@ -11,16 +11,20 @@ interface EngineDetailsProps {
     config: Config;
 }
 
-const DetailItem: React.FC<{ label: string; value: string | undefined | null }> = ({ label, value }) => (
+const DetailItem: React.FC<{ label: string; value: string | undefined | null; isMono?: boolean }> = ({ label, value, isMono = true }) => (
     <div className="py-2">
         <dt className="text-sm font-medium text-gray-400">{label}</dt>
-        <dd className="mt-1 text-sm text-white font-mono bg-gray-700 p-2 rounded">{value || 'Not set'}</dd>
+        <dd className={`mt-1 text-sm text-white font-mono bg-gray-700 p-2 rounded ${isMono ? 'font-mono' : 'font-sans'}`}>{value || 'Not set'}</dd>
     </div>
 );
 
 const EngineDetails: React.FC<EngineDetailsProps> = ({ engine, usingAgents, onBack, config }) => {
     const engineId = engine.name.split('/').pop() || '';
     
+    const [fullEngine, setFullEngine] = useState<ReasoningEngine | null>(null);
+    const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+    const [detailsError, setDetailsError] = useState<string | null>(null);
+
     const [sessions, setSessions] = useState<{ name: string }[] | null>(null);
     const [isLoadingSessions, setIsLoadingSessions] = useState(false);
     const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -29,6 +33,23 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({ engine, usingAgents, onBa
     const [deletingSessionName, setDeletingSessionName] = useState<string | null>(null);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [sessionToDelete, setSessionToDelete] = useState<{ name: string } | null>(null);
+
+     useEffect(() => {
+        const fetchDetails = async () => {
+            setIsLoadingDetails(true);
+            setDetailsError(null);
+            try {
+                const details = await api.getReasoningEngine(engine.name, config);
+                setFullEngine(details);
+            } catch (err: any) {
+                setDetailsError(err.message || 'Failed to fetch full engine details.');
+            } finally {
+                setIsLoadingDetails(false);
+            }
+        };
+        fetchDetails();
+    }, [engine.name, config]);
+
 
     const handleFetchSessions = async () => {
         setIsLoadingSessions(true);
@@ -109,11 +130,52 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({ engine, usingAgents, onBa
                     </nav>
                 </div>
                 
-                <dl className="mt-6 pt-6 grid grid-cols-1 gap-x-4 gap-y-2">
-                    <DetailItem label="Full Resource Name" value={engine.name} />
-                    <DetailItem label="Location" value={engine.name.split('/')[3]} />
-                </dl>
+                {isLoadingDetails && <div className="mt-6"><Spinner /></div>}
+                {detailsError && <p className="text-red-400 mt-6">{detailsError}</p>}
                 
+                {fullEngine && (
+                    <>
+                        <dl className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">
+                            <DetailItem label="Full Resource Name" value={fullEngine.name} />
+                            <DetailItem label="Location" value={fullEngine.name.split('/')[3]} />
+                            <DetailItem label="Created On" value={fullEngine.createTime ? new Date(fullEngine.createTime).toLocaleString() : 'N/A'} isMono={false} />
+                            <DetailItem label="Last Modified" value={fullEngine.updateTime ? new Date(fullEngine.updateTime).toLocaleString() : 'N/A'} isMono={false} />
+                        </dl>
+                        
+                        <div className="mt-6 border-t border-gray-700 pt-6">
+                            <h3 className="text-lg font-semibold text-white">Deployment Specification</h3>
+                            {fullEngine.spec ? (
+                                <div className="mt-2 space-y-4">
+                                    <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">
+                                        <DetailItem label="Agent Framework" value={fullEngine.spec.agentFramework} />
+                                        <DetailItem label="Python Version" value={fullEngine.spec.packageSpec?.pythonVersion} />
+                                        <DetailItem label="Pickle GCS URI" value={fullEngine.spec.packageSpec?.pickleObjectGcsUri} />
+                                        <DetailItem label="Requirements GCS URI" value={fullEngine.spec.packageSpec?.requirementsGcsUri} />
+                                    </dl>
+                                    <div>
+                                        <h4 className="text-md font-semibold text-gray-200 mt-4">Environment Variables</h4>
+                                        {fullEngine.spec.deploymentSpec?.env && fullEngine.spec.deploymentSpec.env.length > 0 ? (
+                                            <div className="mt-2 text-sm text-white font-mono bg-gray-900/50 p-3 rounded-md border border-gray-700 max-h-48 overflow-y-auto">
+                                                <ul className="space-y-1">
+                                                    {fullEngine.spec.deploymentSpec.env.map((envVar: EnvVar) => (
+                                                        <li key={envVar.name}>
+                                                            <span className="text-gray-400">{envVar.name}:</span> {envVar.value}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        ) : (
+                                            <p className="text-sm text-gray-500 italic mt-2">No environment variables defined in deployment spec.</p>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : (
+                                <p className="mt-2 text-sm text-gray-400 italic">No deployment specification found for this engine.</p>
+                            )}
+                        </div>
+                    </>
+                )}
+
                 <div className="mt-6 border-t border-gray-700 pt-6">
                     <h3 className="text-lg font-semibold text-white">Agents Using This Engine ({usingAgents.length})</h3>
                     {usingAgents.length > 0 ? (

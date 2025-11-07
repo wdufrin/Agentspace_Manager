@@ -209,12 +209,14 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
     const deletionPromises = enginesToDelete.map(async (engineName) => {
         try {
             await api.deleteReasoningEngine(engineName, apiConfig);
-        // FIX: Changed `err: any` to `err: unknown` and added type guards for safer error handling, which likely caused the reported errors.
         } catch (err: unknown) {
-            // If deletion fails because of active sessions ("Resource has children"),
-            // try to delete the sessions and then retry deleting the engine.
-            // FIX: Safely convert unknown error to string for checking.
-            const errorMessage = err instanceof Error ? err.message : String(err);
+            // FIX: Safely convert the 'unknown' error to a string for inspection, preventing a type error.
+            let errorMessage = "An unknown error occurred.";
+            if (err instanceof Error) {
+                errorMessage = err.message;
+            } else {
+                errorMessage = String(err);
+            }
             if (errorMessage.toLowerCase().includes('resource has children')) {
                 const engineId = String(engineName).split('/').pop() || engineName;
                 console.log(`Engine ${engineId} has active sessions. Attempting to delete them...`);
@@ -224,9 +226,9 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                 
                 if (sessions.length > 0) {
                     console.log(`Found ${sessions.length} sessions to delete.`);
-                    // FIX: Ensure session.name is treated as a string, resolving potential type issues.
+                    // FIX: Ensure session.name is treated as a string before being passed to the API call.
                     const deleteSessionPromises = sessions.map(session => 
-                        api.deleteReasoningEngineSession(String(session.name), apiConfig)
+                        api.deleteReasoningEngineSession(session.name, apiConfig)
                     );
                     await Promise.all(deleteSessionPromises);
                     console.log(`All sessions for ${engineId} deleted.`);
@@ -248,20 +250,13 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
     const failures: string[] = [];
     results.forEach((result, index) => {
         if (result.status === 'rejected') {
-            // FIX: Safely handle the `result.reason` which is of type `unknown`. The original code likely had a bug here trying to call methods like `.split()` directly on `reason`.
-            // The correct engine name is retrieved from `enginesToDelete` array.
-            // FIX: Explicitly cast to string and handle potential undefined from pop() to prevent type errors.
             const engineName = (enginesToDelete[index] as string).split('/').pop() || enginesToDelete[index];
             
+            // FIX: Robustly handle the 'reason' for rejection, which is of type 'unknown', to safely extract an error message string.
             let errorMessage = "An unknown error occurred.";
             const reason = result.reason;
             if (reason instanceof Error) {
                 errorMessage = reason.message;
-            } else if (typeof reason === 'string') {
-                errorMessage = reason;
-            } else if (reason && typeof reason === 'object' && 'message' in reason) {
-                const msg = (reason as { message: unknown }).message;
-                errorMessage = typeof msg === 'string' ? msg : JSON.stringify(msg);
             } else {
                 errorMessage = String(reason);
             }
@@ -312,14 +307,13 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
         results.forEach((result, index) => {
             if (result.status === 'rejected') {
                 const sessionName = sessions[index].name.split('/').pop();
+                // FIX: Robustly handle the 'reason' for rejection, which is of type 'unknown', to safely extract an error message string.
                 let errorMessage = "An unknown error occurred.";
-                if (result.reason instanceof Error) {
-                    errorMessage = result.reason.message;
-                } else if (typeof result.reason === 'string') {
-                    errorMessage = result.reason;
-                } else if (result.reason && typeof result.reason === 'object' && 'message' in result.reason) {
-                    const msg = (result.reason as { message: unknown }).message;
-                    errorMessage = typeof msg === 'string' ? msg : JSON.stringify(msg);
+                const reason = result.reason;
+                if (reason instanceof Error) {
+                    errorMessage = reason.message;
+                } else {
+                    errorMessage = String(reason);
                 }
                 failures.push(`- Session ${sessionName}: ${errorMessage}`);
             }

@@ -743,6 +743,13 @@ export const listReasoningEngines = (config: Config) => {
     return gapiRequest<{ reasoningEngines: ReasoningEngine[] }>(path, 'GET', projectId);
 };
 
+export const getReasoningEngine = async (engineName: string, config: Config): Promise<ReasoningEngine> => {
+    const { projectId, reasoningEngineLocation } = config;
+    if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
+    const path = `${getAiPlatformUrl(reasoningEngineLocation)}/v1beta1/${engineName}`;
+    return gapiRequest<ReasoningEngine>(path, 'GET', projectId);
+};
+
 export const createReasoningEngine = async (engineData: any, config: Config): Promise<ReasoningEngine> => {
     const { reasoningEngineLocation, projectId } = config;
     if (!reasoningEngineLocation) throw new Error("Reasoning Engine Location is required.");
