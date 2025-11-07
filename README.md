@@ -7,6 +7,9 @@ This application is built using React and communicates with Google Cloud APIs vi
 ## Key Features
 
 -   **Manage Agents**: List, create, update, delete, enable/disable, and chat with agents.
+
+    
+
 -   **Manage Authorizations**: List, create, update, and delete OAuth client authorizations.
 -   **Manage Reasoning Engines**: List engines, view agent dependencies, and delete unused engines.
 -   **Explore Data Stores**: List data stores within a collection, view their details, and inspect individual documents and their content.
@@ -93,19 +96,19 @@ The application interacts with the following Google Cloud APIs, using their resp
 **List Agents:** Retrieves all agents within a specific assistant.
 
 ```sh
-curl -X GET \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
+curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents"
 ```
 
 **Create an Agent:** Registers a new ADK agent linked to a Reasoning Engine.
 
 ```sh
-curl -X POST \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "Content-Type: application/json" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
+curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   -d '{
         "displayName": "My API Agent",
         "adkAgentDefinition": {
@@ -114,7 +117,7 @@ curl -X POST \
             "reasoning_engine": "projects/[YOUR_PROJECT_ID]/locations/[RE_LOCATION]/reasoningEngines/[RE_ID]"
           }
         }
-      }' \
+      }' \\
   "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents"
 ```
 
@@ -123,19 +126,19 @@ curl -X POST \
 **List Authorizations:** Retrieves all OAuth authorizations for the project.
 
 ```sh
-curl -X GET \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
+curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/global/authorizations"
 ```
 
 **Create an Authorization:** Creates a new OAuth authorization resource.
 
 ```sh
-curl -X POST \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "Content-Type: application/json" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
+curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   -d '{
         "serverSideOauth2": {
           "clientId": "[YOUR_OAUTH_CLIENT_ID]",
@@ -143,7 +146,7 @@ curl -X POST \
           "authorizationUri": "https://accounts.google.com/o/oauth2/auth?...",
           "tokenUri": "https://oauth2.googleapis.com/token"
         }
-      }' \
+      }' \\
   "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/global/authorizations?authorizationId=[NEW_AUTH_ID]"
 ```
 
@@ -152,9 +155,9 @@ curl -X POST \
 **List Reasoning Engines:** Retrieves all Reasoning Engines in a specific location.
 
 ```sh
-curl -X GET \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
+curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   "https://[LOCATION]-aiplatform.googleapis.com/v1beta1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/reasoningEngines"
 ```
 
@@ -163,13 +166,13 @@ curl -X GET \
 **Chat with an Assistant (Streaming):** Sends a prompt to a G.E. Assistant and receives a streaming response. This is the primary method for testing the overall conversational experience.
 
 ```sh
-curl -X POST \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "Content-Type: application/json" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
+curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   -d '{
         "query": { "text": "Hello, what can you do?" }
-      }' \
+      }' \\
   "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]:streamAssist"
 ```
 
@@ -178,18 +181,18 @@ curl -X POST \
 **List Data Stores:** Retrieves all data stores within a collection.
 
 ```sh
-curl -X GET \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
+curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   "https://discoveryengine.googleapis.com/v1beta/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores"
 ```
 
 **List Documents:** Retrieves all documents within a data store.
 
 ```sh
-curl -X GET \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
+curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores/[DATASTORE_ID]/branches/0/documents"
 ```
 
@@ -198,15 +201,15 @@ curl -X GET \
 **List Violation Logs:** Fetches safety policy violation logs from Cloud Logging.
 
 ```sh
-curl -X POST \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "Content-Type: application/json" \
+curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
   -d '{
         "projectIds": ["[YOUR_PROJECT_ID]"],
         "filter": "log_id(\"modelarmor.googleapis.com/sanitize_operations\")",
         "orderBy": "timestamp desc",
         "pageSize": 50
-      }' \
+      }' \\
   "https://logging.googleapis.com/v2/entries:list"
 ```
 
