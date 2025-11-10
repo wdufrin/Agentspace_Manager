@@ -223,7 +223,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                     console.log(`Found ${sessions.length} sessions to delete.`);
                     // FIX: Ensure session.name is treated as a string before being passed to the API call.
                     const deleteSessionPromises = sessions.map(session => 
-                        api.deleteReasoningEngineSession(session.name, apiConfig)
+                        api.deleteReasoningEngineSession(String(session.name), apiConfig)
                     );
                     await Promise.all(deleteSessionPromises);
                     console.log(`All sessions for ${engineId} deleted.`);
@@ -245,7 +245,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
     const failures: string[] = [];
     results.forEach((result, index) => {
         if (result.status === 'rejected') {
-            const engineName = (enginesToDelete[index] as string).split('/').pop() || enginesToDelete[index];
+            const engineName = String(enginesToDelete[index]).split('/').pop() || enginesToDelete[index];
             
             // FIX: Robustly handle the 'reason' for rejection, which is of type 'unknown', to safely extract an error message string.
             const reason = result.reason;

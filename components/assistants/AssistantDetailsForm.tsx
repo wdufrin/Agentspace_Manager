@@ -51,7 +51,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         setFormData({
             displayName: assistant.displayName || '',
             styleAndFormattingInstructions: assistant.styleAndFormattingInstructions || '',
-            additionalSystemInstruction: assistant.generationConfig?.systemInstruction || '',
+            additionalSystemInstruction: assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '',
             webGroundingType: assistant.webGroundingType || 'WEB_GROUNDING_TYPE_DISABLED',
             customerPolicy: assistant.customerPolicy ? JSON.stringify(assistant.customerPolicy, null, 2) : '{}'
         });
@@ -127,19 +127,20 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
             const updateMask: string[] = [];
 
             if (formData.styleAndFormattingInstructions !== (assistant.styleAndFormattingInstructions || '')) {
-                payload.style_and_formatting_instructions = formData.styleAndFormattingInstructions;
-                updateMask.push('style_and_formatting_instructions');
+                payload.styleAndFormattingInstructions = formData.styleAndFormattingInstructions;
+                updateMask.push('styleAndFormattingInstructions');
             }
-            if (formData.additionalSystemInstruction !== (assistant.generationConfig?.systemInstruction || '')) {
+            if (formData.additionalSystemInstruction !== (assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '')) {
                 payload.generationConfig = {
-                    ...(assistant.generationConfig || {}),
-                    systemInstruction: formData.additionalSystemInstruction,
+                    systemInstruction: {
+                        additionalSystemInstruction: formData.additionalSystemInstruction
+                    }
                 };
-                updateMask.push('generation_config.system_instruction');
+                updateMask.push('generationConfig.systemInstruction');
             }
             if (formData.webGroundingType !== (assistant.webGroundingType || 'WEB_GROUNDING_TYPE_DISABLED')) {
-                payload.web_grounding_type = formData.webGroundingType;
-                updateMask.push('web_grounding_type');
+                payload.webGroundingType = formData.webGroundingType;
+                updateMask.push('webGroundingType');
             }
             
             let policyObj;
@@ -156,7 +157,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
 
             if (currentPolicyString !== originalPolicyString) {
                 payload.customerPolicy = policyObj;
-                updateMask.push('customer_policy');
+                updateMask.push('customerPolicy');
             }
             
             const originalConfigsString = JSON.stringify(assistant.vertexAiAgentConfigs || []);
@@ -168,8 +169,8 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                         throw new Error("All fields for each Vertex AI Agent Config (Reasoning Engine, Display Name, Tool Description) are required.");
                     }
                 }
-                payload.vertex_ai_agent_configs = agentConfigs;
-                updateMask.push('vertex_ai_agent_configs');
+                payload.vertexAiAgentConfigs = agentConfigs;
+                updateMask.push('vertexAiAgentConfigs');
             }
 
             if (updateMask.length === 0) {
@@ -203,8 +204,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                     <label htmlFor="webGroundingType" className="block text-sm font-medium text-gray-300">Web Grounding Type</label>
                     <select name="webGroundingType" value={formData.webGroundingType} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm">
                         <option value="WEB_GROUNDING_TYPE_DISABLED">Disabled</option>
-                        <option value="WEB_GROUNDING_TYPE_SEARCH_ONLY">Search Only</option>
-                        <option value="WEB_GROUNDING_TYPE_ENABLED">Enabled</option>
+                        <option value="WEB_GROUNDING_TYPE_GOOGLE_SEARCH">Google Search</option>
                     </select>
                 </div>
                 <div>

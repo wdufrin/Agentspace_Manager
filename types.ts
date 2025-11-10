@@ -150,7 +150,9 @@ export interface Assistant {
     agents?: Agent[]; // For backup structure
     styleAndFormattingInstructions?: string;
     generationConfig?: {
-        systemInstruction?: string;
+        systemInstruction?: {
+            additionalSystemInstruction?: string;
+        };
     };
     googleSearchGroundingEnabled?: boolean;
     webGroundingType?: string;
