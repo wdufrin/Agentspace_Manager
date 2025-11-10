@@ -211,14 +211,9 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
             await api.deleteReasoningEngine(engineName, apiConfig);
         } catch (err: unknown) {
             // FIX: Safely convert the 'unknown' error to a string for inspection, preventing a type error.
-            let errorMessage = "An unknown error occurred.";
-            if (err instanceof Error) {
-                errorMessage = err.message;
-            } else {
-                errorMessage = String(err);
-            }
+            const errorMessage = err instanceof Error ? err.message : String(err);
             if (errorMessage.toLowerCase().includes('resource has children')) {
-                const engineId = String(engineName).split('/').pop() || engineName;
+                const engineId = engineName.split('/').pop() || engineName;
                 console.log(`Engine ${engineId} has active sessions. Attempting to delete them...`);
                 
                 const sessionsResponse = await api.listReasoningEngineSessions(engineName, apiConfig);
@@ -253,13 +248,8 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
             const engineName = (enginesToDelete[index] as string).split('/').pop() || enginesToDelete[index];
             
             // FIX: Robustly handle the 'reason' for rejection, which is of type 'unknown', to safely extract an error message string.
-            let errorMessage = "An unknown error occurred.";
             const reason = result.reason;
-            if (reason instanceof Error) {
-                errorMessage = reason.message;
-            } else {
-                errorMessage = String(reason);
-            }
+            const errorMessage = reason instanceof Error ? reason.message : String(reason);
 
             failures.push(`- ${engineName}: ${errorMessage}`);
         }
@@ -308,13 +298,8 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
             if (result.status === 'rejected') {
                 const sessionName = sessions[index].name.split('/').pop();
                 // FIX: Robustly handle the 'reason' for rejection, which is of type 'unknown', to safely extract an error message string.
-                let errorMessage = "An unknown error occurred.";
                 const reason = result.reason;
-                if (reason instanceof Error) {
-                    errorMessage = reason.message;
-                } else {
-                    errorMessage = String(reason);
-                }
+                const errorMessage = reason instanceof Error ? reason.message : String(reason);
                 failures.push(`- Session ${sessionName}: ${errorMessage}`);
             }
         });

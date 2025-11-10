@@ -715,8 +715,8 @@ export const createAssistant = async (assistantId: string, payload: { displayNam
     return gapiRequest<any>(path, 'POST', projectId, { assistantId }, payload, headers);
 };
 
-export const updateAssistant = async (assistantName: string, payload: Partial<Assistant>, updateMask: string[], config: Config): Promise<Assistant> => {
-    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1beta/${assistantName}`;
+export const updateAssistant = async (assistantName: string, payload: any, updateMask: string[], config: Config): Promise<Assistant> => {
+    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1alpha/${assistantName}`;
     const headers = { 'Content-Type': 'application/json' };
     return gapiRequest<Assistant>(path, 'PATCH', config.projectId, { updateMask: updateMask.join(',') }, payload, headers);
 };

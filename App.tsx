@@ -20,6 +20,7 @@ import AgentRegistrationPage from './pages/AgentRegistrationPage';
 import ArchitecturePage from './pages/ArchitecturePage';
 import CurlInfoModal from './components/CurlInfoModal';
 import DirectQueryChatWindow from './components/agent-engines/DirectQueryChatWindow';
+import AssistantPage from './pages/AssistantPage';
 
 const ALL_REASONING_ENGINE_LOCATIONS = [
     'us-central1', 'us-east1', 'us-east4', 'us-west1',
@@ -447,6 +448,8 @@ const App: React.FC = () => {
     switch (currentPage) {
       case Page.AGENTS:
         return <AgentsPage {...projectProps} accessToken={accessToken} />;
+      case Page.ASSISTANT:
+        return <AssistantPage {...projectProps} />;
       case Page.AUTHORIZATIONS:
         return <AuthorizationsPage {...commonProps} />;
       case Page.AGENT_ENGINES:

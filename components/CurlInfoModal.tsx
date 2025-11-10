@@ -36,6 +36,34 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
             },
         ]
     },
+    [Page.ASSISTANT]: {
+        description: "These are the underlying REST API calls for managing the default assistant associated with a Gemini Enterprise Engine.",
+        commands: [
+            {
+                title: 'Get Assistant Details',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/default_collection/engines/[ENGINE_ID]/assistants/default_assistant"`
+            },
+            {
+                title: 'Update Assistant',
+                command: `curl -X PATCH \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "displayName": "New Assistant Name",
+        "generationConfig": {
+            "systemInstruction": {
+                "additionalSystemInstruction": "You are a helpful and funny assistant."
+            }
+        }
+      }' \\
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/default_collection/engines/[ENGINE_ID]/assistants/default_assistant?updateMask=display_name,generation_config.system_instruction.additional_system_instruction"`
+            }
+        ]
+    },
     [Page.AUTHORIZATIONS]: {
         description: "These are the underlying REST API calls for managing OAuth authorizations.",
         commands: [

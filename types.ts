@@ -1,6 +1,7 @@
 // FIX: Replaced incorrect component code with proper type definitions.
 export enum Page {
   AGENTS = 'Agents Manager',
+  ASSISTANT = 'Assistant',
   AUTHORIZATIONS = 'Authorizations',
   AGENT_ENGINES = 'Agent Engines',
   A2A_FUNCTIONS = 'A2A Functions',
@@ -121,19 +122,49 @@ export interface AppEngine { // Renamed from Engine to avoid conflict with Reaso
     assistants?: Assistant[]; // For backup structure
     dataStoreIds?: string[];
 }
+
+export interface VertexAiAgentConfig {
+    displayName: string;
+    name: string;
+    toolDescription: string;
+}
+
+export interface EnabledAction {
+    actionInfo: {
+        actionName: string;
+        actionDisplayName: string;
+    }[];
+}
+
+export interface EnabledTool {
+    toolInfo: {
+        toolName: string;
+        toolDisplayName: string;
+    }[];
+}
+
 export interface Assistant {
     name: string;
     displayName: string;
+    description?: string;
     agents?: Agent[]; // For backup structure
     styleAndFormattingInstructions?: string;
     generationConfig?: {
-        systemInstruction?: {
-            additionalSystemInstruction?: string;
-        };
+        systemInstruction?: string;
     };
+    googleSearchGroundingEnabled?: boolean;
     webGroundingType?: string;
+    defaultWebGroundingToggleOff?: boolean;
     customerPolicy?: object;
+    vertexAiAgentConfigs?: VertexAiAgentConfig[];
+    enabledActions?: Record<string, EnabledAction>;
+    enabledTools?: Record<string, EnabledTool>;
+    vertexAiSearchToolConfig?: object;
+    agentConfigs?: object[];
+    enableEndUserAgentCreation?: boolean;
+    disableLocationContext?: boolean;
 }
+
 
 export interface DataStore {
     name: string;
