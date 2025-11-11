@@ -71,7 +71,7 @@ This method is recommended for development and uses the standard Node.js ecosyst
 Here's a glimpse of the main features available in the Gemini Enterprise Manager:
 
 **Agents Manager**
-![Screenshot of the Agents Manager page, showing a list of registered agents.](./screenshots/agent-manager.png)
+![Screenshot of the Agents Manager page, showing a list of registered agents.](./screenshots/agent-manager.jpg)
 
 **Assistant Configuration**
 ![Screenshot of the Assistant page, displaying configuration options for the default assistant.](./screenshots/assistant.png)
