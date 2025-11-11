@@ -21,6 +21,7 @@ import ArchitecturePage from './pages/ArchitecturePage';
 import CurlInfoModal from './components/CurlInfoModal';
 import DirectQueryChatWindow from './components/agent-engines/DirectQueryChatWindow';
 import AssistantPage from './pages/AssistantPage';
+import DiscoveryPage from './pages/DiscoveryPage';
 
 const ALL_REASONING_ENGINE_LOCATIONS = [
     'us-central1', 'us-east1', 'us-east4', 'us-west1',
@@ -484,6 +485,8 @@ const App: React.FC = () => {
                     error={architectureError}
                     onScan={handleArchitectureScan}
                 />;
+      case Page.DISCOVERY:
+        return <DiscoveryPage {...commonProps} accessToken={accessToken} />;
       default:
         return <AgentsPage {...projectProps} accessToken={accessToken} />;
     }

@@ -14,6 +14,7 @@ export enum Page {
   MODEL_ARMOR = 'Model Armor',
   BACKUP_RECOVERY = 'Backup & Recovery',
   ARCHITECTURE = 'Architecture',
+  DISCOVERY = 'Discovery',
 }
 
 export type SortableAgentKey = 'displayName' | 'state' | 'name' | 'updateTime';

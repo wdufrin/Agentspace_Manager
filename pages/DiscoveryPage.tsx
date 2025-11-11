@@ -36,7 +36,6 @@ const DiscoveryPage: React.FC<DiscoveryPageProps> = ({ accessToken, projectNumbe
         setResults(null);
         setResultTitle(title);
 
-        // FIX: Removed the 'accessToken' property from the 'apiConfig' object as it is not part of the 'Config' type.
         const apiConfig: Config = {
             ...config,
             projectId: projectNumber
