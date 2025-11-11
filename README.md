@@ -71,16 +71,16 @@ This method is recommended for development and uses the standard Node.js ecosyst
 Here's a glimpse of the main features available in the Gemini Enterprise Manager:
 
 **Agents Manager**
-![Screenshot of the Agents Manager page, showing a list of registered agents.](./screenshots/agent%20manager.png)
+![Screenshot of the Agents Manager page, showing a list of registered agents.](./screenshots/agent-manager.png)
 
 **Assistant Configuration**
 ![Screenshot of the Assistant page, displaying configuration options for the default assistant.](./screenshots/assistant.png)
 
 **Authorizations**
-![Screenshot of the Authorizations page, listing configured OAuth resources.](./screenshots/Authorizations.png)
+![Screenshot of the Authorizations page, listing configured OAuth resources.](./screenshots/authorizations.png)
 
 **Agent Engines**
-![Screenshot of the Agent Engines page, where users can manage and query reasoning engines.](./screenshots/agent%20engine.png)
+![Screenshot of the Agent Engines page, where users can manage and query reasoning engines.](./screenshots/agent-engine.png)
 
 ## Underlying Google Cloud APIs
 
@@ -254,7 +254,6 @@ curl -X GET \
 curl -X POST \
   -H "Authorization: Bearer [TOKEN]" \
   -H "Content-Type: application/json" \
-  -H "X-Goog-User-Project: [PROJECT_ID]" \
   -d '{"displayName": "[COLLECTION_DISPLAY_NAME]"}' \
   "https://[LOCATION]-discoveryengine.googleapis.com/v1beta/projects/[PROJECT_ID]/locations/[LOCATION]/collections?collectionId=[COLLECTION_ID]"
 ```
