@@ -694,9 +694,46 @@ export const createCollection = async (collectionId: string, payload: { displayN
 export const createEngine = async (engineId: string, payload: object, config: Config) => {
     const { projectId, appLocation, collectionId } = config;
     const parent = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}`;
-    const path = `${getDiscoveryEngineUrl(appLocation)}/v1beta/${parent}/engines`;
-    const headers = { 'Content-Type': 'application/json' };
-    return gapiRequest<any>(path, 'POST', projectId, { engineId }, payload, headers);
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    // Add a trailing slash to work around a GAPI client bug that misparses the path.
+    const url = `${baseUrl}/v1alpha/${parent}/engines/?engineId=${encodeURIComponent(engineId)}`;
+
+    // Get the access token from the initialized gapi client
+    const client = await getGapiClient();
+    const token = client.getToken();
+    if (!token || !token.access_token) {
+        throw new Error("GAPI client is not authenticated. Access token is missing.");
+    }
+    const accessToken = token.access_token;
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'X-Goog-User-Project': projectId,
+            },
+            body: JSON.stringify(payload),
+        });
+
+        const responseBody = await response.json();
+
+        if (!response.ok) {
+            console.error("Fetch API Error Response:", responseBody);
+            const errorMessage = responseBody.error?.message || `API request failed with status ${response.status}`;
+            const statusCode = responseBody.error?.code || response.status;
+            throw new Error(`API request failed with status ${statusCode}: ${errorMessage}`);
+        }
+
+        return responseBody;
+    } catch (err: any) {
+        if (err.message.startsWith('API request failed')) {
+            throw err;
+        }
+        console.error("Generic Fetch Error:", err);
+        throw new Error(`An unexpected network error occurred: ${err.message}`);
+    }
 };
 
 export const createDataStore = async (dataStoreId: string, payload: object, config: Config) => {
@@ -721,10 +758,16 @@ export const updateAssistant = async (assistantName: string, payload: any, updat
     return gapiRequest<Assistant>(path, 'PATCH', config.projectId, { updateMask: updateMask.join(',') }, payload, headers);
 };
 
+export const updateServingConfig = async (servingConfigName: string, payload: any, updateMask: string[], config: Config): Promise<any> => {
+    const path = `${getDiscoveryEngineUrl(config.appLocation)}/v1alpha/${servingConfigName}`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<any>(path, 'PATCH', config.projectId, { updateMask: updateMask.join(',') }, payload, headers);
+};
+
 // --- Operation APIs ---
-export const getDiscoveryOperation = async (operationName: string, config: Config): Promise<any> => {
+export const getDiscoveryOperation = async (operationName: string, config: Config, apiVersion: 'v1alpha' | 'v1beta' = 'v1beta'): Promise<any> => {
     const location = operationName.split('/')[3] || config.appLocation;
-    const path = `${getDiscoveryEngineUrl(location)}/v1beta/${operationName}`;
+    const path = `${getDiscoveryEngineUrl(location)}/${apiVersion}/${operationName}`;
     return gapiRequest<any>(path, 'GET', config.projectId);
 };
 

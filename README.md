@@ -7,9 +7,8 @@ This application is built using React and communicates with Google Cloud APIs vi
 ## Key Features
 
 -   **Manage Agents**: List, create, update, delete, enable/disable, and chat with agents.
-
-    
-
+-   **Manage Assistant**: View and edit the settings of the default assistant for a Gemini Enterprise Engine, including system instructions, grounding settings, and enabled tools.
+-   **Test Assistant**: A dedicated, full-page interface for chatting with a Gemini Enterprise assistant to test the overall conversational experience.
 -   **Manage Authorizations**: List, create, update, and delete OAuth client authorizations.
 -   **Manage Reasoning Engines**: List engines, view agent dependencies, and delete unused engines.
 -   **Explore Data Stores**: List data stores within a collection, view their details, and inspect individual documents and their content.
@@ -20,7 +19,6 @@ This application is built using React and communicates with Google Cloud APIs vi
 ### Beta Features
 
 -   **Architecture Visualizer**: Scans your project to discover all Gemini Enterprise resources and renders an interactive, top-down graph of their relationships and dependencies.
--   **Chat**: A dedicated, full-page interface for chatting with any of your registered agents.
 -   **Agent Builder**: A powerful UI to construct ADK-based agents from scratch. It automatically generates the necessary Python code (`agent.py`), environment (`.env`), and dependency (`requirements.txt`) files. Features include:
     -   A tool builder for easily adding Vertex AI Search tools.
     -   Options to download the complete agent code as a `.zip` file.
@@ -68,6 +66,22 @@ This method is recommended for development and uses the standard Node.js ecosyst
     -   Follow the on-screen instructions to set your GCP Project ID/Number and validate/enable the required APIs.
 4.  **Ready to Use**: You can now use the application to manage your Gemini Enterprise resources.
 
+## Screenshots
+
+Here's a glimpse of the main features available in the Gemini Enterprise Manager:
+
+**Agents Manager**
+![Screenshot of the Agents Manager page, showing a list of registered agents.](./screenshots/agent%20manager.png)
+
+**Assistant Configuration**
+![Screenshot of the Assistant page, displaying configuration options for the default assistant.](./screenshots/assistant.png)
+
+**Authorizations**
+![Screenshot of the Authorizations page, listing configured OAuth resources.](./screenshots/Authorizations.png)
+
+**Agent Engines**
+![Screenshot of the Agent Engines page, where users can manage and query reasoning engines.](./screenshots/agent%20engine.png)
+
 ## Underlying Google Cloud APIs
 
 While the application uses the Google API JavaScript Client (`gapi`) for all interactions, the following `curl` examples illustrate the underlying REST API calls for each major feature. This is useful for reference, testing, and understanding the raw API endpoints.
@@ -96,19 +110,19 @@ The application interacts with the following Google Cloud APIs, using their resp
 **List Agents:** Retrieves all agents within a specific assistant.
 
 ```sh
-curl -X GET \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+curl -X GET \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
   "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents"
 ```
 
 **Create an Agent:** Registers a new ADK agent linked to a Reasoning Engine.
 
 ```sh
-curl -X POST \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "Content-Type: application/json" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+curl -X POST \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "Content-Type: application/json" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
   -d '{
         "displayName": "My API Agent",
         "adkAgentDefinition": {
@@ -117,8 +131,19 @@ curl -X POST \\
             "reasoning_engine": "projects/[YOUR_PROJECT_ID]/locations/[RE_LOCATION]/reasoningEngines/[RE_ID]"
           }
         }
-      }' \\
+      }' \
   "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents"
+```
+
+#### **Assistant Tab**
+
+**Get Assistant Details:** Retrieves the configuration of the default assistant.
+
+```sh
+curl -X GET \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]"
 ```
 
 #### **Authorizations Tab**
@@ -126,19 +151,19 @@ curl -X POST \\
 **List Authorizations:** Retrieves all OAuth authorizations for the project.
 
 ```sh
-curl -X GET \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+curl -X GET \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
   "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/global/authorizations"
 ```
 
 **Create an Authorization:** Creates a new OAuth authorization resource.
 
 ```sh
-curl -X POST \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "Content-Type: application/json" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+curl -X POST \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "Content-Type: application/json" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
   -d '{
         "serverSideOauth2": {
           "clientId": "[YOUR_OAUTH_CLIENT_ID]",
@@ -146,7 +171,7 @@ curl -X POST \\
           "authorizationUri": "https://accounts.google.com/o/oauth2/auth?...",
           "tokenUri": "https://oauth2.googleapis.com/token"
         }
-      }' \\
+      }' \
   "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/global/authorizations?authorizationId=[NEW_AUTH_ID]"
 ```
 
@@ -155,9 +180,9 @@ curl -X POST \\
 **List Reasoning Engines:** Retrieves all Reasoning Engines in a specific location.
 
 ```sh
-curl -X GET \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+curl -X GET \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
   "https://[LOCATION]-aiplatform.googleapis.com/v1beta1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/reasoningEngines"
 ```
 
@@ -166,13 +191,13 @@ curl -X GET \\
 **Chat with an Assistant (Streaming):** Sends a prompt to a G.E. Assistant and receives a streaming response. This is the primary method for testing the overall conversational experience.
 
 ```sh
-curl -X POST \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "Content-Type: application/json" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+curl -X POST \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "Content-Type: application/json" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
   -d '{
         "query": { "text": "Hello, what can you do?" }
-      }' \\
+      }' \
   "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]:streamAssist"
 ```
 
@@ -181,18 +206,18 @@ curl -X POST \\
 **List Data Stores:** Retrieves all data stores within a collection.
 
 ```sh
-curl -X GET \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+curl -X GET \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
   "https://discoveryengine.googleapis.com/v1beta/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores"
 ```
 
 **List Documents:** Retrieves all documents within a data store.
 
 ```sh
-curl -X GET \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+curl -X GET \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
   "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores/[DATASTORE_ID]/branches/0/documents"
 ```
 
@@ -201,15 +226,15 @@ curl -X GET \\
 **List Violation Logs:** Fetches safety policy violation logs from Cloud Logging.
 
 ```sh
-curl -X POST \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "Content-Type: application/json" \\
+curl -X POST \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "Content-Type: application/json" \
   -d '{
         "projectIds": ["[YOUR_PROJECT_ID]"],
         "filter": "log_id(\"modelarmor.googleapis.com/sanitize_operations\")",
         "orderBy": "timestamp desc",
         "pageSize": 50
-      }' \\
+      }' \
   "https://logging.googleapis.com/v2/entries:list"
 ```
 
@@ -218,19 +243,19 @@ This feature orchestrates a series of `list` and `get` calls for backup, and cor
 
 **List Collections (Backup):** A primary step in backing up discovery resources.
 ```sh
-curl -X GET \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+curl -X GET \
+  -H "Authorization: Bearer [TOKEN]" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
   "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/collections"
 ```
 
 **Create Collection (Restore):** The first step when restoring a full set of discovery resources.
 ```sh
-curl -X POST \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "Content-Type: application/json" \\
-  -H "X-Goog-User-Project: [PROJECT_ID]" \\
-  -d '{"displayName": "[COLLECTION_DISPLAY_NAME]"}' \\
+curl -X POST \
+  -H "Authorization: Bearer [TOKEN]" \
+  -H "Content-Type: application/json" \
+  -H "X-Goog-User-Project: [PROJECT_ID]" \
+  -d '{"displayName": "[COLLECTION_DISPLAY_NAME]"}' \
   "https://[LOCATION]-discoveryengine.googleapis.com/v1beta/projects/[PROJECT_ID]/locations/[LOCATION]/collections?collectionId=[COLLECTION_ID]"
 ```
 
@@ -241,17 +266,17 @@ The architecture scan performs a series of 'list' operations across multiple reg
 ```sh
 # The scan iterates over discovery locations like global, us, eu.
 # Then it recursively lists assistants and agents found within each engine.
-curl -X GET \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+curl -X GET \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
   "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[DISCOVERY_LOCATION]/collections/default_collection/engines"
 ```
 
 **Get Agent View (For Dependencies):** After finding an agent, its 'view' is fetched to find linked Data Stores and other dependencies.
 ```sh
-curl -X GET \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+curl -X GET \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
   "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/[FULL_AGENT_RESOURCE_NAME]:getAgentView"
 ```
 

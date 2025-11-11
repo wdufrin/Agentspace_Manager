@@ -241,12 +241,12 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       }
   };
 
-  const pollOperation = async (operation: any, pollConfig: typeof apiConfig, resourceName: string) => {
+  const pollOperation = async (operation: any, pollConfig: typeof apiConfig, resourceName: string, apiVersion: 'v1alpha' | 'v1beta' = 'v1beta') => {
     let currentOperation = operation;
     addLog(`  - Operation for ${resourceName} initiated (${currentOperation.name}). Polling for completion...`);
     while (!currentOperation.done) {
         await delay(5000); // Poll every 5 seconds
-        currentOperation = await api.getDiscoveryOperation(currentOperation.name, pollConfig);
+        currentOperation = await api.getDiscoveryOperation(currentOperation.name, pollConfig, apiVersion);
         addLog(`    - Polling ${resourceName}... status: ${currentOperation.done ? 'DONE' : 'IN_PROGRESS'}`);
     }
 
@@ -554,34 +554,18 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
                   const engineRestoreConfig = { ...restoreConfig, appId: engineId };
                   
                   try {
-                      const dsId = `ds-for-${engineId}-${Date.now()}`;
-                      const dsPayload = { 
-                          displayName: `Data Store for ${engine.displayName}`,
-                          industryVertical: 'GENERIC',
-                          solutionTypes: ["SOLUTION_TYPE_SEARCH"],
-                          contentConfig: "NO_CONTENT"
-                      };
-                      const dsOperation = await api.createDataStore(dsId, dsPayload, engineRestoreConfig);
-                      await pollOperation(dsOperation, engineRestoreConfig, `Data Store '${dsId}'`);
-
                       const enginePayload: any = {
                           displayName: engine.displayName,
-                          solutionType: "SOLUTION_TYPE_SEARCH",
-                          dataStoreIds: [dsId],
-                          appType: 'APP_TYPE_INTRANET',
-                          commonConfig: {
-                              companyName: ""
-                          },
-                          searchEngineConfig: {
-                              searchTier: "SEARCH_TIER_ENTERPRISE",
-                              searchAddOns: ["SEARCH_ADD_ON_LLM"],
-                              requiredSubscriptionTier: "SUBSCRIPTION_TIER_SEARCH_AND_ASSISTANT"
-                          }
+                          solutionType: engine.solutionType || 'SOLUTION_TYPE_SEARCH',
+                          dataStoreIds: engine.dataStoreIds,
+                          ...(engine.searchEngineConfig && { searchEngineConfig: engine.searchEngineConfig }),
+                          ...(engine.industryVertical && { industryVertical: engine.industryVertical }),
+                          ...(engine.appType && { appType: engine.appType }),
                       };
                       
                       const engineOperation = await api.createEngine(engineId, enginePayload, engineRestoreConfig);
-                      await pollOperation(engineOperation, engineRestoreConfig, `App/Engine '${engineId}'`);
-                      addLog(`      - CREATED: App/Engine '${engineId}'`);
+                      await pollOperation(engineOperation, engineRestoreConfig, `App/Engine '${engineId}'`, 'v1alpha');
+                      addLog(`      - CREATED: App/Engine '${engineId}' with linked data store.`);
 
                   } catch (err: any) {
                       if (err.message && err.message.includes("ALREADY_EXISTS")) {
@@ -593,7 +577,10 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
                   }
 
                   if (engine.assistants && engine.assistants.length > 0) {
-                      // ... nested restore logic for assistants ...
+                      addLog(`      - Restoring ${engine.assistants.length} assistant(s)...`);
+                      for (const assistant of engine.assistants) {
+                         await processRestoreAssistant({ assistant }, false);
+                      }
                   }
               }
             }
@@ -621,33 +608,17 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
         const restoreConfig = { ...apiConfig, collectionId, appId: engineId };
         
         try {
-            const dsId = `ds-for-${engineId}-${Date.now()}`;
-            const dsPayload = { 
-                displayName: `Data Store for ${engineToRestore.displayName}`,
-                industryVertical: 'GENERIC',
-                solutionTypes: ["SOLUTION_TYPE_SEARCH"],
-                contentConfig: "NO_CONTENT"
-            };
-            const dsOperation = await api.createDataStore(dsId, dsPayload, restoreConfig);
-            await pollOperation(dsOperation, restoreConfig, `Data Store '${dsId}'`);
-
             const enginePayload: any = {
                 displayName: engineToRestore.displayName,
-                solutionType: "SOLUTION_TYPE_SEARCH",
-                dataStoreIds: [dsId],
-                appType: 'APP_TYPE_INTRANET',
-                commonConfig: {
-                    companyName: ""
-                },
-                searchEngineConfig: {
-                    searchTier: "SEARCH_TIER_ENTERPRISE",
-                    searchAddOns: ["SEARCH_ADD_ON_LLM"],
-                    requiredSubscriptionTier: "SUBSCRIPTION_TIER_SEARCH_AND_ASSISTANT"
-                }
+                solutionType: engineToRestore.solutionType || 'SOLUTION_TYPE_SEARCH',
+                dataStoreIds: engineToRestore.dataStoreIds,
+                ...(engineToRestore.searchEngineConfig && { searchEngineConfig: engineToRestore.searchEngineConfig }),
+                ...(engineToRestore.industryVertical && { industryVertical: engineToRestore.industryVertical }),
+                ...(engineToRestore.appType && { appType: engineToRestore.appType }),
             };
             const engineOperation = await api.createEngine(engineId, enginePayload, restoreConfig);
-            await pollOperation(engineOperation, restoreConfig, `App/Engine '${engineId}'`);
-            addLog(`  - CREATED: App/Engine '${engineId}'`);
+            await pollOperation(engineOperation, restoreConfig, `App/Engine '${engineId}'`, 'v1alpha');
+            addLog(`  - CREATED: App/Engine '${engineId}' with linked data store.`);
             
         } catch (err: any) {
              if (err.message && err.message.includes("ALREADY_EXISTS")) {
@@ -706,52 +677,56 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
           });
 
       // This is the old logic, preserved for cascading restores (e.g., from an AppEngine backup).
-      // It creates/updates the assistant from the backup file before restoring agents into it.
       } else {
           const assistantToRestore = backupData.assistant;
           const assistantId = assistantToRestore.name.split('/').pop()!;
-          // IMPORTANT: Here it uses the assistantId from the backup file.
           const restoreConfig = { ...apiConfig, assistantId }; 
 
-          addLog(`Restoring Assistant '${assistantToRestore.displayName}' (${assistantId}) into app '${restoreConfig.appId}'...`);
-          try {
-              await api.createAssistant(assistantId, { displayName: assistantToRestore.displayName }, restoreConfig);
-              addLog(`  - CREATED: Assistant '${assistantId}'`);
-          } catch (err: any) {
-              if (err.message && err.message.includes("ALREADY_EXISTS")) {
-                  addLog(`  - INFO: Assistant '${assistantId}' already exists. Attempting to update it.`);
-                  try {
-                      const assistantName = `projects/${restoreConfig.projectId}/locations/${restoreConfig.appLocation}/collections/${restoreConfig.collectionId}/engines/${restoreConfig.appId}/assistants/${assistantId}`;
-                      const payload: any = {};
-                      const updateMask: string[] = [];
+          const updateExistingAssistant = async () => {
+              addLog(`  - INFO: Assistant '${assistantId}' already exists or is default. Attempting to update its settings from backup.`);
+              try {
+                  const assistantName = `projects/${restoreConfig.projectId}/locations/${restoreConfig.appLocation}/collections/${restoreConfig.collectionId}/engines/${restoreConfig.appId}/assistants/${assistantId}`;
+                  const payload: any = {};
+                  const updateMask: string[] = [];
 
-                      if (assistantToRestore.displayName) {
-                        payload.displayName = assistantToRestore.displayName;
-                        updateMask.push('display_name');
-                      }
-                      if (assistantToRestore.styleAndFormattingInstructions) {
-                          payload.styleAndFormattingInstructions = assistantToRestore.styleAndFormattingInstructions;
-                          updateMask.push('style_and_formatting_instructions');
-                      }
-                      if (assistantToRestore.generationConfig) {
-                          payload.generationConfig = assistantToRestore.generationConfig;
-                          updateMask.push('generation_config');
-                      }
-                      
-                      if (updateMask.length > 0) {
-                        await api.updateAssistant(assistantName, payload, updateMask, restoreConfig);
-                        addLog(`  - UPDATED: Assistant '${assistantId}' updated with settings from backup.`);
-                      } else {
-                        addLog(`  - INFO: No updatable fields found in backup for assistant '${assistantId}'. Skipping update.`);
-                      }
-                  } catch (updateErr: any) {
-                      addLog(`  - ERROR: Failed to update existing assistant '${assistantId}': ${updateErr.message}. Proceeding to restore agents anyway.`);
+                  if (assistantToRestore.displayName) {
+                    payload.displayName = assistantToRestore.displayName;
+                    updateMask.push('displayName');
                   }
-              } else {
-                  addLog(`  - ERROR: Failed to create assistant '${assistantId}': ${err.message}`);
-                  throw err; // Stop if it's not an ALREADY_EXISTS error
+                  if (assistantToRestore.generationConfig) {
+                      payload.generationConfig = assistantToRestore.generationConfig;
+                      updateMask.push('generationConfig');
+                  }
+                  
+                  if (updateMask.length > 0) {
+                    await api.updateAssistant(assistantName, payload, updateMask, restoreConfig);
+                    addLog(`  - UPDATED: Assistant '${assistantId}' settings applied.`);
+                  } else {
+                    addLog(`  - INFO: No updatable settings found in backup for assistant '${assistantId}'.`);
+                  }
+              } catch (updateErr: any) {
+                  addLog(`  - ERROR: Failed to update existing assistant '${assistantId}': ${updateErr.message}. Proceeding to restore agents anyway.`);
               }
+          };
+
+          if (assistantId === 'default_assistant') {
+              await updateExistingAssistant();
+          } else {
+            // Logic for custom assistants
+            addLog(`Restoring custom Assistant '${assistantToRestore.displayName}' (${assistantId}) into app '${restoreConfig.appId}'...`);
+            try {
+                await api.createAssistant(assistantId, { displayName: assistantToRestore.displayName }, restoreConfig);
+                addLog(`  - CREATED: Assistant '${assistantId}'`);
+            } catch (err: any) {
+                if (err.message && err.message.includes("ALREADY_EXISTS")) {
+                    await updateExistingAssistant();
+                } else {
+                    addLog(`  - ERROR: Failed to create assistant '${assistantId}': ${err.message}`);
+                    throw err; // Stop if it's not an ALREADY_EXISTS error
+                }
+            }
           }
+          
           await delay(2000);
           
           if (assistantToRestore.agents && assistantToRestore.agents.length > 0) {

@@ -381,7 +381,7 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
     let currentOperation = operation;
     while (!currentOperation.done) {
         await new Promise(resolve => setTimeout(resolve, 5000));
-        currentOperation = await api.getDiscoveryOperation(operation.name, apiConfig);
+        currentOperation = await api.getDiscoveryOperation(operation.name, apiConfig, 'v1beta');
     }
     if (currentOperation.error) {
         throw new Error(`Operation failed: ${currentOperation.error.message}`);
