@@ -1,6 +1,0 @@
-# Treat image files as binary to prevent corruption.
-*.png    binary
-*.jpg    binary
-*.jpeg   binary
-*.gif    binary
-*.svg    binary
