@@ -61,6 +61,7 @@ const AgentList: React.FC<AgentListProps> = ({ agents, onSelectAgent, onEditAgen
                     <tr>
                         <SortableHeader sortKey="displayName">Display Name</SortableHeader>
                         <SortableHeader sortKey="state">Status</SortableHeader>
+                        <SortableHeader sortKey="agentType">Agent Type</SortableHeader>
                         <SortableHeader sortKey="name">Agent ID</SortableHeader>
                         <SortableHeader sortKey="updateTime">Last Modified</SortableHeader>
                         <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
@@ -111,6 +112,7 @@ const AgentList: React.FC<AgentListProps> = ({ agents, onSelectAgent, onEditAgen
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                                     {statusButton}
                                 </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{agent.agentType || 'N/A'}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">{agentId}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
                                     {agent.updateTime ? new Date(agent.updateTime).toLocaleString() : 'N/A'}

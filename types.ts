@@ -14,10 +14,9 @@ export enum Page {
   MODEL_ARMOR = 'Model Armor',
   BACKUP_RECOVERY = 'Backup & Recovery',
   ARCHITECTURE = 'Architecture',
-  DISCOVERY = 'Discovery',
 }
 
-export type SortableAgentKey = 'displayName' | 'state' | 'name' | 'updateTime';
+export type SortableAgentKey = 'displayName' | 'state' | 'name' | 'updateTime' | 'agentType';
 export type SortDirection = 'asc' | 'desc';
 
 export interface SortConfig {
@@ -66,6 +65,8 @@ export interface Agent {
   state?: 'ENABLED' | 'DISABLED';
   createTime?: string;
   updateTime?: string;
+  agentType?: string;
+  agentOrigin?: string;
 }
 
 export interface Oauth2Config {

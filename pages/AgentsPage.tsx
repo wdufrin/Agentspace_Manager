@@ -139,9 +139,6 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     setError(null);
     
     try {
-        // Step 1: List all assistants for the selected engine.
-        // The apiConfig already contains projectId, appLocation, collectionId, and appId.
-        // The assistantId is ignored by the apiService when listing assistants.
         const assistantsResponse = await api.listResources('assistants', apiConfig);
         const assistants: Assistant[] = assistantsResponse.assistants || [];
         
@@ -151,7 +148,6 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             return;
         }
 
-        // Step 2: For each assistant, list its agents.
         const agentPromises = assistants.map(assistant => {
             const assistantId = assistant.name.split('/').pop()!;
             const agentListConfig = { ...apiConfig, assistantId };
@@ -173,7 +169,32 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             }
         });
         
-        setAgents(allAgents);
+        // Enrich agents with their type from agentView
+        const baseAgents = allAgents;
+        if (baseAgents.length > 0) {
+          const agentViewPromises = baseAgents.map(agent => 
+            api.getAgentView(agent.name, apiConfig).catch(err => {
+              console.warn(`Could not fetch agent view for ${agent.name}:`, err);
+              return null;
+            })
+          );
+          const agentViewResults = await Promise.all(agentViewPromises);
+
+          const enrichedAgents = baseAgents.map((agent, index) => {
+            const viewResult = agentViewResults[index];
+            if (viewResult && viewResult.agentView) {
+              return {
+                ...agent,
+                agentType: viewResult.agentView.agentType,
+                agentOrigin: viewResult.agentView.agentOrigin,
+              };
+            }
+            return agent;
+          });
+          setAgents(enrichedAgents);
+        } else {
+          setAgents(baseAgents);
+        }
         
         if (failedAssistants.length > 0) {
             setError(`Could not fetch agents for some assistants: ${failedAssistants.join(', ')}. This may be expected for some engine types.`);

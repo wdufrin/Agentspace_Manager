@@ -20,6 +20,7 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({ agents })
               <tr>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Display Name</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Status</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Agent Type</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Agent ID</th>
               </tr>
             </thead>
@@ -40,6 +41,7 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({ agents })
                             {statusText}
                         </span>
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{agent.agentType || 'N/A'}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">{agentId}</td>
                   </tr>
                 );

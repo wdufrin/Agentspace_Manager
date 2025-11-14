@@ -98,7 +98,33 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
         api.listResources('agents', apiConfig)
       ]);
       setAssistant(assistantDetails);
-      setAgents(agentsResponse.agents || []);
+      
+      const baseAgents = agentsResponse.agents || [];
+      if (baseAgents.length > 0) {
+        // Step 2: Fetch agent views to get agentType
+        const agentViewPromises = baseAgents.map(agent => api.getAgentView(agent.name, apiConfig));
+        const agentViewResults = await Promise.allSettled(agentViewPromises);
+
+        const enrichedAgents = baseAgents.map((agent, index) => {
+          const viewResult = agentViewResults[index];
+          if (viewResult.status === 'fulfilled' && viewResult.value.agentView) {
+            return {
+              ...agent,
+              agentType: viewResult.value.agentView.agentType,
+              agentOrigin: viewResult.value.agentView.agentOrigin,
+            };
+          } else {
+            if (viewResult.status === 'rejected') {
+                console.warn(`Could not fetch agent view for ${agent.name}:`, viewResult.reason);
+            }
+            return agent; // Return original agent if view fetch fails or agentView is missing
+          }
+        });
+        setAgents(enrichedAgents);
+      } else {
+        setAgents([]);
+      }
+
     } catch (err: any) {
       setError(err.message || "Failed to fetch assistant details or agents.");
       setAssistant(null);
