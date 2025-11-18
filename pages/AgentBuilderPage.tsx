@@ -552,8 +552,21 @@ Rewritten Instruction:`;
                     description: "An agent deployed via the Gemini Enterprise Manager.",
                     spec: spec,
                 };
-                const newEngine = await api.createReasoningEngine(createPayload, deployConfig);
-                addLog(`New engine created successfully: ${newEngine.name}`);
+                let createOperation = await api.createReasoningEngine(createPayload, deployConfig);
+                addLog(`Create operation started: ${createOperation.name}`);
+
+                while (!createOperation.done) {
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                    addLog(`Polling operation status...`);
+                    createOperation = await api.getOperation(createOperation.name, deployConfig);
+                }
+
+                if (createOperation.error) {
+                    throw new Error(`Deployment failed: ${createOperation.error.message}`);
+                }
+                const newEngine = createOperation.response;
+                addLog(`New engine created successfully: ${newEngine?.name || 'Unknown Name'}`);
+
             } else { // 'existing' mode
                 const engineToUpdate = deployInfo.engineName;
                 addLog(`Updating Reasoning Engine '${engineToUpdate.split('/').pop()}' with new package...`);
