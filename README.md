@@ -8,13 +8,13 @@ This application is built using React and communicates with Google Cloud APIs vi
 
 > **Note:** Ensure you have a `screenshots/` folder in your repository root containing these images for them to appear.
 
-| Agent Management | Architecture Visualizer |
+| Agent Manager | Agent Engines |
 |:---:|:---:|
-| ![Agent Management](screenshots/agent_manager.png) | ![Architecture Visualizer](screenshots/architecture.png) |
+| ![Agent Manager](screenshots/agent_manager.png) | ![Agent Engines](screenshots/agent_engine.png) |
 
-| Agent Builder | Dark Mode UI |
+| Assistant | Authorizations |
 |:---:|:---:|
-| ![Agent Builder](screenshots/agent_builder.png) | ![Dark Mode UI](screenshots/dark_mode.png) |
+| ![Assistant](screenshots/assistant.png) | ![Authorizations](screenshots/authorizations.png) |
 
 ## Key Features
 
@@ -267,7 +267,7 @@ curl -X GET \
   "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[DISCOVERY_LOCATION]/collections/default_collection/engines"
 ```
 
-**Get Agent View (For Dependencies):** After finding an agent, its 'view' is fetched to find linked Data Stores and other dependencies.
+**Get Agent View (For Dependencies):** After finding an agent, its 'view' is fetched to find linked Data Stores.
 ```sh
 curl -X GET \
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
