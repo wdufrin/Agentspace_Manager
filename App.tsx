@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import AgentsPage from './pages/AgentsPage';
 import AuthorizationsPage from './pages/AuthorizationsPage';
-import { Page, ReasoningEngine, GraphNode, GraphEdge, NodeType, AppEngine } from './types';
+import { Page, ReasoningEngine, GraphNode, GraphEdge, NodeType, AppEngine, UserProfile } from './types';
 import AccessTokenInput from './components/AccessTokenInput';
 import AgentEnginesPage from './pages/AgentEnginesPage';
 import DataStoresPage from './pages/DataStoresPage';
@@ -24,6 +24,12 @@ import DirectQueryChatWindow from './components/agent-engines/DirectQueryChatWin
 import AssistantPage from './pages/AssistantPage';
 import LicensePage from './pages/LicensePage';
 
+declare global {
+    interface Window {
+        google: any;
+    }
+}
+
 const ALL_REASONING_ENGINE_LOCATIONS = [
     'us-central1', 'us-east1', 'us-east4', 'us-west1',
     'europe-west1', 'europe-west2', 'europe-west4',
@@ -38,6 +44,10 @@ const App: React.FC = () => {
   
   const [accessToken, setAccessToken] = useState<string>(() => sessionStorage.getItem('agentspace-accessToken') || '');
   const [projectNumber, setProjectNumber] = useState<string>(() => sessionStorage.getItem('agentspace-projectNumber') || '');
+
+  // SSO State
+  const [oauthClientId, setOauthClientId] = useState<string>(() => sessionStorage.getItem('agentspace-oauthClientId') || '');
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
   // State for the initialization and login flow
   const [isGapiInitialized, setIsGapiInitialized] = useState(false);
@@ -120,7 +130,62 @@ const App: React.FC = () => {
     } else {
         setIsGapiReady(false);
         setIsGapiInitialized(false);
+        setUserProfile(null);
     }
+  };
+
+  const handleSetOauthClientId = (id: string) => {
+      setOauthClientId(id);
+      sessionStorage.setItem('agentspace-oauthClientId', id);
+  };
+  
+  const handleGoogleSignIn = () => {
+      if (!oauthClientId) {
+          setGapiError("Client ID is required for Google Sign-In.");
+          return;
+      }
+      
+      if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) {
+          setGapiError("Google Identity Services script not loaded. Please refresh the page.");
+          return;
+      }
+
+      const tokenClient = window.google.accounts.oauth2.initTokenClient({
+          client_id: oauthClientId,
+          scope: 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+          callback: async (response: any) => {
+              if (response.error) {
+                  setGapiError(`Sign-in failed: ${response.error}`);
+                  return;
+              }
+              
+              if (response.access_token) {
+                  handleSetAccessToken(response.access_token);
+                  
+                  // Fetch user profile
+                  try {
+                      const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                          headers: { Authorization: `Bearer ${response.access_token}` }
+                      });
+                      if (userInfoResponse.ok) {
+                          const profile = await userInfoResponse.json();
+                          setUserProfile(profile);
+                      }
+                  } catch (e) {
+                      console.warn("Failed to fetch user profile", e);
+                  }
+              }
+          },
+      });
+      
+      tokenClient.requestAccessToken();
+  };
+  
+  const handleSignOut = () => {
+      handleSetAccessToken('');
+      setUserProfile(null);
+      setIsGapiReady(false);
+      setIsGapiInitialized(false);
   };
   
   const handleSetProjectNumber = (projectNum: string) => {
@@ -577,8 +642,8 @@ const App: React.FC = () => {
 
   if (!isGapiInitialized) {
     return (
-        <div className="flex items-center justify-center h-screen bg-gray-900 text-gray-100 font-sans p-4">
-            <div className="w-full max-w-2xl p-8 space-y-6 bg-gray-800 rounded-xl shadow-2xl border border-gray-700">
+        <div className="flex items-center justify-center min-h-screen bg-gray-900 text-gray-100 font-sans p-4">
+            <div className="w-full max-w-4xl p-8 space-y-6 bg-gray-800 rounded-xl shadow-2xl border border-gray-700">
                 <div className="text-center">
                     <div className="flex justify-center mb-4 text-blue-400">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -589,23 +654,54 @@ const App: React.FC = () => {
                 </div>
 
                 {!isGapiReady ? (
-                    <>
-                        <p className="text-center text-gray-400">Step 1: Provide a GCP Access Token to initialize the API client.</p>
-                        <AccessTokenInput accessToken={accessToken} setAccessToken={handleSetAccessToken} />
-                        {isGapiLoading && (
-                             <div className="flex items-center justify-center p-4 text-sm text-blue-300">
-                                <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-400 mr-3"></div>
-                                Initializing Google API Client... Please wait.
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        {/* Option 1: Manual Token */}
+                        <div className="bg-gray-900/50 p-6 rounded-lg border border-gray-700 flex flex-col">
+                            <h2 className="text-xl font-semibold text-white mb-4 flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11.536 17 10 15.464l4.243-4.243a6 6 0 011.5-4.222zM8.243 11.757a6 6 0 111.5 4.222L7.464 18.293l1.5 1.5L13.293 14" />
+                                </svg>
+                                Option 1: Manual Token
+                            </h2>
+                            <p className="text-gray-400 text-sm mb-4">Paste a GCP access token directly. Useful for quick access or if you don't have an OAuth Client configured.</p>
+                            <div className="flex-1 flex flex-col justify-end">
+                                <AccessTokenInput accessToken={accessToken} setAccessToken={handleSetAccessToken} />
+                                <p className="text-xs text-gray-500 mt-2 font-mono bg-gray-800 p-2 rounded">gcloud auth print-access-token</p>
                             </div>
-                        )}
-                        {isTokenValidating && (
-                             <div className="flex items-center justify-center p-4 text-sm text-blue-300">
-                                <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-400 mr-3"></div>
-                                Validating access token permissions...
-                            </div>
-                        )}
-                        {gapiError && <div className="p-4 text-sm text-center text-red-300 bg-red-900/30 rounded-lg">{gapiError}</div>}
-                    </>
+                        </div>
+
+                         {/* Option 2: SSO */}
+                        <div className="bg-gray-900/50 p-6 rounded-lg border border-gray-700 flex flex-col">
+                             <h2 className="text-xl font-semibold text-white mb-4 flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2 text-red-400" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z"/>
+                                </svg>
+                                Option 2: Google Sign-In
+                            </h2>
+                             <p className="text-gray-400 text-sm mb-4">Sign in with your Google account. Requires an OAuth 2.0 Client ID configured with <code>http://localhost:3000</code> (or your domain) as an authorized origin.</p>
+                             
+                             <div className="space-y-3 flex-1 flex flex-col justify-end">
+                                 <div>
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">OAuth Client ID</label>
+                                    <input 
+                                        type="text" 
+                                        value={oauthClientId} 
+                                        onChange={(e) => handleSetOauthClientId(e.target.value)}
+                                        placeholder="your-client-id.apps.googleusercontent.com"
+                                        className="w-full bg-gray-800 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500"
+                                    />
+                                 </div>
+                                 <button
+                                    onClick={handleGoogleSignIn}
+                                    disabled={!oauthClientId}
+                                    className="w-full px-4 py-2 bg-white text-gray-700 text-sm font-bold rounded-md hover:bg-gray-100 disabled:bg-gray-500 disabled:text-gray-400 flex items-center justify-center transition-colors"
+                                 >
+                                     <svg className="h-4 w-4 mr-2" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                                     Sign in with Google
+                                 </button>
+                             </div>
+                        </div>
+                    </div>
                 ) : (
                      <>
                         <div className="p-4 text-center text-green-300 bg-green-900/30 rounded-lg border border-green-700">
@@ -651,6 +747,25 @@ const App: React.FC = () => {
                         )}
                     </>
                 )}
+                
+                {/* Loading/Error States for Option 1 */}
+                {!isGapiReady && (
+                    <>
+                        {isGapiLoading && (
+                             <div className="flex items-center justify-center p-4 text-sm text-blue-300">
+                                <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-400 mr-3"></div>
+                                Initializing Google API Client... Please wait.
+                            </div>
+                        )}
+                        {isTokenValidating && (
+                             <div className="flex items-center justify-center p-4 text-sm text-blue-300">
+                                <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-400 mr-3"></div>
+                                Validating access token permissions...
+                            </div>
+                        )}
+                        {gapiError && <div className="p-4 text-sm text-center text-red-300 bg-red-900/30 rounded-lg">{gapiError}</div>}
+                    </>
+                )}
             </div>
         </div>
     );
@@ -663,7 +778,12 @@ const App: React.FC = () => {
         <main className="flex-1 flex flex-col overflow-hidden">
           <header className="bg-gray-800 border-b border-gray-700 p-4 flex flex-col gap-4 md:flex-row md:justify-between md:items-center">
             <h1 className="text-xl font-bold text-white text-center md:text-left">Gemini Enterprise Manager</h1>
-            <AccessTokenInput accessToken={accessToken} setAccessToken={handleSetAccessToken} />
+            <AccessTokenInput 
+                accessToken={accessToken} 
+                setAccessToken={handleSetAccessToken} 
+                userProfile={userProfile}
+                onSignOut={handleSignOut}
+            />
           </header>
           <div className="flex-1 overflow-y-auto p-6">
             {renderPage()}
