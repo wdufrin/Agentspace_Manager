@@ -4,6 +4,18 @@ A web interface to manage Google Cloud Gemini Enterprise resources, including ag
 
 This application is built using React and communicates with Google Cloud APIs via the **Google API JavaScript Client (`gapi`)**.
 
+## Screenshots
+
+> **Note:** Ensure you have a `screenshots/` folder in your repository root containing these images for them to appear.
+
+| Agent Management | Architecture Visualizer |
+|:---:|:---:|
+| ![Agent Management](screenshots/agent_manager.png) | ![Architecture Visualizer](screenshots/architecture.png) |
+
+| Agent Builder | Dark Mode UI |
+|:---:|:---:|
+| ![Agent Builder](screenshots/agent_builder.png) | ![Dark Mode UI](screenshots/dark_mode.png) |
+
 ## Key Features
 
 -   **Manage Agents**: List, create, update, delete, enable/disable, and chat with agents.
@@ -66,22 +78,6 @@ This method is recommended for development and uses the standard Node.js ecosyst
     -   Follow the on-screen instructions to set your GCP Project ID/Number and validate/enable the required APIs.
 4.  **Ready to Use**: You can now use the application to manage your Gemini Enterprise resources.
 
-## Screenshots
-
-Here's a glimpse of the main features available in the Gemini Enterprise Manager:
-
-**Agents Manager**
-![Screenshot of the Agents Manager page, showing a list of registered agents.](./screenshots/agent-manager.jpg)
-
-**Assistant Configuration**
-![Screenshot of the Assistant page, displaying configuration options for the default assistant.](./screenshots/assistant.png)
-
-**Authorizations**
-![Screenshot of the Authorizations page, listing configured OAuth resources.](./screenshots/authorizations.png)
-
-**Agent Engines**
-![Screenshot of the Agent Engines page, where users can manage and query reasoning engines.](./screenshots/agent-engine.png)
-
 ## Underlying Google Cloud APIs
 
 While the application uses the Google API JavaScript Client (`gapi`) for all interactions, the following `curl` examples illustrate the underlying REST API calls for each major feature. This is useful for reference, testing, and understanding the raw API endpoints.
@@ -143,7 +139,7 @@ curl -X POST \
 curl -X GET \
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]"
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/default_collection/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]"
 ```
 
 #### **Authorizations Tab**
