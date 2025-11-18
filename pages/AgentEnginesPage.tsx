@@ -204,9 +204,9 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
     setIsDeleting(true);
     setError(null);
 
-    const enginesToDelete = Array.from(selectedEngines);
+    const enginesToDelete: string[] = Array.from(selectedEngines);
 
-    const deletionPromises = enginesToDelete.map(async (engineName) => {
+    const deletionPromises = enginesToDelete.map(async (engineName: string) => {
         try {
             await api.deleteReasoningEngine(engineName, apiConfig);
         } catch (err: unknown) {

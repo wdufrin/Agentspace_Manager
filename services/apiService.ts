@@ -39,6 +39,11 @@ const ALL_REQUIRED_PERMISSIONS = [
     'discoveryengine.documents.list',
     'discoveryengine.engines.get',
     'discoveryengine.engines.list',
+    'discoveryengine.userStores.licenseConfigsUsageStats.get', 
+    'discoveryengine.userStores.listUserLicenses',
+    'discoveryengine.userStores.userLicenses.delete', // Kept for reference, though we use batchUpdate now
+    'discoveryengine.userStores.userLicenses.update', // For batchUpdateUserLicenses
+    'discoveryengine.licenseConfigs.get', // Added for fetching license display names
     
     // Vertex AI / AI Platform
     'aiplatform.reasoningEngines.create',
@@ -721,8 +726,8 @@ export const createEngine = async (engineId: string, payload: object, config: Co
 
         if (!response.ok) {
             console.error("Fetch API Error Response:", responseBody);
-            const errorMessage = responseBody.error?.message || `API request failed with status ${response.status}`;
             const statusCode = responseBody.error?.code || response.status;
+            const errorMessage = responseBody.error?.message || `API request failed with status ${statusCode}`;
             throw new Error(`API request failed with status ${statusCode}: ${errorMessage}`);
         }
 
@@ -982,4 +987,68 @@ export async function fetchViolationLogs(config: Config, customFilter: string): 
     };
     const headers = { 'Content-Type': 'application/json' };
     return gapiRequest<{ entries?: LogEntry[] }>(path, 'POST', projectId, undefined, body, headers);
+}
+
+// --- License APIs ---
+export async function getLicenseUsageStats(config: Config, userStoreId: string): Promise<any> {
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const path = `${baseUrl}/v1beta/projects/${projectId}/locations/${appLocation}/userStores/${userStoreId}/licenseConfigsUsageStats`;
+    return gapiRequest(path, 'GET', projectId);
+}
+
+export async function listUserLicenses(config: Config, userStoreId: string, filter?: string, pageToken?: string, pageSize?: number): Promise<any> {
+    const { projectId, appLocation } = config;
+    const parent = `projects/${projectId}/locations/${appLocation}/userStores/${userStoreId}`;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const path = `${baseUrl}/v1alpha/${parent}/userLicenses`;
+    
+    const params: any = {};
+    if (filter) params.filter = filter;
+    if (pageToken) params.pageToken = pageToken;
+    if (pageSize) params.pageSize = pageSize;
+    
+    return gapiRequest(path, 'GET', projectId, params);
+}
+
+export async function getLicenseConfig(resourceName: string, config: Config): Promise<any> {
+    // Switch to v1 as requested/documented
+    const parts = resourceName.split('/');
+    const location = parts.length > 3 ? parts[3] : config.appLocation;
+    const baseUrl = getDiscoveryEngineUrl(location);
+    const path = `${baseUrl}/v1/${resourceName}`;
+    return gapiRequest(path, 'GET', config.projectId);
+}
+
+// Deprecated in favor of revokeUserLicenses, but kept for fallback if needed in other contexts (though page logic has moved away)
+export async function deleteUserLicense(resourceName: string, config: Config): Promise<void> {
+    if (!resourceName) {
+        throw new Error("License resource name is required for deletion.");
+    }
+    const parts = resourceName.split('/');
+    const location = parts.length > 3 ? parts[3] : config.appLocation;
+    const baseUrl = getDiscoveryEngineUrl(location);
+    const path = `${baseUrl}/v1alpha/${resourceName}`;
+    return gapiRequest<void>(path, 'DELETE', config.projectId);
+}
+
+export async function revokeUserLicenses(config: Config, userStoreId: string, userPrincipals: string[]): Promise<any> {
+    const { projectId, appLocation } = config;
+    const parent = `projects/${projectId}/locations/${appLocation}/userStores/${userStoreId}`;
+    // Using v1 for batch update as per user request
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const path = `${baseUrl}/v1/${parent}:batchUpdateUserLicenses`;
+
+    const body = {
+        inlineSource: {
+            userLicenses: userPrincipals.map(p => ({ userPrincipal: p })),
+            updateMask: {
+                paths: ["userPrincipal", "licenseConfig"]
+            }
+        },
+        deleteUnassignedUserLicenses: true
+    };
+    
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest(path, 'POST', projectId, undefined, body, headers);
 }

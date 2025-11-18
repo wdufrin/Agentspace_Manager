@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Page } from '../types';
 
@@ -216,6 +217,10 @@ curl -X GET \\
   "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/[FULL_AGENT_RESOURCE_NAME]:getAgentView"`
             },
         ]
+    },
+    [Page.LICENSE]: {
+        description: "License management in this application is currently client-side only, storing the license state in your local browser storage. In a production environment, this would integrate with a licensing backend API.",
+        commands: []
     },
 };
 

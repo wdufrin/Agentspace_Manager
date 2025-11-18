@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import AgentsPage from './pages/AgentsPage';
@@ -21,6 +22,7 @@ import ArchitecturePage from './pages/ArchitecturePage';
 import CurlInfoModal from './components/CurlInfoModal';
 import DirectQueryChatWindow from './components/agent-engines/DirectQueryChatWindow';
 import AssistantPage from './pages/AssistantPage';
+import LicensePage from './pages/LicensePage';
 
 const ALL_REASONING_ENGINE_LOCATIONS = [
     'us-central1', 'us-east1', 'us-east4', 'us-west1',
@@ -472,6 +474,8 @@ const App: React.FC = () => {
         return <ModelArmorPage {...projectProps} />;
       case Page.BACKUP_RECOVERY:
         return <BackupPage {...projectProps} accessToken={accessToken} />;
+      case Page.LICENSE:
+        return <LicensePage {...projectProps} />;
       case Page.ARCHITECTURE:
         return <ArchitecturePage 
                     {...projectProps} 

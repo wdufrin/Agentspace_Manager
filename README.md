@@ -24,6 +24,7 @@ This application is built using React and communicates with Google Cloud APIs vi
 -   **Manage Authorizations**: List, create, update, and delete OAuth client authorizations.
 -   **Manage Reasoning Engines**: List engines, view agent dependencies, and delete unused engines.
 -   **Explore Data Stores**: List data stores within a collection, view their details, and inspect individual documents and their content.
+-   **Manage Licenses**: View assigned user licenses, resolve license configuration names, revoke specific licenses, and bulk prune inactive users based on last login time.
 -   **Model Armor Log Viewer**: Fetch and inspect safety policy violation logs from Cloud Logging.
 -   **Comprehensive Backup & Restore**: Backup and restore agents, assistants, data stores, authorizations, and entire Discovery Engine configurations.
 -   **Guided Setup & API Validation**: An initial setup screen that validates if all required GCP APIs are enabled for your project and provides a one-click solution to enable any that are missing.
@@ -215,6 +216,36 @@ curl -X GET \
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
   "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores/[DATASTORE_ID]/branches/0/documents"
+```
+
+#### **Licenses Tab**
+
+**List User Licenses:** Lists assigned licenses for a specific User Store.
+
+```sh
+curl -X GET \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/userStores/default_user_store/userLicenses"
+```
+
+**Revoke License (Unassign):** Removes a license from a user using batch update.
+
+```sh
+curl -X POST \
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "Content-Type: application/json" \
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
+  -d '{
+        "inlineSource": {
+          "userLicenses": [
+            { "userPrincipal": "user@example.com" }
+          ],
+          "updateMask": { "paths": ["userPrincipal", "licenseConfig"] }
+        },
+        "deleteUnassignedUserLicenses": true
+      }' \
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/userStores/default_user_store:batchUpdateUserLicenses"
 ```
 
 #### **Model Armor Tab**
