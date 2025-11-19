@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { GraphEdge, GraphNode, Page, ReasoningEngine } from '../../types';
+import { GraphEdge, GraphNode, Page, ReasoningEngine, Agent } from '../../types';
 import ProjectInput from '../components/ProjectInput';
 import ArchitectureGraph from '../components/architecture/ArchitectureGraph';
 import CurlInfoModal from '../components/CurlInfoModal';
@@ -68,6 +68,128 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
     const handleScanClick = () => {
         setIsLogExpanded(true); // Expand log when a new scan starts
         onScan();
+    };
+
+    const handleExportCsv = () => {
+        if (nodes.length === 0) return;
+    
+        const headers = [
+            "agent_id", "agent_name", "agent_description", "region", "status",
+            "runtime", "agent_resource_fqp", "framework", "base_platform",
+            "consumption_platform", "agent_consumption_fqp", "consumption_token",
+            "agent_role", "environment", "agent_status", "current_live_version",
+            "go_live_date", "last_update_date", "support_email", "owner_email"
+        ];
+    
+        const agentNodes = nodes.filter(n => n.type === 'Agent');
+        
+        const rows = agentNodes.map(node => {
+            const agent = node.data as Agent;
+            const agentId = agent.name.split('/').pop() || '';
+            const region = agent.name.split('/')[3] || '';
+            
+            // Find linked Reasoning Engine to get runtime/framework
+            // Look for edge where source is Agent and target is ReasoningEngine
+            const linkedEdge = edges.find(e => e.source === agent.name && nodes.find(n => n.id === e.target)?.type === 'ReasoningEngine');
+            let runtime = '';
+            let framework = '';
+            
+            if (linkedEdge) {
+                const reNode = nodes.find(n => n.id === linkedEdge.target);
+                if (reNode) {
+                    const reData = reNode.data as ReasoningEngine;
+                    runtime = reData.spec?.packageSpec?.pythonVersion || '';
+                    framework = reData.spec?.agentFramework || 'google-adk';
+                }
+            } else if (agent.agentType === 'A2A') {
+                 framework = 'A2A';
+                 runtime = 'Cloud Run';
+            } else if (agent.agentType) {
+                framework = agent.agentType;
+            }
+    
+            const goLiveDate = agent.createTime || '';
+            const lastUpdateDate = agent.updateTime || '';
+            const status = agent.state || 'UNKNOWN';
+    
+            // Escape fields that might contain commas
+            const escape = (str: string | undefined) => `"${(str || '').replace(/"/g, '""')}"`;
+    
+            return [
+                agentId,
+                escape(agent.displayName),
+                escape(agent.description),
+                region,
+                status,
+                runtime,
+                agent.name, // agent_resource_fqp
+                framework,
+                "Vertex AI", // base_platform
+                "Gemini Enterprise", // consumption_platform
+                agent.name, // agent_consumption_fqp (using resource name as proxy)
+                "0", // consumption_token (placeholder)
+                "", // agent_role (placeholder)
+                "production", // environment (placeholder)
+                status, // agent_status
+                "1.0.0", // current_live_version (placeholder)
+                goLiveDate,
+                lastUpdateDate,
+                "", // support_email
+                ""  // owner_email
+            ].join(',');
+        });
+    
+        const csvContent = [headers.join(','), ...rows].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `agent_architecture_export_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
+    const handleExportRelationshipsCsv = () => {
+        if (nodes.length === 0) return;
+
+        const headers = ["parent_agent_id", "child_agent_id"];
+        const rows: string[] = [];
+        
+        // Create a map for quick node lookup to verify types
+        const nodeMap = new Map<string, GraphNode>();
+        nodes.forEach(n => nodeMap.set(n.id, n));
+
+        edges.forEach(edge => {
+            const sourceNode = nodeMap.get(edge.source);
+            const targetNode = nodeMap.get(edge.target);
+
+            if (sourceNode && targetNode) {
+                // We treat the Assistant as the 'parent agent' in this hierarchy
+                if (sourceNode.type === 'Assistant' && targetNode.type === 'Agent') {
+                    const parentId = sourceNode.id.split('/').pop() || '';
+                    const childId = targetNode.id.split('/').pop() || '';
+                    rows.push(`${parentId},${childId}`);
+                }
+            }
+        });
+
+        if (rows.length === 0) {
+            alert("No parent-child relationships found to export.");
+            return;
+        }
+
+        const csvContent = [headers.join(','), ...rows].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `agent_relationships_export_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
 
 
@@ -190,6 +312,28 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
                                     Scanning...
                                 </>
                             ) : 'Scan Project Architecture'}
+                        </button>
+                        <button
+                            onClick={handleExportCsv}
+                            disabled={nodes.length === 0}
+                            className="w-full md:w-auto px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-500 h-[42px] flex items-center justify-center gap-2"
+                            title="Export Agent Architecture to CSV"
+                        >
+                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
+                            Export CSV
+                        </button>
+                        <button
+                            onClick={handleExportRelationshipsCsv}
+                            disabled={nodes.length === 0}
+                            className="w-full md:w-auto px-4 py-2 bg-teal-600 text-white text-sm font-semibold rounded-md hover:bg-teal-700 disabled:bg-gray-500 h-[42px] flex items-center justify-center gap-2"
+                            title="Export Relationships to CSV"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
+                            </svg>
+                            Export Relationships
                         </button>
                         <button
                             onClick={() => setIsInfoModalOpen(true)}

@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { UserProfile } from '../types';
 
@@ -20,34 +19,48 @@ const AccessTokenInput: React.FC<AccessTokenInputProps> = ({ accessToken, setAcc
   const handleReset = () => {
     setTokenInput('');
     setAccessToken('');
-    if (onSignOut) onSignOut();
   };
+
+  if (userProfile && onSignOut) {
+    return (
+      <div className="flex items-center gap-4 bg-gray-700/50 px-3 py-1.5 rounded-full border border-gray-600">
+         <div className="flex items-center gap-3">
+            {userProfile.picture ? (
+                <img src={userProfile.picture} alt="Avatar" className="w-8 h-8 rounded-full border border-gray-500" />
+            ) : (
+                <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold">
+                    {userProfile.name.charAt(0)}
+                </div>
+            )}
+            <div className="hidden md:block">
+                <p className="text-xs font-semibold text-white">{userProfile.name}</p>
+                <p className="text-[10px] text-gray-400">{userProfile.email}</p>
+            </div>
+         </div>
+         <button 
+            onClick={onSignOut}
+            className="text-xs text-red-400 hover:text-red-300 hover:underline font-medium ml-2"
+         >
+            Sign Out
+         </button>
+      </div>
+    );
+  }
 
   if (accessToken) {
     return (
       <div className="flex items-center space-x-3 w-full md:w-auto">
-        {userProfile ? (
-             <div className="flex items-center space-x-2 bg-gray-800 pr-3 rounded-full border border-gray-700">
-                <img src={userProfile.picture} alt={userProfile.name} className="w-8 h-8 rounded-full" />
-                <div className="flex flex-col">
-                    <span className="text-xs font-bold text-white leading-tight">{userProfile.name}</span>
-                    <span className="text-[10px] text-gray-400 leading-tight">{userProfile.email}</span>
-                </div>
-            </div>
-        ) : (
-             <span className="flex items-center text-sm text-green-400">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1.5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
-              Token Active
-            </span>
-        )}
-       
+        <span className="flex items-center text-sm text-green-400">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1.5" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+          </svg>
+          Token Active
+        </span>
         <button
           onClick={handleReset}
-          className="px-4 py-1.5 bg-gray-700 text-gray-200 text-sm font-semibold rounded-md hover:bg-red-600 hover:text-white transition-colors border border-gray-600 hover:border-red-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-red-500"
+          className="px-4 py-1.5 bg-yellow-600 text-white text-sm font-semibold rounded-md hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-yellow-500"
         >
-          {userProfile ? 'Sign Out' : 'Reset Token'}
+          Reset Token
         </button>
       </div>
     );

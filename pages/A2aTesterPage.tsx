@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { CloudRunService, Config } from '../types';
 import * as api from '../services/apiService';
@@ -72,7 +73,7 @@ const A2aTesterPage: React.FC<A2aTesterPageProps> = ({ projectNumber, setProject
     };
     
     const tokenCommand = serviceUrl && projectNumber
-        ? `gcloud auth print-identity-token --audience ${serviceUrl} --project ${projectNumber}`
+        ? `gcloud auth print-identity-token`
         : `# Select a project and service to generate the command`;
 
     return (

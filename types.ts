@@ -1,6 +1,5 @@
 
 
-
 // FIX: Replaced incorrect component code with proper type definitions.
 export enum Page {
   AGENTS = 'Agents Manager',
@@ -24,9 +23,9 @@ export type SortableAgentKey = 'displayName' | 'state' | 'name' | 'updateTime' |
 export type SortDirection = 'asc' | 'desc';
 
 export interface UserProfile {
-  name: string;
-  email: string;
-  picture: string;
+    name: string;
+    email: string;
+    picture: string;
 }
 
 export interface SortConfig {
