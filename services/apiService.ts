@@ -1,3 +1,4 @@
+
 import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, LogEntry, ReasoningEngine, CloudRunService, GcsBucket, GcsObject } from '../types';
 import { getGapiClient } from './gapiService';
 
@@ -224,7 +225,7 @@ export const checkAllPermissions = async (projectNumber: string): Promise<{
         const granted = response.result.permissions || [];
         const denied = ALL_REQUIRED_PERMISSIONS.filter(p => !granted.includes(p));
         return { granted, denied };
-    }).catch((err: any) => {
+    }).catch((err: any) {
         console.error("GAPI Error during testIamPermissions for user:", err);
         let detailMessage = 'An unknown error occurred while checking permissions.';
         if (typeof err === 'string') {
@@ -360,7 +361,6 @@ export async function deleteResource(resourceName: string, config: Config): Prom
 
 // --- Project APIs ---
 export const getProjectNumber = async (projectId: string): Promise<string> => {
-    // FIX: The gapiRequest helper was being used incorrectly. Switched to a direct GAPI client call.
     const client = await getGapiClient();
     try {
         const response = await client.cloudresourcemanager.projects.get({ projectId });
@@ -391,6 +391,20 @@ export const getProjectNumber = async (projectId: string): Promise<string> => {
         
         const message = `API request failed with status ${statusCode}: ${errorMessage}`;
         throw new Error(message);
+    }
+};
+
+export const getProject = async (projectIdOrNumber: string): Promise<{ projectId: string; projectNumber: string }> => {
+    const client = await getGapiClient();
+    try {
+        const response = await client.cloudresourcemanager.projects.get({ projectId: projectIdOrNumber });
+        return {
+            projectId: response.result.projectId,
+            projectNumber: response.result.projectNumber
+        };
+    } catch (err: any) {
+        console.error("GAPI Error during getProject:", err);
+        throw new Error(`Failed to get project details: ${err.message}`);
     }
 };
 
@@ -584,22 +598,100 @@ export const fetchA2aAgentCard = async (
 ): Promise<any> => {
     const cardUrl = `${agentUrl}/.well-known/agent.json`;
 
-    const response = await fetch(cardUrl, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${identityToken}`,
-        },
-    });
+    try {
+        const response = await fetch(cardUrl, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${identityToken}`,
+            },
+        });
 
-    const responseBody = await response.json();
+        if (!response.ok) {
+            let errorMessage = `Request failed with status ${response.status}`;
+            try {
+                const responseBody = await response.json();
+                errorMessage = responseBody.error || errorMessage;
+            } catch (e) {
+                // ignore
+            }
+            throw new Error(errorMessage);
+        }
 
-    if (!response.ok) {
-        const errorMessage = responseBody.error || `Request failed with status ${response.status}`;
-        const errorDetails = responseBody.details || 'No additional details provided.';
-        throw new Error(`${errorMessage} - Details: ${errorDetails}`);
+        return await response.json();
+    } catch (err: any) {
+        // Enhance error message for common CORS failures
+        if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
+            throw new Error("Network error. This is often due to CORS (Cross-Origin Resource Sharing) restrictions on the Cloud Run service. Ensure the service allows requests from this origin, or try the cURL command in your terminal.");
+        }
+        throw err;
     }
+};
 
-    return responseBody;
+export const invokeA2aAgent = async (
+    agentUrl: string,
+    prompt: string,
+    accessToken: string
+): Promise<any> => {
+    // Ensure clean URL
+    const cleanUrl = agentUrl.replace(/\/$/, '');
+    const invokeUrl = cleanUrl.endsWith('/invoke') ? cleanUrl : `${cleanUrl}/invoke`;
+
+    // Wrap in A2A JSON-RPC 2.0 format (message -> parts)
+    const payload = {
+        jsonrpc: "2.0",
+        method: "chat",
+        params: {
+            message: {
+                role: "user",
+                parts: [
+                    { text: prompt }
+                ]
+            }
+        },
+        id: crypto.randomUUID()
+    };
+
+    try {
+        const response = await fetch(invokeUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+            let errorMessage = `Request failed with status ${response.status}`;
+            try {
+                const responseBody = await response.json();
+                if (responseBody.error) {
+                    errorMessage = responseBody.error.message || JSON.stringify(responseBody.error);
+                } else {
+                    errorMessage = JSON.stringify(responseBody);
+                }
+            } catch (e) {
+                const text = await response.text();
+                if (text) errorMessage = text;
+            }
+            throw new Error(errorMessage);
+        }
+
+        const data = await response.json();
+        if (data.error) {
+            throw new Error(data.error.message || JSON.stringify(data.error));
+        }
+        
+        // Return the 'result' object from JSON-RPC response
+        // A2A result structure: { message: { role: "agent", parts: [...] } }
+        return data.result; 
+
+    } catch (err: any) {
+        if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
+            throw new Error("Network error. This is often due to CORS (Cross-Origin Resource Sharing) restrictions on the Cloud Run service. Ensure the service allows requests from this origin, or try the cURL command in your terminal.");
+        }
+        throw err;
+    }
 };
 
 

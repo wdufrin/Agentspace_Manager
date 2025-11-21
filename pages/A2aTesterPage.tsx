@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { CloudRunService, Config } from '../types';
+import { CloudRunService, Config, Page } from '../types';
 import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
 import Spinner from '../components/Spinner';
@@ -8,20 +8,47 @@ import Spinner from '../components/Spinner';
 interface A2aTesterPageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
+  onNavigate?: (page: Page, context: any) => void;
+  accessToken: string;
 }
 
-const A2aTesterPage: React.FC<A2aTesterPageProps> = ({ projectNumber, setProjectNumber }) => {
+const CodeBlock: React.FC<{ content: string; onCopy: () => void; copyText: string; title: string; }> = ({ content, onCopy, copyText, title }) => (
+    <div className="bg-gray-900 rounded-lg overflow-hidden">
+        <div className="flex justify-between items-center p-2 bg-gray-900/50">
+            <span className="text-sm font-semibold text-gray-300">{title}</span>
+            <button
+                onClick={onCopy}
+                className="px-3 py-1 bg-gray-600 text-white text-xs font-semibold rounded-md hover:bg-gray-500"
+            >
+                {copyText}
+            </button>
+        </div>
+        <pre className="p-4 text-xs text-gray-300 whitespace-pre-wrap overflow-x-auto">
+            <code>{content}</code>
+        </pre>
+    </div>
+);
+
+const A2aTesterPage: React.FC<A2aTesterPageProps> = ({ projectNumber, setProjectNumber, onNavigate, accessToken }) => {
     // State for configuration
     const [cloudRunRegion, setCloudRunRegion] = useState('us-central1');
     const [services, setServices] = useState<CloudRunService[]>([]);
     const [isLoadingServices, setIsLoadingServices] = useState(false);
     const [serviceUrl, setServiceUrl] = useState('');
-    const [identityToken, setIdentityToken] = useState('');
     
     // State for fetching agent card
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [isCorsError, setIsCorsError] = useState(false);
     const [agentCard, setAgentCard] = useState<any | null>(null);
+    const [copyStatus, setCopyStatus] = useState('');
+
+    // State for invocation testing
+    const [prompt, setPrompt] = useState('Hello!');
+    const [isInvoking, setIsInvoking] = useState(false);
+    const [invokeResponse, setInvokeResponse] = useState<any | null>(null);
+    const [invokeError, setInvokeError] = useState<string | null>(null);
+    const [invokeCopyStatus, setInvokeCopyStatus] = useState('');
 
     // Fetch Cloud Run services when project or region changes
     useEffect(() => {
@@ -53,34 +80,117 @@ const A2aTesterPage: React.FC<A2aTesterPageProps> = ({ projectNumber, setProject
     }, [projectNumber, cloudRunRegion]);
 
     const handleFetchCard = async () => {
-        if (!serviceUrl || !identityToken) {
-            setError("Please select a service and provide an identity token.");
+        if (!serviceUrl || !accessToken) {
+            setError("Please select a service and ensure you are authenticated.");
             return;
         }
 
         setIsLoading(true);
         setError(null);
+        setIsCorsError(false);
         setAgentCard(null);
 
+        const cleanServiceUrl = serviceUrl.replace(/\/$/, '');
+
         try {
-            const result = await api.fetchA2aAgentCard(serviceUrl, identityToken);
+            const result = await api.fetchA2aAgentCard(cleanServiceUrl, accessToken);
             setAgentCard(result);
         } catch (err: any) {
-            setError(`Error fetching agent card: ${err.message || "An unknown error occurred."}`);
+            const message = err.message || "An unknown error occurred.";
+            setError(`Error fetching agent card: ${message}`);
+            if (message.includes("CORS") || message.includes("Failed to fetch") || message.includes("Network error")) {
+                setIsCorsError(true);
+            }
         } finally {
             setIsLoading(false);
         }
     };
     
-    const tokenCommand = serviceUrl && projectNumber
-        ? `gcloud auth print-identity-token`
-        : `# Select a project and service to generate the command`;
+    const handleInvoke = async () => {
+        if (!serviceUrl || !accessToken) {
+            setInvokeError("Please select a service and ensure you are authenticated.");
+            return;
+        }
+        if (!prompt.trim()) {
+            setInvokeError("Please enter a prompt.");
+            return;
+        }
+
+        setIsInvoking(true);
+        setInvokeError(null);
+        setInvokeResponse(null);
+        setIsCorsError(false);
+
+        const cleanServiceUrl = serviceUrl.replace(/\/$/, '');
+
+        try {
+            const result = await api.invokeA2aAgent(cleanServiceUrl, prompt, accessToken);
+            setInvokeResponse(result);
+        } catch (err: any) {
+            const message = err.message || "An unknown error occurred.";
+            setInvokeError(`Error invoking agent: ${message}`);
+            if (message.includes("CORS") || message.includes("Failed to fetch") || message.includes("Network error")) {
+                setIsCorsError(true);
+            }
+        } finally {
+            setIsInvoking(false);
+        }
+    };
+    
+    const handleFixCors = () => {
+        if (!onNavigate) return;
+        const selectedService = services.find(s => s.uri === serviceUrl);
+        if (selectedService) {
+            onNavigate(Page.A2A_FUNCTIONS, { serviceToEdit: selectedService });
+        }
+    };
+
+    const cliTestCommand = serviceUrl
+        ? `curl -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
+  ${serviceUrl.replace(/\/$/, '')}/.well-known/agent.json`
+        : `# Select a service to see the test command`;
+
+    const handleCopyCommand = () => {
+        navigator.clipboard.writeText(cliTestCommand).then(() => {
+            setCopyStatus('Copied!');
+            setTimeout(() => setCopyStatus(''), 2000);
+        });
+    };
+    
+    // JSON-RPC 2.0 payload with A2A structure
+    const jsonRpcPayload = JSON.stringify({
+        jsonrpc: "2.0",
+        method: "chat",
+        params: {
+            message: {
+                role: "user",
+                parts: [
+                    { text: prompt }
+                ]
+            }
+        },
+        id: "1"
+    }).replace(/"/g, '\\"');
+
+    const cliInvokeCommand = serviceUrl
+        ? `curl -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
+  -H "Content-Type: application/json" \\
+  -d "${jsonRpcPayload}" \\
+  ${serviceUrl.replace(/\/$/, '')}/invoke`
+        : `# Select a service to see the invoke command`;
+
+    const handleCopyInvokeCommand = () => {
+        navigator.clipboard.writeText(cliInvokeCommand).then(() => {
+            setInvokeCopyStatus('Copied!');
+            setTimeout(() => setInvokeCopyStatus(''), 2000);
+        });
+    };
 
     return (
         <div className="flex flex-col h-full space-y-6">
             <h1 className="text-2xl font-bold text-white">A2A Agent Tester</h1>
             <p className="text-gray-400 -mt-4">
-                Test your deployed A2A Cloud Run functions by fetching their <code className="bg-gray-700 text-xs p-1 rounded">/.well-known/agent.json</code> discovery file.
+                Test your deployed A2A Cloud Run functions directly. Verify discovery endpoints and invoke the agent with prompts.
             </p>
 
             {/* Configuration */}
@@ -105,26 +215,42 @@ const A2aTesterPage: React.FC<A2aTesterPageProps> = ({ projectNumber, setProject
                         </select>
                     </div>
                 </div>
-                 <div>
-                    <label htmlFor="identityToken" className="block text-sm font-medium text-gray-400 mb-1">Identity Token</label>
-                    <p className="text-xs text-gray-400 mb-2">Run the command below in your terminal and paste the output here. This token is required to securely call your Cloud Run service.</p>
-                    <pre className="bg-gray-900 text-xs text-gray-300 p-2 rounded-md font-mono mb-2">{tokenCommand}</pre>
-                    <input
-                        id="identityToken"
-                        type="password"
-                        value={identityToken}
-                        onChange={(e) => setIdentityToken(e.target.value)}
-                        placeholder="Paste Identity Token here"
-                        className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full"
-                    />
-                </div>
             </div>
+            
+            {isCorsError && (
+                <div className="bg-yellow-900/30 border border-yellow-700 rounded-lg p-4">
+                    <h3 className="text-sm font-bold text-yellow-400 mb-2">⚠️ CORS Configuration Required</h3>
+                    <p className="text-xs text-gray-300 mb-2">
+                        The request failed because your Cloud Run service prevented the browser from accessing the response. 
+                        This security feature (CORS) is enforced by browsers, which is why the CLI command works but this page fails.
+                    </p>
+                    <p className="text-xs text-gray-300 mb-2">
+                        <strong>To fix this:</strong> You must re-deploy your Cloud Run function with code that explicitly allows cross-origin requests.
+                    </p>
+                    <ul className="list-disc list-inside text-xs text-gray-300 space-y-1 mb-3">
+                        <li>Click the button below to open the Function Builder.</li>
+                        <li>It will pre-load your service configuration.</li>
+                        <li>The generated code will automatically include the necessary CORS headers.</li>
+                        <li>Run the deployment script to update your service.</li>
+                    </ul>
+                    {onNavigate && (
+                        <button
+                            onClick={handleFixCors}
+                            className="mt-2 px-4 py-2 bg-yellow-600 text-white text-sm font-bold rounded-md hover:bg-yellow-700 border border-yellow-500 shadow-sm transition-colors w-full md:w-auto"
+                        >
+                            Fix Service (Go to Builder)
+                        </button>
+                    )}
+                </div>
+            )}
 
-            {/* Action and Results */}
-            <div className="space-y-4">
+            {/* Discovery Test */}
+            <div className="space-y-4 border-t border-gray-700 pt-6">
+                <h2 className="text-lg font-semibold text-white">Test 1: Discovery Endpoint</h2>
+                <p className="text-sm text-gray-400">Fetches <code>/.well-known/agent.json</code> to verify the agent is discoverable.</p>
                 <button
                     onClick={handleFetchCard}
-                    disabled={isLoading || !serviceUrl || !identityToken}
+                    disabled={isLoading || !serviceUrl || !accessToken}
                     className="w-full px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center"
                 >
                     {isLoading ? (
@@ -135,23 +261,84 @@ const A2aTesterPage: React.FC<A2aTesterPageProps> = ({ projectNumber, setProject
                     ) : 'Fetch Agent Card'}
                 </button>
 
-                <div className="bg-gray-800 shadow-md rounded-lg border border-gray-700 min-h-[200px] flex flex-col">
+                <div className="bg-gray-800 shadow-md rounded-lg border border-gray-700 min-h-[150px] flex flex-col">
                     <div className="p-2 bg-gray-900/50 border-b border-gray-700">
-                        <h3 className="text-md font-semibold text-gray-300">Agent Card Response</h3>
+                        <h3 className="text-md font-semibold text-gray-300">Discovery Response</h3>
                     </div>
                     <div className="flex-1 p-4">
                         {isLoading && <Spinner />}
-                        {error && <p className="text-red-400 text-sm">{error}</p>}
+                        {error && <p className="text-red-400 text-sm whitespace-pre-wrap">{error}</p>}
                         {agentCard && (
                             <pre className="text-xs text-gray-200 whitespace-pre-wrap">
                                 <code>{JSON.stringify(agentCard, null, 2)}</code>
                             </pre>
                         )}
                         {!isLoading && !error && !agentCard && (
-                            <p className="text-gray-500 text-sm text-center pt-10">Results will be displayed here.</p>
+                            <p className="text-gray-500 text-sm text-center pt-8">Results will be displayed here.</p>
                         )}
                     </div>
                 </div>
+                <CodeBlock 
+                    title="CLI Command (Discovery)" 
+                    content={cliTestCommand} 
+                    copyText={copyStatus || 'Copy'} 
+                    onCopy={handleCopyCommand} 
+                />
+            </div>
+            
+            {/* Invocation Test */}
+            <div className="space-y-4 border-t border-gray-700 pt-6 pb-6">
+                <h2 className="text-lg font-semibold text-white">Test 2: Direct Invocation</h2>
+                <p className="text-sm text-gray-400">Sends a POST request to <code>/invoke</code> to chat with the agent directly.</p>
+                
+                <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">User Prompt</label>
+                    <div className="flex gap-2">
+                        <input 
+                            type="text" 
+                            value={prompt} 
+                            onChange={(e) => setPrompt(e.target.value)} 
+                            className="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white"
+                            placeholder="Enter a message for the agent..."
+                        />
+                        <button
+                            onClick={handleInvoke}
+                            disabled={isInvoking || !serviceUrl || !accessToken}
+                            className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center w-32"
+                        >
+                            {isInvoking ? (
+                                <>
+                                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
+                                    Sending...
+                                </>
+                            ) : 'Send'}
+                        </button>
+                    </div>
+                </div>
+
+                <div className="bg-gray-800 shadow-md rounded-lg border border-gray-700 min-h-[150px] flex flex-col">
+                    <div className="p-2 bg-gray-900/50 border-b border-gray-700">
+                        <h3 className="text-md font-semibold text-gray-300">Invocation Response</h3>
+                    </div>
+                    <div className="flex-1 p-4">
+                        {isInvoking && <Spinner />}
+                        {invokeError && <p className="text-red-400 text-sm whitespace-pre-wrap">{invokeError}</p>}
+                        {invokeResponse && (
+                            <pre className="text-xs text-gray-200 whitespace-pre-wrap">
+                                <code>{JSON.stringify(invokeResponse, null, 2)}</code>
+                            </pre>
+                        )}
+                        {!isInvoking && !invokeError && !invokeResponse && (
+                            <p className="text-gray-500 text-sm text-center pt-8">Response will appear here.</p>
+                        )}
+                    </div>
+                </div>
+                <CodeBlock 
+                    title="CLI Command (Invoke JSON-RPC)" 
+                    content={cliInvokeCommand} 
+                    copyText={invokeCopyStatus || 'Copy'} 
+                    onCopy={handleCopyInvokeCommand} 
+                />
             </div>
         </div>
     );

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Config, AppEngine, CloudRunService, Agent } from '../types';
 import * as api from '../services/apiService';
@@ -202,6 +203,10 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
 
             // Build the payloads
             const cardObject = {
+                // IMPORTANT: The URL must point to the /invoke endpoint for POST requests.
+                // We append this here to ensure the registered agent is configured correctly,
+                // even if the deployed agent.json itself is slightly off.
+                url: `${agentDetails.agentUrl.replace(/\/$/, '')}/invoke`,
                 provider: {
                     organization: agentDetails.providerOrganization,
                     url: agentDetails.agentUrl,
@@ -247,10 +252,6 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
             setTimeout(() => setCopyStatus(prev => ({...prev, [key]: '' })), 2000);
         });
     };
-    
-    const allowlistDescription = `Company Name: <customer name> / Internal
-Project Number: ${projectNumber || '<project-number>'}
-Short description (2-3 sentences) regarding which A2A agent to use: This agent will be a custom-built Cloud Run function deployed via the A2A Function Builder. It will serve as [Describe the agent's purpose, e.g., a specialized Q&A tool for internal documentation, a data lookup service, etc.].`;
     
     const isRegisterDisabled = isRegistering || !config.engineId || !agentDetails.agentName || !agentDetails.agentUrl;
 

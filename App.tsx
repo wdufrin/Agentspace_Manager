@@ -512,11 +512,11 @@ const App: React.FC = () => {
       case Page.AGENT_ENGINES:
         return <AgentEnginesPage {...commonProps} accessToken={accessToken} onDirectQuery={handleDirectQuery} />;
       case Page.A2A_FUNCTIONS:
-        return <A2aFunctionsPage {...projectProps} />;
+        return <A2aFunctionsPage {...projectProps} context={pageContext} />;
       case Page.AGENT_REGISTRATION:
         return <AgentRegistrationPage {...projectProps} />;
       case Page.A2A_TESTER:
-        return <A2aTesterPage {...projectProps} />;
+        return <A2aTesterPage {...projectProps} onNavigate={handleNavigation} accessToken={accessToken} />;
       case Page.AGENT_BUILDER:
         return <AgentBuilderPage {...commonProps} />;
       case Page.CHAT:

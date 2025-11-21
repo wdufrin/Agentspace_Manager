@@ -218,6 +218,18 @@ curl -X GET \\
             },
         ]
     },
+    [Page.A2A_TESTER]: {
+        description: "The A2A Tester fetches the discovery card from a running Agent-to-Agent service.",
+        commands: [
+            {
+                title: 'Test an A2A Agent (Discovery)',
+                command: `# Generate the Identity Token and make the request in one command.
+curl -X GET \\
+  -H "Authorization: Bearer $(gcloud auth print-identity-token)" \\
+  "https://[YOUR_SERVICE_URL].run.app/.well-known/agent.json"`
+            },
+        ]
+    },
     [Page.LICENSE]: {
         description: "License management in this application is currently client-side only, storing the license state in your local browser storage. In a production environment, this would integrate with a licensing backend API.",
         commands: []
@@ -246,7 +258,9 @@ const CodeBlock: React.FC<{ title: string, command: string }> = ({ title, comman
 };
 
 const CurlInfoModal: React.FC<CurlInfoModalProps> = ({ infoKey, onClose }) => {
-  const info = ALL_INFO[infoKey];
+  // Fallback for pages that share the same key logic or missing keys
+  const info = ALL_INFO[infoKey] || ALL_INFO[Page.AGENTS]; // Default to Agents if key not found (safe fallback)
+  
   const titleText = infoKey.startsWith('Backup:') || infoKey.startsWith('Restore:') 
     ? infoKey.replace(':', ' - ')
     : infoKey === 'ArchitectureScan' ? 'Architecture Scan'
