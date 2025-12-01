@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import * as api from '../../services/apiService';
 import { Authorization, Config } from '../../types';
 
@@ -16,13 +16,14 @@ const initialFormData = {
     scopes: 'https://www.googleapis.com/auth/cloud-platform',
     oauthTokenUri: 'https://oauth2.googleapis.com/token',
     redirectUri: 'https://vertexaisearch.cloud.google.com/oauth-redirect',
+    authorizationUri: '', // Will be populated by effect
 };
 
 const FormField: React.FC<{ name: keyof typeof initialFormData; label: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; required?: boolean; type?: string; helpText?: string; disabled?: boolean; }> = 
 ({ name, label, value, onChange, required = false, type = 'text', helpText, disabled = false }) => (
     <div>
         <label htmlFor={name} className="block text-sm font-medium text-gray-300">{label}</label>
-        <input type={type} name={name} id={name} value={value} onChange={onChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm text-white disabled:bg-gray-800 disabled:text-gray-400" required={required} disabled={disabled} />
+        <input type={type} name={name} id={name} value={value} onChange={onChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm text-white disabled:bg-gray-800 disabled:text-gray-400 disabled:cursor-not-allowed" required={required} disabled={disabled} />
         {helpText && <p className="mt-1 text-xs text-gray-400">{helpText}</p>}
     </div>
 );
@@ -32,10 +33,16 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showScopesTooltip, setShowScopesTooltip] = useState(false);
+  const [autoGenerateUri, setAutoGenerateUri] = useState(true);
 
   // State for cURL command preview
   const [curlCommand, setCurlCommand] = useState('');
   const [copySuccessCurl, setCopySuccessCurl] = useState(false);
+
+  const constructGoogleAuthUri = useCallback((clientId: string, redirectUri: string, scopes: string) => {
+      const encodedScopes = encodeURIComponent(scopes.split(',').join(' '));
+      return `https://accounts.google.com/o/oauth2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&scope=${encodedScopes}&response_type=code&access_type=offline&prompt=consent`;
+  }, []);
 
   useEffect(() => {
     if (authToEdit) {
@@ -50,19 +57,40 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
             console.error("Could not parse authorization URI", authUri);
         }
 
+        const clientId = authToEdit.serverSideOauth2.clientId;
+        const tokenUri = authToEdit.serverSideOauth2.tokenUri;
+        
+        // Check if the existing URI matches the standard Google pattern
+        const generated = constructGoogleAuthUri(clientId, redirectUri, scopes);
+        const isStandard = authUri === generated;
+
         setFormData({
             authId: authToEdit.name.split('/').pop() || '',
-            oauthClientId: authToEdit.serverSideOauth2.clientId,
+            oauthClientId: clientId,
             oauthClientSecret: '', // Secret is write-only, must be re-entered to update
             scopes,
-            oauthTokenUri: authToEdit.serverSideOauth2.tokenUri,
+            oauthTokenUri: tokenUri,
             redirectUri,
+            authorizationUri: authUri,
         });
+        setAutoGenerateUri(isStandard);
     } else {
-        setFormData(initialFormData);
+        setFormData({
+            ...initialFormData,
+            authorizationUri: constructGoogleAuthUri(initialFormData.oauthClientId, initialFormData.redirectUri, initialFormData.scopes)
+        });
+        setAutoGenerateUri(true);
     }
-  }, [authToEdit]);
+  }, [authToEdit, constructGoogleAuthUri]);
   
+  // Effect to auto-update Authorization URI when dependencies change
+  useEffect(() => {
+      if (autoGenerateUri) {
+          const newUri = constructGoogleAuthUri(formData.oauthClientId, formData.redirectUri, formData.scopes);
+          setFormData(prev => ({ ...prev, authorizationUri: newUri }));
+      }
+  }, [autoGenerateUri, formData.oauthClientId, formData.redirectUri, formData.scopes, constructGoogleAuthUri]);
+
   // Effect to generate the cURL command preview for both create and update
   useEffect(() => {
     const { projectId } = config;
@@ -70,8 +98,6 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
         setCurlCommand('Project ID must be set.');
         return;
     }
-
-    const authorizationUrl = `https://accounts.google.com/o/oauth2/auth?client_id=${formData.oauthClientId}&redirect_uri=${formData.redirectUri}&scope=${encodeURIComponent(formData.scopes.split(',').join(' '))}&response_type=code&access_type=offline&prompt=consent`;
 
     if (authToEdit) {
         // --- UPDATE (PATCH) LOGIC ---
@@ -84,9 +110,9 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
             updateMask.push('serverSideOauth2.clientId');
             payload.serverSideOauth2.clientId = formData.oauthClientId;
         }
-        if (authorizationUrl !== authToEdit.serverSideOauth2.authorizationUri) {
+        if (formData.authorizationUri !== authToEdit.serverSideOauth2.authorizationUri) {
             updateMask.push('serverSideOauth2.authorizationUri');
-            payload.serverSideOauth2.authorizationUri = authorizationUrl;
+            payload.serverSideOauth2.authorizationUri = formData.authorizationUri;
         }
         if (formData.oauthTokenUri !== authToEdit.serverSideOauth2.tokenUri) {
             updateMask.push('serverSideOauth2.tokenUri');
@@ -129,7 +155,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
             serverSideOauth2: {
                 clientId: formData.oauthClientId,
                 clientSecret: formData.oauthClientSecret,
-                authorizationUri: authorizationUrl,
+                authorizationUri: formData.authorizationUri,
                 tokenUri: formData.oauthTokenUri,
             },
         };
@@ -157,13 +183,11 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
     setIsSubmitting(true);
     setError(null);
     
-    const authorizationUrl = `https://accounts.google.com/o/oauth2/auth?client_id=${formData.oauthClientId}&redirect_uri=${formData.redirectUri}&scope=${encodeURIComponent(formData.scopes.split(',').join(' '))}&response_type=code&access_type=offline&prompt=consent`;
-    
     const payload = {
       serverSideOauth2: {
         clientId: formData.oauthClientId,
         clientSecret: formData.oauthClientSecret,
-        authorizationUri: authorizationUrl,
+        authorizationUri: formData.authorizationUri,
         tokenUri: formData.oauthTokenUri,
       },
     };
@@ -178,7 +202,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
         // Build update mask dynamically for PATCH using correct camelCase paths
         const updateMask: string[] = [];
         if (formData.oauthClientId !== authToEdit.serverSideOauth2.clientId) updateMask.push('serverSideOauth2.clientId');
-        if (authorizationUrl !== authToEdit.serverSideOauth2.authorizationUri) updateMask.push('serverSideOauth2.authorizationUri');
+        if (formData.authorizationUri !== authToEdit.serverSideOauth2.authorizationUri) updateMask.push('serverSideOauth2.authorizationUri');
         if (formData.oauthTokenUri !== authToEdit.serverSideOauth2.tokenUri) updateMask.push('serverSideOauth2.tokenUri');
         if (formData.oauthClientSecret) updateMask.push('serverSideOauth2.clientSecret');
         
@@ -266,8 +290,35 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
                     <p className="mt-1 text-xs text-gray-400">Comma-separated list of scopes.</p>
                 </div>
 
-                <FormField name="oauthTokenUri" label="OAuth Token URI" value={formData.oauthTokenUri} onChange={handleChange} />
                 <FormField name="redirectUri" label="OAuth Redirect URI" value={formData.redirectUri} onChange={handleChange} />
+                
+                <div className="p-3 bg-gray-900/50 rounded-md border border-gray-700">
+                    <div className="flex items-center justify-between mb-2">
+                        <label htmlFor="authorizationUri" className="block text-sm font-medium text-gray-300">Authorization URI</label>
+                        <label className="flex items-center cursor-pointer text-xs text-blue-300 hover:text-blue-200">
+                            <input 
+                                type="checkbox" 
+                                checked={autoGenerateUri} 
+                                onChange={(e) => setAutoGenerateUri(e.target.checked)} 
+                                className="mr-2 h-3.5 w-3.5 rounded bg-gray-700 border-gray-500 text-blue-500 focus:ring-blue-600"
+                            />
+                            Auto-generate Google Auth URI
+                        </label>
+                    </div>
+                    <input
+                        type="text"
+                        name="authorizationUri"
+                        id="authorizationUri"
+                        value={formData.authorizationUri}
+                        onChange={handleChange}
+                        className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm text-white disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed"
+                        disabled={autoGenerateUri}
+                        required
+                    />
+                    <p className="mt-1 text-xs text-gray-400">The URL users are redirected to for authentication.</p>
+                </div>
+
+                <FormField name="oauthTokenUri" label="OAuth Token URI" value={formData.oauthTokenUri} onChange={handleChange} />
             </form>
 
             {/* Column 2: The Preview */}

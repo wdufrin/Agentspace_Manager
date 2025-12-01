@@ -24,7 +24,8 @@ This application is built using React and communicates with Google Cloud APIs vi
 -   **Manage Authorizations**: List, create, update, and delete OAuth client authorizations.
 -   **Manage Reasoning Engines**: List engines, view agent dependencies, and delete unused engines.
 -   **Explore Data Stores**: List data stores within a collection, view their details, and inspect individual documents and their content.
--   **Manage Licenses**: View assigned user licenses, resolve license configuration names, revoke specific licenses, and bulk prune inactive users based on last login time.
+-   **Manage Licenses**: View assigned user licenses, resolve license configuration names, and revoke specific licenses.
+    -   **Auto-Pruner Generator**: Includes a built-in wizard to generate and deploy a serverless Cloud Run function that automatically prunes inactive user licenses based on a configurable schedule (e.g., users who haven't logged in for 30 days). The pruner uses the efficient `batchUpdateUserLicenses` API.
 -   **Model Armor Log Viewer**: Fetch and inspect safety policy violation logs from Cloud Logging.
 -   **Comprehensive Backup & Restore**: Backup and restore agents, assistants, data stores, authorizations, and entire Discovery Engine configurations.
 -   **Guided Setup & API Validation**: An initial setup screen that validates if all required GCP APIs are enabled for your project and provides a one-click solution to enable any that are missing.
@@ -47,7 +48,7 @@ This application is built using React and communicates with Google Cloud APIs vi
 Before using this application, ensure you have the following:
 
 1.  **A Google Cloud Project**: Your resources will be managed within a specific GCP project.
-2.  **Enabled APIs**: Make sure the following APIs are enabled for your project:
+2.  **Enabled APIs**: The app includes a validation tool, but generally requires:
     -   Discovery Engine API
     -   AI Platform (Vertex AI) API
     -   Cloud Resource Manager API
@@ -55,316 +56,125 @@ Before using this application, ensure you have the following:
     -   Cloud Run Admin API
     -   Cloud Storage API
     -   Service Usage API
-3.  **`gcloud` CLI**: You need the Google Cloud CLI installed and authenticated to obtain an access token.
-4.  **Access Token**: Generate a temporary access token by running the following command in your terminal:
-    ```sh
-    gcloud auth print-access-token
-    ```
 
-## How to Run
+## Configuration & Setup
 
-This method is recommended for development and uses the standard Node.js ecosystem.
+### 1. Configure Google Sign-In (OAuth)
 
-1.  **Install Dependencies**: Open your terminal in the project's root directory and run:
+To use the "Sign in with Google" feature, you must configure an OAuth Client ID in your Google Cloud Project.
+
+1.  Go to **APIs & Services > Credentials** in the Google Cloud Console.
+2.  Click **Create Credentials** -> **OAuth client ID**.
+3.  Select **Web application** as the application type.
+4.  **Important:** Under **Authorized JavaScript origins**, you must add the URL where this app is running.
+    *   For local development: `http://localhost:5173` (or your specific port).
+    *   For Cloud Run deployment: `https://your-service-name-uc.a.run.app`.
+    *   *Note: If you do not add the correct origin, you will see an "idpiframe_initialization_failed" or "Cookies are not enabled" error.*
+5.  Copy the **Client ID** and update the `GOOGLE_CLIENT_ID` constant in `App.tsx` (or use an environment variable).
+
+### 2. Local Development
+
+1.  **Install Dependencies**:
     ```sh
     npm install
     ```
-2.  **Start the Development Server**: Once installation is complete, start the server:
+2.  **Start the Development Server**:
     ```sh
     npm run dev
     ```
-    This command will launch a development server and should automatically open the application in your default browser (usually at `http://localhost:3000` or a similar address).
-3.  **Configure the App**:
-    -   Paste the access token generated from the `gcloud` command into the **"Paste GCP Access Token"** field.
-    -   Follow the on-screen instructions to set your GCP Project ID/Number and validate/enable the required APIs.
-4.  **Ready to Use**: You can now use the application to manage your Gemini Enterprise resources.
+    Open `http://localhost:5173` in your browser.
+
+## Deployment to Cloud Run
+
+You can deploy this frontend application to Google Cloud Run to make it accessible to your team.
+
+### 1. Create a Dockerfile
+Create a file named `Dockerfile` in the root of the project with the following content:
+
+```dockerfile
+# Build Stage
+FROM node:20-slim AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+# Build the Vite app (outputs to /dist)
+RUN npm run build
+
+# Serve Stage
+FROM node:20-slim
+WORKDIR /app
+# Install a simple static file server
+RUN npm install -g serve
+# Copy built assets from the build stage
+COPY --from=build /app/dist ./dist
+# Expose port 8080 (Cloud Run default)
+EXPOSE 8080
+# Start the server
+CMD ["serve", "-s", "dist", "-l", "8080"]
+```
+
+### 2. Build and Deploy
+Run the following command using the Google Cloud CLI:
+
+```sh
+gcloud run deploy gemini-manager \
+  --source . \
+  --project [YOUR_PROJECT_ID] \
+  --region us-central1 \
+  --allow-unauthenticated
+```
+
+Once deployed, copy the **Service URL** and add it to your OAuth Client ID's **Authorized JavaScript origins** (see Configuration step above).
+
+## Setup Automated License Pruner
+
+This application includes a tool to automate the revocation of licenses for inactive users.
+
+1.  Navigate to the **Licenses** page in the app.
+2.  Click the **"Setup Auto-Pruner"** button.
+3.  Configure your settings (Prune threshold days, Region, etc.).
+4.  Click **Download Deployment Package**.
+5.  Unzip the package and run the included `deploy.sh` script in your terminal.
+
+This script will:
+*   Create a dedicated Service Account.
+*   Grant minimal necessary permissions (`discoveryengine.admin`, `serviceusage.serviceUsageConsumer`).
+*   Deploy a Python function to Cloud Run.
+*   Create a Cloud Scheduler job to invoke the function daily.
 
 ## Underlying Google Cloud APIs
 
-While the application uses the Google API JavaScript Client (`gapi`) for all interactions, the following `curl` examples illustrate the underlying REST API calls for each major feature. This is useful for reference, testing, and understanding the raw API endpoints.
+The application uses the Google API JavaScript Client (`gapi`) for all interactions. Below are examples of the underlying REST calls.
 
-You will need to replace placeholders like `[YOUR_PROJECT_ID]` and `[YOUR_ACCESS_TOKEN]` with your own values.
-
-### List of APIs Used
-
-The application interacts with the following Google Cloud APIs, using their respective discovery documents for client library initialization:
-
--   [Gemini Enterprise API (v1alpha)](https://discoveryengine.googleapis.com/$discovery/rest?version=v1alpha)
--   [Gemini Enterprise API (v1beta)](https://discoveryengine.googleapis.com/$discovery/rest?version=v1beta)
--   [Vertex AI API (v1beta1)](https://aiplatform.googleapis.com/$discovery/rest?version=v1beta1)
--   [Cloud Resource Manager API (v1)](https://cloudresourcemanager.googleapis.com/$discovery/rest?version=v1)
--   [Cloud Logging API (v2)](https://logging.googleapis.com/$discovery/rest?version=v2)
--   [Cloud Run Admin API (v2)](https://run.googleapis.com/$discovery/rest?version=v2)
--   [Cloud Storage API (v1)](https://www.googleapis.com/discovery/v1/apis/storage/v1/rest)
--   [Service Usage API (v1)](https://serviceusage.googleapis.com/$discovery/rest?version=v1)
-
----
-
-### Examples by Feature
-
-#### **Agents Tab**
-
-**List Agents:** Retrieves all agents within a specific assistant.
-
+### Agents
 ```sh
 curl -X GET \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents"
+  -H "Authorization: Bearer [TOKEN]" \
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[PROJECT]/locations/global/collections/default_collection/engines/[APP_ID]/assistants/default_assistant/agents"
 ```
 
-**Create an Agent:** Registers a new ADK agent linked to a Reasoning Engine.
+### Licenses (Pruning & Revocation)
+The application uses the `batchUpdateUserLicenses` method for both bulk pruning and single-user revocation. This method allows updating the state of the user store in a single operation.
 
 ```sh
+# Batch update to set the state of licenses (effectively deleting unlisted ones)
 curl -X POST \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
+  -H "Authorization: Bearer [TOKEN]" \
   -H "Content-Type: application/json" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  -d '{
-        "displayName": "My API Agent",
-        "adkAgentDefinition": {
-          "tool_settings": { "tool_description": "A tool that can call APIs." },
-          "provisioned_reasoning_engine": {
-            "reasoning_engine": "projects/[YOUR_PROJECT_ID]/locations/[RE_LOCATION]/reasoningEngines/[RE_ID]"
-          }
-        }
-      }' \
-  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents"
-```
-
-#### **Assistant Tab**
-
-**Get Assistant Details:** Retrieves the configuration of the default assistant.
-
-```sh
-curl -X GET \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/default_collection/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]"
-```
-
-#### **Authorizations Tab**
-
-**List Authorizations:** Retrieves all OAuth authorizations for the project.
-
-```sh
-curl -X GET \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/global/authorizations"
-```
-
-**Create an Authorization:** Creates a new OAuth authorization resource.
-
-```sh
-curl -X POST \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "Content-Type: application/json" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  -d '{
-        "serverSideOauth2": {
-          "clientId": "[YOUR_OAUTH_CLIENT_ID]",
-          "clientSecret": "[YOUR_OAUTH_CLIENT_SECRET]",
-          "authorizationUri": "https://accounts.google.com/o/oauth2/auth?...",
-          "tokenUri": "https://oauth2.googleapis.com/token"
-        }
-      }' \
-  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/global/authorizations?authorizationId=[NEW_AUTH_ID]"
-```
-
-#### **Agent Engines Tab**
-
-**List Reasoning Engines:** Retrieves all Reasoning Engines in a specific location.
-
-```sh
-curl -X GET \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  "https://[LOCATION]-aiplatform.googleapis.com/v1beta1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/reasoningEngines"
-```
-
-#### **Chat Tab**
-
-**Chat with an Assistant (Streaming):** Sends a prompt to a G.E. Assistant and receives a streaming response. This is the primary method for testing the overall conversational experience.
-
-```sh
-curl -X POST \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "Content-Type: application/json" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  -d '{
-        "query": { "text": "Hello, what can you do?" }
-      }' \
-  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]:streamAssist"
-```
-
-#### **Data Stores Tab**
-
-**List Data Stores:** Retrieves all data stores within a collection.
-
-```sh
-curl -X GET \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  "https://discoveryengine.googleapis.com/v1beta/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores"
-```
-
-**List Documents:** Retrieves all documents within a data store.
-
-```sh
-curl -X GET \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores/[DATASTORE_ID]/branches/0/documents"
-```
-
-#### **Licenses Tab**
-
-**List User Licenses:** Lists assigned licenses for a specific User Store.
-
-```sh
-curl -X GET \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/userStores/default_user_store/userLicenses"
-```
-
-**Revoke License (Unassign):** Removes a license from a user using batch update.
-
-```sh
-curl -X POST \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "Content-Type: application/json" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
   -d '{
         "inlineSource": {
-          "userLicenses": [
-            { "userPrincipal": "user@example.com" }
-          ],
+          "userLicenses": [ { "userPrincipal": "active-user@example.com" } ],
           "updateMask": { "paths": ["userPrincipal", "licenseConfig"] }
         },
         "deleteUnassignedUserLicenses": true
       }' \
-  "https://[LOCATION]-discoveryengine.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/userStores/default_user_store:batchUpdateUserLicenses"
+  "https://discoveryengine.googleapis.com/v1/projects/[PROJECT]/locations/global/userStores/default_user_store:batchUpdateUserLicenses"
 ```
 
-#### **Model Armor Tab**
-
-**List Violation Logs:** Fetches safety policy violation logs from Cloud Logging.
-
-```sh
-curl -X POST \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "Content-Type: application/json" \
-  -d '{
-        "projectIds": ["[YOUR_PROJECT_ID]"],
-        "filter": "log_id(\"modelarmor.googleapis.com/sanitize_operations\")",
-        "orderBy": "timestamp desc",
-        "pageSize": 50
-      }' \
-  "https://logging.googleapis.com/v2/entries:list"
-```
-
-#### **Backup & Recovery Tab**
-This feature orchestrates a series of `list` and `get` calls for backup, and corresponding `create` calls for restore. The following are representative examples of the API calls used.
-
-**List Collections (Backup):** A primary step in backing up discovery resources.
+### A2A Agent Discovery
 ```sh
 curl -X GET \
-  -H "Authorization: Bearer [TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/collections"
-```
-
-**Create Collection (Restore):** The first step when restoring a full set of discovery resources.
-```sh
-curl -X POST \
-  -H "Authorization: Bearer [TOKEN]" \
-  -H "Content-Type: application/json" \
-  -d '{"displayName": "[COLLECTION_DISPLAY_NAME]"}' \
-  "https://[LOCATION]-discoveryengine.googleapis.com/v1beta/projects/[PROJECT_ID]/locations/[LOCATION]/collections?collectionId=[COLLECTION_ID]"
-```
-
-#### **Architecture Visualizer Tab**
-The architecture scan performs a series of 'list' operations across multiple regions and resource types to discover all connected components. The core calls include listing global resources, then iterating through regions and locations.
-
-**List Discovery Engines:** A key recursive step in the scan.
-```sh
-# The scan iterates over discovery locations like global, us, eu.
-# Then it recursively lists assistants and agents found within each engine.
-curl -X GET \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[DISCOVERY_LOCATION]/collections/default_collection/engines"
-```
-
-**Get Agent View (For Dependencies):** After finding an agent, its 'view' is fetched to find linked Data Stores.
-```sh
-curl -X GET \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/[FULL_AGENT_RESOURCE_NAME]:getAgentView"
-```
-
-#### **Agent Builder Tab**
-
-**Deploy to a New Reasoning Engine:** Creates a new engine with a deployed ADK agent package from GCS.
-
-```sh
-curl -X POST \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "Content-Type: application/json" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  -d '{
-        "displayName": "My New Deployed Agent",
-        "spec": {
-          "agentFramework": "google-adk",
-          "packageSpec": {
-            "pickleObjectGcsUri": "gs://[BUCKET_NAME]/[PATH]/agent.pkl",
-            "requirementsGcsUri": "gs://[BUCKET_NAME]/[PATH]/requirements.txt",
-            "pythonVersion": "3.10"
-          }
-        }
-      }' \
-  "https://[LOCATION]-aiplatform.googleapis.com/v1beta1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/reasoningEngines"
-```
-
-#### **A2A Agent Management (A2A Functions, Registration, Tester)**
-
-**Register an A2A Agent:** Creates a new agent resource from a deployed Cloud Run function.
-
-```sh
-# The 'jsonAgentCard' is a stringified JSON object.
-curl -X POST \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "Content-Type: application/json" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  -d '{
-        "displayName": "My A2A Agent",
-        "description": "An agent that provides weather information.",
-        "a2aAgentDefinition": {
-          "jsonAgentCard": "{\"provider\":{\"organization\":\"My Company\",\"url\":\"https://my-a2a-function-....run.app\"},\"name\":\"My A2A Agent\", ...}"
-        }
-      }' \
-  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[...]/agents?agentId=my-weather-agent"
-```
-
-**Test an A2A Agent (Discovery):** Fetches the `agent.json` discovery file from a deployed A2A function. **Note:** This requires an **Identity Token**, not an Access Token.
-
-```sh
-# Generate the Identity Token and make the request in one command
-curl -X GET \
-  -H "Authorization: Bearer $(gcloud auth print-identity-token --audience https://[YOUR_SERVICE_URL].run.app)" \
-  "https://[YOUR_SERVICE_URL].run.app/.well-known/agent.json"
-```
-
-#### **MCP Servers Tab**
-
-**List Cloud Run Services:** Retrieves all Cloud Run services in a region to scan for MCP servers.
-
-```sh
-curl -X GET \
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \
-  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \
-  "https://[LOCATION]-run.googleapis.com/v2/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/services"
+  -H "Authorization: Bearer [IDENTITY_TOKEN]" \
+  "https://[CLOUD_RUN_URL]/.well-known/agent.json"
 ```

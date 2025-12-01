@@ -7,6 +7,7 @@ import Spinner from '../components/Spinner';
 import JsonViewModal from '../components/license/JsonViewModal';
 import PruneLicensesModal from '../components/license/PruneLicensesModal';
 import ConfirmationModal from '../components/ConfirmationModal';
+import PrunerDeploymentModal from '../components/license/PrunerDeploymentModal';
 
 interface LicensePageProps {
   projectNumber: string;
@@ -41,6 +42,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
   // Modal States
   const [jsonModalData, setJsonModalData] = useState<any | null>(null);
   const [isPruneModalOpen, setIsPruneModalOpen] = useState(false);
+  const [isDeploymentModalOpen, setIsDeploymentModalOpen] = useState(false);
   
   // Single Delete State
   const [licenseToDelete, setLicenseToDelete] = useState<any | null>(null);
@@ -288,6 +290,15 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
           isDeleting={isActionLoading}
       />
       
+      {isDeploymentModalOpen && (
+          <PrunerDeploymentModal 
+            isOpen={isDeploymentModalOpen}
+            onClose={() => setIsDeploymentModalOpen(false)}
+            projectNumber={projectNumber}
+            currentConfig={apiConfig}
+          />
+      )}
+      
       {licenseToDelete && (
         <ConfirmationModal
             isOpen={isDeleteModalOpen}
@@ -369,6 +380,13 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                         className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center whitespace-nowrap h-[38px]"
                     >
                         Prune Inactive
+                    </button>
+                    <button 
+                        onClick={() => setIsDeploymentModalOpen(true)}
+                        disabled={!projectNumber}
+                        className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center whitespace-nowrap h-[38px]"
+                    >
+                        Setup Auto-Pruner
                     </button>
                 </div>
             </div>
