@@ -67,7 +67,7 @@ To use the "Sign in with Google" feature, you must configure an OAuth Client ID 
 2.  Click **Create Credentials** -> **OAuth client ID**.
 3.  Select **Web application** as the application type.
 4.  **Important:** Under **Authorized JavaScript origins**, you must add the URL where this app is running.
-    *   For local development: `http://localhost:5173` (or your specific port).
+    *   For local development: `http://localhost:3000` (or your specific port).
     *   For Cloud Run deployment: `https://your-service-name-uc.a.run.app`.
     *   *Note: If you do not add the correct origin, you will see an "idpiframe_initialization_failed" or "Cookies are not enabled" error.*
 5.  Copy the **Client ID** and update the `GOOGLE_CLIENT_ID` constant in `App.tsx` (or use an environment variable).
@@ -82,7 +82,7 @@ To use the "Sign in with Google" feature, you must configure an OAuth Client ID 
     ```sh
     npm run dev
     ```
-    Open `http://localhost:5173` in your browser.
+    Open `http://localhost:3000` in your browser.
 
 ## Deployment to Cloud Run
 
