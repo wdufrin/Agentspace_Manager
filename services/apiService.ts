@@ -225,7 +225,7 @@ export const checkAllPermissions = async (projectNumber: string): Promise<{
         const granted = response.result.permissions || [];
         const denied = ALL_REQUIRED_PERMISSIONS.filter(p => !granted.includes(p));
         return { granted, denied };
-    }).catch((err: any) {
+    }).catch((err: any) => {
         console.error("GAPI Error during testIamPermissions for user:", err);
         let detailMessage = 'An unknown error occurred while checking permissions.';
         if (typeof err === 'string') {
