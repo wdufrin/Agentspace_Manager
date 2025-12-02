@@ -1,3 +1,4 @@
+
 # Gemini Enterprise Manager
 
 A web interface to manage Google Cloud Gemini Enterprise resources, including agents, authorizations, and reasoning engines. This UI provides a user-friendly way to perform operations similar to the `gcloud` CLI tool for Gemini Enterprise. It includes a guided setup process to validate and enable necessary Google Cloud APIs, making project configuration straightforward.
@@ -19,10 +20,10 @@ This application is built using React and communicates with Google Cloud APIs vi
 ## Key Features
 
 -   **Manage Agents**: List, create, update, delete, enable/disable, and chat with agents.
--   **Manage Assistant**: View and edit the settings of the default assistant for a Gemini Enterprise Engine, including system instructions, grounding settings, and enabled tools.
--   **Test Assistant**: A dedicated, full-page interface for chatting with a Gemini Enterprise assistant to test the overall conversational experience.
 -   **Manage Authorizations**: List, create, update, and delete OAuth client authorizations.
 -   **Manage Reasoning Engines**: List engines, view agent dependencies, and delete unused engines.
+-   **Agent Builder**: A powerful UI to construct ADK-based agents from scratch. It automatically generates the necessary Python code (`agent.py`), environment (`.env`), and dependency (`requirements.txt`) files.
+-   **Agent Catalog**: Browse sample agents from GitHub repositories and deploy them directly to your project.
 -   **Explore Data Stores**: List data stores within a collection, view their details, and inspect individual documents and their content.
 -   **Manage Licenses**: View assigned user licenses, resolve license configuration names, and revoke specific licenses.
     -   **Auto-Pruner Generator**: Includes a built-in wizard to generate and deploy a serverless Cloud Run function that automatically prunes inactive user licenses based on a configurable schedule (e.g., users who haven't logged in for 30 days). The pruner uses the efficient `batchUpdateUserLicenses` API.
@@ -32,12 +33,9 @@ This application is built using React and communicates with Google Cloud APIs vi
 
 ### Beta Features
 
+-   **Test Assistant**: A dedicated, full-page interface for chatting with a Gemini Enterprise assistant to test the overall conversational experience.
+-   **Manage Assistant**: View and edit the settings of the default assistant for a Gemini Enterprise Engine, including system instructions, grounding settings, and enabled tools.
 -   **Architecture Visualizer**: Scans your project to discover all Gemini Enterprise resources and renders an interactive, top-down graph of their relationships and dependencies.
--   **Agent Builder**: A powerful UI to construct ADK-based agents from scratch. It automatically generates the necessary Python code (`agent.py`), environment (`.env`), and dependency (`requirements.txt`) files. Features include:
-    -   A tool builder for easily adding Vertex AI Search tools.
-    -   Options to download the complete agent code as a `.zip` file.
-    -   An integrated uploader to stage agent files (`agent.pkl` and `requirements.txt`) directly to a GCS bucket.
-    -   A deployment wizard to deploy the staged agent to a new or existing Reasoning Engine.
 -   **A2A Function Builder**: A tool to generate the source code (`main.py`, `Dockerfile`, `requirements.txt`) for a secure, serverless A2A (Agent-to-Agent) function on Cloud Run.
 -   **Agent Registration**: A guided UI to register a deployed A2A function with a Gemini Enterprise Engine, making it discoverable as a tool.
 -   **A2A Tester**: A simple utility to test the discovery endpoint (`agent.json`) of a deployed A2A function.

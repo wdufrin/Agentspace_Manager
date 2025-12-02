@@ -133,6 +133,75 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
             },
         ]
     },
+    [Page.AGENT_BUILDER]: {
+        description: "The Agent Builder uses Cloud Build to package and deploy agents. It also lists Data Stores to help configure tools.",
+        commands: [
+            {
+                title: 'Trigger Cloud Build (Deploy)',
+                command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "source": { "storageSource": { "bucket": "[STAGING_BUCKET]", "object": "source/agent.zip" } },
+        "steps": [
+          { "name": "python:3.10", "args": ["pip install ... && python deploy_re.py"] }
+        ]
+      }' \\
+  "https://cloudbuild.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/builds"`
+            },
+            {
+                title: 'List Data Stores (for Tool Selection)',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1beta/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/default_collection/dataStores"`
+            }
+        ]
+    },
+    [Page.AGENT_CATALOG]: {
+        description: "The Agent Catalog allows browsing project agents and deploying samples from GitHub using Cloud Build.",
+        commands: [
+            {
+                title: 'Trigger Cloud Build (Deploy Sample)',
+                command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "source": { "storageSource": { "bucket": "[STAGING_BUCKET]", "object": "source/sample_agent.zip" } },
+        "steps": [ ... ]
+      }' \\
+  "https://cloudbuild.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/builds"`
+            },
+            {
+                title: 'List Project Agents',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents"`
+            }
+        ]
+    },
+    [Page.CLOUD_RUN_AGENTS]: {
+        description: "This page lists and inspects Cloud Run services to identify potential agents. It uses the Cloud Run Admin API v2.",
+        commands: [
+            {
+                title: 'List Cloud Run Services',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-run.googleapis.com/v2/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/services"`
+            },
+            {
+                title: 'Get Service Details',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-run.googleapis.com/v2/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/services/[SERVICE_ID]"`
+            }
+        ]
+    },
     'Backup:DiscoveryResources': {
         description: "A full discovery resource backup involves recursively listing all collections, engines, assistants, and agents. The primary starting point is listing collections.",
         commands: [{ title: 'List Collections (Primary Step)', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/collections"` }]

@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Config, Collection, DataStore, GcsBucket } from '../types';
 import * as api from '../services/apiService';
-import DeployModal from '../components/agent-builder/DeployModal';
+import AgentDeploymentModal from '../components/agent-catalog/AgentDeploymentModal';
 import { GoogleGenAI } from "@google/genai";
 import CloudBuildProgress from '../components/agent-builder/CloudBuildProgress';
 
@@ -23,15 +24,6 @@ interface AgentConfig {
     useGoogleSearch: boolean;
     enableOAuth: boolean;
     authId: string;
-}
-
-export interface DeployInfo {
-    engineName: string;
-    gcsStagingUri: string;
-    location: string;
-    deployMode: 'existing' | 'new';
-    newEngineDisplayName: string;
-    pickleGcsUri: string;
 }
 
 // Defer AI client initialization to avoid crash on load
@@ -126,7 +118,10 @@ def print_tool_context(tool_context: ToolContext):
         'import os',
         'from dotenv import load_dotenv',
         agentImport,
-        'from vertexai.preview.reasoning_engines import AdkApp',
+        'try:',
+        '    from vertexai.agent_engines import AdkApp',
+        'except ImportError:',
+        '    from vertexai.preview.reasoning_engines import AdkApp',
         ...Array.from(toolImports),
     ].join('\n');
 
@@ -167,7 +162,7 @@ GOOGLE_CLOUD_LOCATION="${location}"`;
 
 const generateRequirementsFile = (config: AgentConfig): string => {
     const requirements = new Set([
-        'google-cloud-aiplatform[adk,agent_engines]<1.17.0', 
+        'google-cloud-aiplatform[adk,agent_engines]>=1.38', 
         'python-dotenv'
     ]);
     if (config.enableOAuth) {
@@ -177,88 +172,25 @@ const generateRequirementsFile = (config: AgentConfig): string => {
     return Array.from(requirements).join('\n');
 };
 
-const generateCreatePickleFile = (): string => {
-    return `
-import pickle
-from agent import app
-
-# This script serializes the 'app' object from your agent.py file
-# into a pickle file named 'agent.pkl'.
-
-try:
-    with open('agent.pkl', 'wb') as f:
-        pickle.dump(app, f)
-    print("\\n✅ Successfully created agent.pkl\\n")
-except Exception as e:
-    print(f"\\n❌ Error creating pickle file: {e}\\n")
-`.trim();
-};
-
 const generateReadmeFile = (): string => {
     return `
 # Agent Quickstart
 
-You have successfully generated the Python source code for your agent. Follow these steps to create the \`agent.pkl\` file required for deployment.
+This agent was created using the Gemini Enterprise Manager Agent Builder.
 
-## Prerequisites
+## Local Development
 
-- Python 3.10 or later installed.
-- \`pip\` and \`venv\` (usually included with Python).
+1.  **Unzip the files.**
+2.  **Install dependencies:**
+    \`\`\`sh
+    pip install -r requirements.txt
+    \`\`\`
+3.  **Run the agent:**
+    You can use the \`agent.py\` file to run or debug your agent locally.
 
-## Steps
+## Deployment
 
-### 1. Set Up Your Local Environment
-
-First, unzip the downloaded files (\`agent.py\`, \`.env\`, \`requirements.txt\`, \`create_pickle.py\`) into a new folder on your local machine.
-
-Open your terminal and navigate into that folder:
-
-\`\`\`sh
-cd /path/to/your/agent-folder
-\`\`\`
-
-Create and activate a Python virtual environment. This keeps your project dependencies isolated.
-
-\`\`\`sh
-# Create the virtual environment
-python3 -m venv venv
-
-# Activate it (on macOS/Linux)
-source venv/bin/activate
-
-# Activate it (on Windows)
-.\\venv\\Scripts\\activate
-\`\`\`
-
-### 2. Install Dependencies
-
-Install the required Python libraries using the \`requirements.txt\` file.
-
-\`\`\`sh
-pip install -r requirements.txt
-\`\`\`
-
-### 3. Create the \`agent.pkl\` File
-
-We have provided the \`create_pickle.py\` script to generate the required \`.pkl\` file.
-
-Run the script from your terminal:
-
-\`\`\`sh
-python create_pickle.py
-\`\`\`
-
-If successful, you will see a new file named \`agent.pkl\` in your folder.
-
-### 4. Next Steps: Upload and Deploy
-
-You are now ready to deploy your agent.
-
-1.  **Return to the Gemini Enterprise Manager UI.**
-2.  Go to the **"Step 2: Upload Agent Package to GCS"** section.
-3.  Select both the \`agent.pkl\` file you just created and the \`requirements.txt\` file.
-4.  Upload them to your chosen GCS bucket.
-5.  Proceed to the **"Step 3: Deploy to Reasoning Engine"** step to complete the deployment.
+Use the **"Deploy to Reasoning Engine"** button in the Agent Builder UI to deploy this agent directly to Google Cloud Vertex AI without manual steps.
 `.trim();
 };
 
@@ -282,7 +214,7 @@ const AgentBuilderPage: React.FC<{ projectNumber: string; }> = ({ projectNumber 
     const [generatedEnvCode, setGeneratedEnvCode] = useState('');
     const [generatedRequirementsCode, setGeneratedRequirementsCode] = useState('');
     const [generatedReadmeCode, setGeneratedReadmeCode] = useState('');
-    const [generatedCreatePickleCode, setGeneratedCreatePickleCode] = useState('');
+    
     const [activeTab, setActiveTab] = useState<'agent' | 'env' | 'requirements' | 'readme'>('agent');
     const [copySuccess, setCopySuccess] = useState('');
     
@@ -303,19 +235,8 @@ const AgentBuilderPage: React.FC<{ projectNumber: string; }> = ({ projectNumber 
 
     // State for deployment
     const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
-    const [activeBuildId, setActiveBuildId] = useState<string | null>(null);
+    const [activeBuilds, setActiveBuilds] = useState<string[]>([]);
 
-    // State for GCS Upload
-    const [gcsUploadBucket, setGcsUploadBucket] = useState('');
-    const [gcsUploadPath, setGcsUploadPath] = useState('');
-    const [isUploading, setIsUploading] = useState(false);
-    const [uploadLogs, setUploadLogs] = useState<string[]>([]);
-    const [buckets, setBuckets] = useState<GcsBucket[]>([]);
-    const [isLoadingBuckets, setIsLoadingBuckets] = useState(false);
-    const [bucketLoadError, setBucketLoadError] = useState<string | null>(null);
-    const [pickleFile, setPickleFile] = useState<File | null>(null);
-    const [requirementsFile, setRequirementsFile] = useState<File | null>(null);
-    
     const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectNumber,
       appLocation: toolBuilderConfig.location,
@@ -330,12 +251,11 @@ const AgentBuilderPage: React.FC<{ projectNumber: string; }> = ({ projectNumber 
         const envCode = generateEnvFile(agentConfig, projectNumber, vertexLocation);
         const reqsCode = generateRequirementsFile(agentConfig);
         const readmeCode = generateReadmeFile();
-        const createPickleCode = generateCreatePickleFile();
+        
         setGeneratedAgentCode(agentCode);
         setGeneratedEnvCode(envCode);
         setGeneratedRequirementsCode(reqsCode);
         setGeneratedReadmeCode(readmeCode);
-        setGeneratedCreatePickleCode(createPickleCode);
     }, [agentConfig, projectNumber, vertexLocation]);
 
     const handleAgentConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -486,7 +406,6 @@ Rewritten Instruction:`;
         zip.file('agent.py', generatedAgentCode);
         zip.file('.env', generatedEnvCode);
         zip.file('requirements.txt', generatedRequirementsCode);
-        zip.file('create_pickle.py', generatedCreatePickleCode);
         zip.file('README.md', generatedReadmeCode);
 
         const blob = await zip.generateAsync({ type: 'blob' });
@@ -500,81 +419,13 @@ Rewritten Instruction:`;
         URL.revokeObjectURL(url);
     };
 
-     const handleDeploy = async (deployInfo: DeployInfo, addLog: (log: string) => void) => {
-        try {
-            addLog('Deployment started...');
-            const gcsUri = deployInfo.gcsStagingUri.endsWith('/') ? deployInfo.gcsStagingUri : `${deployInfo.gcsStagingUri}/`;
-            const gcsMatch = gcsUri.match(/^gs:\/\/([a-zA-Z0-9._-]+)\/(.*)$/);
-            if (!gcsMatch) {
-                throw new Error('Invalid GCS URI format. Expected gs://bucket-name/path/');
-            }
-            
-            addLog('Parsing environment variables from generated .env file...');
-            const allEnvVars = generatedEnvCode
-                .split('\n')
-                .filter(line => line.trim() !== '' && !line.startsWith('#'))
-                .map(line => {
-                    const parts = line.split('=');
-                    const key = parts.shift() || '';
-                    const value = parts.join('=').trim().replace(/^"|"$/g, '');
-                    return { name: key.trim(), value };
-                });
+    const handleBuildTriggered = (buildId: string) => {
+        setActiveBuilds(prev => [...prev, buildId]);
+        setIsDeployModalOpen(false); // Close modal on success
+    };
 
-            const reservedKeys = new Set(['GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION']);
-            const envVars = allEnvVars.filter(envVar => !reservedKeys.has(envVar.name));
-
-            addLog(`  - Found ${allEnvVars.length} total variables.`);
-            addLog(`  - Filtering out ${reservedKeys.size} reserved variables.`);
-            addLog(`  - Injecting ${envVars.length} variables into deployment spec.`);
-
-            addLog('Verifying staged files are present...');
-            const requirementsUri = `${gcsUri}requirements.txt`;
-            addLog(`  - Using requirements file: ${requirementsUri}`);
-            addLog(`  - Using pickle file: ${deployInfo.pickleGcsUri}`);
-
-            const deployConfig = { ...apiConfig, reasoningEngineLocation: deployInfo.location };
-
-            // Construct the full specification for the agent
-            const spec = {
-                agentFramework: 'google-adk',
-                packageSpec: {
-                    pickleObjectGcsUri: deployInfo.pickleGcsUri,
-                    requirementsGcsUri: requirementsUri,
-                    pythonVersion: '3.10',
-                },
-                deploymentSpec: {
-                    env: envVars,
-                },
-            };
-
-            let operationName = '';
-
-            if (deployInfo.deployMode === 'new') {
-                addLog(`Creating new Reasoning Engine: ${deployInfo.newEngineDisplayName}...`);
-                const createPayload = {
-                    displayName: deployInfo.newEngineDisplayName,
-                    description: "An agent deployed via the Gemini Enterprise Manager.",
-                    spec: spec,
-                };
-                let createOperation = await api.createReasoningEngine(createPayload, deployConfig);
-                operationName = createOperation.name;
-                addLog(`Create operation started: ${operationName}`);
-
-            } else { // 'existing' mode
-                const engineToUpdate = deployInfo.engineName;
-                addLog(`Updating Reasoning Engine '${engineToUpdate.split('/').pop()}' with new package...`);
-                
-                const updatePayload = { spec: spec };
-                
-                let updateOperation = await api.updateReasoningEngine(engineToUpdate, updatePayload, deployConfig);
-                operationName = updateOperation.name;
-                addLog(`Update operation started: ${operationName}`);
-            }
-
-        } catch (err: any) {
-            addLog(`ERROR: ${err.message}`);
-            throw err;
-        }
+    const removeBuild = (id: string) => {
+        setActiveBuilds(prev => prev.filter(b => b !== id));
     };
     
     const codeToDisplay = useMemo(() => {
@@ -587,73 +438,14 @@ Rewritten Instruction:`;
         }
     }, [activeTab, generatedAgentCode, generatedEnvCode, generatedRequirementsCode, generatedReadmeCode]);
 
-    const handleLoadBuckets = useCallback(async () => {
-        if (!projectNumber) return;
-        setIsLoadingBuckets(true);
-        setBucketLoadError(null);
-        setBuckets([]);
-        try {
-            const res = await api.listBuckets(projectNumber);
-            setBuckets(res.items || []);
-        } catch (err: any) {
-            setBucketLoadError(err.message || 'Failed to load buckets.');
-        } finally {
-            setIsLoadingBuckets(false);
-        }
-    }, [projectNumber]);
+    const deployFiles = useMemo(() => [
+        { name: 'agent.py', content: generatedAgentCode },
+        { name: 'requirements.txt', content: generatedRequirementsCode },
+        { name: 'README.md', content: generatedReadmeCode },
+        // Pass .env content as .env.example so the deployment modal parses it for configuration variables
+        { name: '.env.example', content: generatedEnvCode }
+    ], [generatedAgentCode, generatedRequirementsCode, generatedReadmeCode, generatedEnvCode]);
     
-    const addUploadLog = (log: string) => {
-        setUploadLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${log}`]);
-    };
-
-    const handlePickleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files.length > 0) {
-            setPickleFile(e.target.files[0]);
-        } else {
-            setPickleFile(null);
-        }
-    };
-    
-    const handleRequirementsFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files.length > 0) {
-            setRequirementsFile(e.target.files[0]);
-        } else {
-            setRequirementsFile(null);
-        }
-    };
-
-    const handleStageFiles = async () => {
-        if (!gcsUploadBucket || !pickleFile || !requirementsFile) {
-            alert('Please select a GCS bucket and both an agent.pkl and requirements.txt file.');
-            return;
-        }
-        setIsUploading(true);
-        setUploadLogs([]);
-        addUploadLog(`Starting upload to gs://${gcsUploadBucket}/${gcsUploadPath}`);
-
-        try {
-            const path = gcsUploadPath.endsWith('/') || gcsUploadPath === '' ? gcsUploadPath : `${gcsUploadPath}/`;
-
-            // Upload pickle file
-            const pickleObjectName = `${path}${pickleFile.name}`;
-            addUploadLog(`Uploading ${pickleFile.name} to ${pickleObjectName}...`);
-            await api.uploadFileToGcs(gcsUploadBucket, pickleObjectName, pickleFile, projectNumber);
-            addUploadLog(`  - ${pickleFile.name} uploaded successfully.`);
-
-            // Upload requirements.txt
-            const reqsObjectName = `${path}${requirementsFile.name}`;
-            addUploadLog(`Uploading ${requirementsFile.name} to ${reqsObjectName}...`);
-            await api.uploadFileToGcs(gcsUploadBucket, reqsObjectName, requirementsFile, projectNumber);
-            addUploadLog(`  - ${requirementsFile.name} uploaded successfully.`);
-
-            addUploadLog('Staging files uploaded successfully!');
-
-        } catch (err: any) {
-            addUploadLog(`ERROR: ${err.message}`);
-        } finally {
-            setIsUploading(false);
-        }
-    };
     
     const AiRewriteButton: React.FC<{ field: 'description' | 'instruction' }> = ({ field }) => {
         const isRewriting = rewritingField === field;
@@ -679,28 +471,31 @@ Rewritten Instruction:`;
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full relative">
-            {/* Deployment Progress Bar - Wrapped in Fixed Container */}
-            {activeBuildId && projectNumber && (
-                <div className="fixed bottom-4 right-4 z-50">
+            {/* Deployment Progress Bar - Stacks multiple notifications */}
+            <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 items-end">
+                {activeBuilds.map(id => (
                     <CloudBuildProgress 
+                        key={id} 
                         projectId={projectNumber} 
-                        buildId={activeBuildId} 
-                        onClose={() => setActiveBuildId(null)} 
+                        buildId={id} 
+                        onClose={() => removeBuild(id)} 
                     />
-                </div>
-            )}
+                ))}
+            </div>
 
             {isDeployModalOpen && (
-                <DeployModal
+                <AgentDeploymentModal
                     isOpen={isDeployModalOpen}
                     onClose={() => setIsDeployModalOpen(false)}
-                    onDeploy={handleDeploy}
-                    config={apiConfig}
+                    agentName={agentConfig.name || 'unnamed_agent'}
+                    files={deployFiles}
+                    projectNumber={projectNumber}
+                    onBuildTriggered={handleBuildTriggered}
                 />
             )}
+            
             {/* Left Panel: Configuration */}
             <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col gap-4 overflow-y-auto">
-                {/* ... (Existing Content) ... */}
                 <h2 className="text-xl font-semibold text-white">Agent Configuration</h2>
                 
                 {/* Agent Details */}
@@ -875,100 +670,17 @@ Rewritten Instruction:`;
 
                 {/* Export & Deploy Section */}
                 <div className="space-y-4 p-3 bg-gray-900/50 rounded-md">
-                    <h2 className="text-xl font-semibold text-white">Export & Deploy Workflow</h2>
-                    
-                    {/* Step 1: Download */}
-                    <div>
-                        <h3 className="text-lg font-semibold text-white mb-1">Step 1: Download & Prepare Locally</h3>
-                        <p className="text-xs text-gray-400 mb-2">Download a .zip file with your agent code. Follow the instructions in the included <code className="bg-gray-800 p-1 rounded text-xs">README.md</code> to create the required <code className="bg-gray-800 p-1 rounded text-xs">agent.pkl</code> file locally.</p>
-                        <button onClick={handleDownloadCode} className="w-full px-4 py-2 bg-gray-600 text-white text-sm font-semibold rounded-md hover:bg-gray-500">
-                            Download Agent Package (.zip)
-                        </button>
-                    </div>
-
-                    <div className="border-t border-gray-700"></div>
-
-                    {/* Step 2: Upload Agent Package */}
-                    <div className="space-y-3">
-                        <h3 className="text-lg font-semibold text-white">Step 2: Upload Agent Package to GCS</h3>
-                        <p className="text-xs text-gray-400 -mt-2">Upload your prepared agent files to a GCS bucket. This makes them available for deployment.</p>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400">GCS Bucket</label>
-                            <div className="flex items-center gap-2 mt-1">
-                                <select 
-                                    value={gcsUploadBucket} 
-                                    onChange={(e) => setGcsUploadBucket(e.target.value)} 
-                                    className="w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2 h-[38px]" 
-                                    disabled={isUploading || isLoadingBuckets}
-                                >
-                                    <option value="">{isLoadingBuckets ? 'Loading...' : '-- Select a Bucket --'}</option>
-                                    {buckets.map(bucket => <option key={bucket.id} value={bucket.name}>{bucket.name}</option>)}
-                                </select>
-                                <button onClick={handleLoadBuckets} disabled={isLoadingBuckets || isUploading} className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-md hover:bg-indigo-700 h-[38px] shrink-0">
-                                    {isLoadingBuckets ? '...' : 'Load'}
-                                </button>
-                            </div>
-                            {bucketLoadError && <p className="text-xs text-red-400 mt-1">{bucketLoadError}</p>}
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400">GCS Path (Optional)</label>
-                            <input 
-                                type="text" 
-                                value={gcsUploadPath} 
-                                onChange={(e) => setGcsUploadPath(e.target.value)} 
-                                placeholder="e.g., my-agent-files/" 
-                                className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md text-sm p-2" 
-                                disabled={isUploading} 
-                            />
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                             <div>
-                                <label htmlFor="pickle-file-input" className="block text-sm font-medium text-gray-400">Agent Pickle File <span className="text-red-400">*</span></label>
-                                <p className="text-xs text-gray-500 mb-1">Select `agent.pkl`.</p>
-                                <input 
-                                    id="pickle-file-input"
-                                    type="file" 
-                                    accept=".pkl"
-                                    onChange={handlePickleFileChange}
-                                    className="mt-1 block w-full text-xs text-gray-400 file:mr-2 file:py-1.5 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-gray-700 file:text-gray-300 hover:file:bg-gray-600"
-                                    disabled={isUploading} 
-                                />
-                            </div>
-                             <div>
-                                <label htmlFor="requirements-file-input" className="block text-sm font-medium text-gray-400">Requirements File <span className="text-red-400">*</span></label>
-                                <p className="text-xs text-gray-500 mb-1">Select `requirements.txt`.</p>
-                                <input 
-                                    id="requirements-file-input"
-                                    type="file" 
-                                    accept=".txt"
-                                    onChange={handleRequirementsFileChange}
-                                    className="mt-1 block w-full text-xs text-gray-400 file:mr-2 file:py-1.5 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-gray-700 file:text-gray-300 hover:file:bg-gray-600"
-                                    disabled={isUploading} 
-                                />
-                            </div>
-                        </div>
-                        <button onClick={handleStageFiles} disabled={isUploading || !gcsUploadBucket || !pickleFile || !requirementsFile} className="w-full px-4 py-2 bg-teal-600 text-white text-sm font-semibold rounded-md hover:bg-teal-700 disabled:bg-gray-500 flex items-center justify-center">
-                            {isUploading && <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>}
-                            {isUploading ? 'Uploading...' : 'Upload Agent Package'}
-                        </button>
-                        {uploadLogs.length > 0 && (
-                            <div className="mt-2">
-                                <h4 className="text-sm font-semibold text-gray-300">Upload Log</h4>
-                                <pre className="bg-gray-800 text-xs text-gray-300 p-2 mt-1 rounded-md h-24 overflow-y-auto font-mono">
-                                    {uploadLogs.join('\n')}
-                                </pre>
-                            </div>
-                        )}
-                    </div>
-                    
-                    <div className="border-t border-gray-700"></div>
-
-                    {/* Step 3: Deploy */}
-                    <div>
-                        <h3 className="text-lg font-semibold text-white">Step 3: Deploy to Reasoning Engine</h3>
-                        <p className="text-xs text-gray-400 mb-2">Open the deployment wizard to use your staged files to update an existing engine or create a new one.</p>
-                        <button onClick={() => setIsDeployModalOpen(true)} className="w-full px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700">
+                    <h2 className="text-xl font-semibold text-white">Deploy</h2>
+                    <p className="text-sm text-gray-400 mb-2">
+                        Deploy directly to Google Cloud using Cloud Build. No local setup required.
+                    </p>
+                    <div className="flex gap-3">
+                        <button onClick={() => setIsDeployModalOpen(true)} className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-500 hover:to-teal-400 text-white font-bold rounded-lg shadow-lg transform transition-transform active:scale-95 flex justify-center items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" /></svg>
                             Deploy to Reasoning Engine
+                        </button>
+                        <button onClick={handleDownloadCode} className="px-4 py-3 bg-gray-600 text-white text-sm font-semibold rounded-lg hover:bg-gray-500" title="Download Source Code (.zip)">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                         </button>
                     </div>
                 </div>
