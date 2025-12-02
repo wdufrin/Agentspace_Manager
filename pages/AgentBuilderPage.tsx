@@ -571,100 +571,6 @@ Rewritten Instruction:`;
                 addLog(`Update operation started: ${operationName}`);
             }
 
-            // Extract project and build IDs if available (for Cloud Build operations)
-            // Note: Reasoning Engine operations run on Vertex AI, not strictly Cloud Build directly exposed here unless using the custom container flow.
-            // But if we used the Cloud Build flow from the modal (which handles Docker/Custom Containers), `createCloudBuild` returns a build ID.
-            // The `handleDeploy` here seems to cover Reasoning Engine deployment.
-            // If the user used the "Launch Build & Deploy" from `AgentDeploymentModal` (the other component in `components/agent-catalog/`), that handles Cloud Build directly.
-            // Wait, there are two deployment paths. One in `AgentBuilderPage` (this file) and one in `AgentCatalogPage` -> `AgentDeploymentModal`.
-            // The user asked to add the progress bar to `AgentBuilderPage`.
-            // The `AgentBuilderPage` uses `components/agent-builder/DeployModal`.
-            
-            // However, the `AgentDeploymentModal` in `components/agent-catalog/` handles Cloud Build.
-            // The `AgentBuilderPage` (this file) handles Reasoning Engine deployment directly via Vertex AI API (Long Running Operation).
-            // It does NOT use `createCloudBuild` here. It uses `createReasoningEngine` which returns an LRO.
-            // BUT, if we look at `AgentDeploymentModal` (the one for catalogs), it DOES use `createCloudBuild`.
-            // The prompt said "monitor the agent deployment... show cloud build logs".
-            // This implies the user is likely using the Cloud Build flow, typically found in `AgentCatalogPage`.
-            // OR maybe they want it for `AgentBuilderPage` too?
-            
-            // Re-reading `AgentBuilderPage` code:
-            // It has `handleDeploy` which calls `api.createReasoningEngine`.
-            // This returns an LRO, not a Build ID.
-            
-            // BUT wait, look at `components/agent-catalog/AgentDeploymentModal.tsx`:
-            // It calls `api.createCloudBuild`.
-            
-            // Did I edit the wrong file in my thought process?
-            // "Add a progress bar to the bottom right of the window to monitor the agent deployment."
-            // "Window" usually implies the main page.
-            // If I am on `AgentBuilderPage`, the deployment is `api.createReasoningEngine` (LRO).
-            // If I am on `AgentCatalogPage`, the deployment is `api.createCloudBuild`.
-            
-            // Let's assume the user meant the `AgentBuilderPage` specifically as they said "AgentBuilderPage" in the prompt context implicitly or explicitly?
-            // Actually the user just said "added a progress bar... to monitor the agent deployment".
-            // AND "if clicked on, expand up to show the cloud build logs".
-            // Cloud Build logs exist for Cloud Build.
-            // `AgentBuilderPage` *only* does Reasoning Engine deployment via LRO (Vertex AI), not Cloud Build directly (unless using custom container, but here it uses `packageSpec` which is pre-built).
-            // EXCEPT... `AgentDeploymentModal` (from Catalog) allows deploying to Cloud Run OR Reasoning Engine using Cloud Build.
-            
-            // Let's look at `components/agent-catalog/AgentDeploymentModal.tsx`.
-            // It has: `const buildOp = await api.createCloudBuild(projectId, buildConfig);`
-            // It sets `setBuildId`.
-            
-            // `AgentBuilderPage` DOES NOT use `AgentDeploymentModal`. It uses `DeployModal` (from `components/agent-builder/DeployModal.tsx`).
-            // `DeployModal` calls `onDeploy` prop.
-            // `AgentBuilderPage`'s `handleDeploy` uses `createReasoningEngine`.
-            
-            // ERROR IN ASSUMPTION: `AgentBuilderPage` deployments (Vertex AI LRO) do NOT generate Cloud Build logs accessible via `build_id`. They generate Vertex AI logs.
-            // HOWEVER, if the user is using `AgentCatalogPage` which uses `AgentDeploymentModal`, that uses Cloud Build.
-            
-            // BUT, maybe the user wants me to add this to `AgentDeploymentModal` inside `AgentCatalogPage`?
-            // OR maybe they want me to add it to `AgentBuilderPage` but enable Cloud Build deployment there?
-            
-            // Let's look at the `AgentDeploymentModal.tsx` I was provided in context. It is in `components/agent-catalog/`.
-            // `AgentBuilderPage.tsx` imports `DeployModal` from `components/agent-builder/`.
-            
-            // Wait, `AgentDeploymentModal` in `components/agent-catalog/` has:
-            // `const handleDeploy = async () => { ... api.createCloudBuild ... }`
-            // And it sets `setBuildId`.
-            
-            // If the user wants this on the "Window" (Page), I should probably add it to the page that uses Cloud Build.
-            // `AgentCatalogPage` uses `AgentDeploymentModal`.
-            
-            // BUT, `AgentBuilderPage` handles "Agent Builder".
-            // Maybe I should check `components/agent-builder/DeployModal.tsx`.
-            // It calls `onDeploy`.
-            
-            // Let's look at `AgentCatalogPage` again.
-            // It imports `AgentDeploymentModal`.
-            // `AgentDeploymentModal` is a modal. If I put the progress bar *inside* the modal, it disappears when closed.
-            // The user likely wants it on the Page so they can close the modal and keep monitoring.
-            
-            // So I should modify `AgentDeploymentModal` to pass the `buildId` back to `AgentCatalogPage`.
-            // AND I should modify `AgentCatalogPage` to show the progress bar.
-            
-            // WAIT! The previous prompt output for `AgentDeploymentModal.tsx` shows it handles Cloud Build.
-            // `AgentCatalogPage` handles the state.
-            
-            // Let's modify `AgentCatalogPage.tsx`.
-            // 1. Add `activeBuildId` state.
-            // 2. Pass `onBuildTriggered` callback to `AgentDeploymentModal`.
-            // 3. Render `CloudBuildProgress`.
-            
-            // AND `AgentDeploymentModal.tsx` needs to accept `onBuildTriggered`.
-            
-            // Is it possible the user meant `AgentBuilderPage`?
-            // `AgentBuilderPage`'s `handleDeploy` uses `createReasoningEngine`.
-            // That returns an LRO. LROs don't have Build IDs compatible with `getCloudBuild` or the logs filter `resource.type="build"`.
-            // So it MUST be `AgentCatalogPage` (which uses Cloud Build for everything).
-            
-            // I will modify `AgentCatalogPage.tsx` and `components/agent-catalog/AgentDeploymentModal.tsx`.
-            
-            // wait... I already generated `CloudBuildProgress` and `apiService` updates.
-            // I will update `AgentCatalogPage.tsx` to include `CloudBuildProgress`.
-            // I will update `AgentDeploymentModal.tsx` to invoke a callback.
-
         } catch (err: any) {
             addLog(`ERROR: ${err.message}`);
             throw err;
@@ -773,13 +679,15 @@ Rewritten Instruction:`;
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full relative">
-            {/* Deployment Progress Bar */}
+            {/* Deployment Progress Bar - Wrapped in Fixed Container */}
             {activeBuildId && projectNumber && (
-                <CloudBuildProgress 
-                    projectId={projectNumber} // or resolved ID, but start with number
-                    buildId={activeBuildId} 
-                    onClose={() => setActiveBuildId(null)} 
-                />
+                <div className="fixed bottom-4 right-4 z-50">
+                    <CloudBuildProgress 
+                        projectId={projectNumber} 
+                        buildId={activeBuildId} 
+                        onClose={() => setActiveBuildId(null)} 
+                    />
+                </div>
             )}
 
             {isDeployModalOpen && (

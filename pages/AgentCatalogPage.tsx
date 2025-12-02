@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Agent, Assistant, Config } from '../types';
 import * as api from '../services/apiService';
@@ -250,7 +247,15 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [selectedGitAgentName, setSelectedGitAgentName] = useState<string>('');
   const [selectedGitFiles, setSelectedGitFiles] = useState<{name: string, content: string}[]>([]);
-  const [activeBuildId, setActiveBuildId] = useState<string | null>(null);
+  const [activeBuilds, setActiveBuilds] = useState<string[]>([]);
+
+  const handleBuildTriggered = (buildId: string) => {
+      setActiveBuilds(prev => [...prev, buildId]);
+  };
+
+  const removeBuild = (id: string) => {
+      setActiveBuilds(prev => prev.filter(b => b !== id));
+  };
 
   // Persist config
   useEffect(() => {
@@ -542,14 +547,17 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
 
   return (
     <div className="space-y-6 h-full flex flex-col relative">
-        {/* Deployment Progress Bar */}
-        {activeBuildId && projectNumber && (
-            <CloudBuildProgress 
-                projectId={projectNumber} 
-                buildId={activeBuildId} 
-                onClose={() => setActiveBuildId(null)} 
-            />
-        )}
+        {/* Deployment Progress Bar - Stacks multiple notifications */}
+        <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 items-end">
+            {activeBuilds.map(id => (
+                <CloudBuildProgress 
+                    key={id} 
+                    projectId={projectNumber} 
+                    buildId={id} 
+                    onClose={() => removeBuild(id)} 
+                />
+            ))}
+        </div>
 
         {/* Deploy Modal */}
         {isDeployModalOpen && (
@@ -559,7 +567,7 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
                 agentName={selectedGitAgentName}
                 files={selectedGitFiles}
                 projectNumber={projectNumber}
-                onBuildTriggered={(buildId) => setActiveBuildId(buildId)}
+                onBuildTriggered={handleBuildTriggered}
             />
         )}
 

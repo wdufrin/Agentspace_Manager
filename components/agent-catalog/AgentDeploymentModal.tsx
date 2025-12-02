@@ -1,7 +1,7 @@
 
-
 import React, { useState, useEffect, useMemo } from 'react';
 import * as api from '../../services/apiService';
+import { GcsBucket } from '../../types';
 
 declare var JSZip: any;
 
@@ -44,6 +44,11 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
     const [projectId, setProjectId] = useState(projectNumber);
     const [isResolvingId, setIsResolvingId] = useState(false);
     
+    // Bucket State
+    const [buckets, setBuckets] = useState<GcsBucket[]>([]);
+    const [selectedBucket, setSelectedBucket] = useState<string>('');
+    const [isLoadingBuckets, setIsLoadingBuckets] = useState(false);
+
     // Detected agent entrypoint (variable name in python) and file
     const [entryPoint, setEntryPoint] = useState('app');
     const [entryModulePath, setEntryModulePath] = useState('agent'); // full dotted path, e.g. "academic_research.agent"
@@ -69,6 +74,8 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
         setLeftTab('architecture');
         setIsPermissionsExpanded(false);
         setIsRePermissionsExpanded(false);
+        setBuckets([]);
+        setSelectedBucket('');
 
         // 1. Resolve Project ID
         const resolveProject = async () => {
@@ -202,7 +209,13 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
         }
         
         // Ensure standard vars are present
-        const standardVars = ['GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION', 'MODEL', 'GOOGLE_GENAI_USE_VERTEXAI'];
+        const standardVars = [
+            'GOOGLE_CLOUD_PROJECT', 
+            'GOOGLE_CLOUD_LOCATION', 
+            'MODEL', 
+            'GOOGLE_GENAI_USE_VERTEXAI',
+            'GOOGLE_CLOUD_STORAGE_BUCKET'
+        ];
         standardVars.forEach(key => {
              if (!varsMap.has(key)) {
                 let defaultValue = '';
@@ -215,16 +228,60 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
 
     }, [isOpen, files, projectNumber]);
 
-    // Update Env Vars when projectId or region changes
+    // Fetch Buckets
+    useEffect(() => {
+        if (!isOpen || !projectId) return;
+        
+        const fetchBuckets = async () => {
+            setIsLoadingBuckets(true);
+            try {
+                const res = await api.listBuckets(projectId);
+                const items = res.items || [];
+                setBuckets(items);
+                if (items.length > 0) {
+                    // Only set default if not already set or invalid
+                    setSelectedBucket(prev => {
+                        if (items.some(b => b.name === prev)) return prev;
+                        return items[0].name;
+                    });
+                }
+            } catch (e) {
+                console.error("Failed to fetch buckets", e);
+            } finally {
+                setIsLoadingBuckets(false);
+            }
+        };
+        fetchBuckets();
+    }, [isOpen, projectId]);
+
+    const handleRefreshBuckets = async () => {
+         if (!projectId) return;
+         setIsLoadingBuckets(true);
+         try {
+            const res = await api.listBuckets(projectId);
+            const items = res.items || [];
+            setBuckets(items);
+             if (items.length > 0 && !items.some(b => b.name === selectedBucket)) {
+                setSelectedBucket(items[0].name);
+            }
+         } catch(e) {
+             console.error(e);
+         } finally {
+             setIsLoadingBuckets(false);
+         }
+    };
+
+    // Update Env Vars when projectId, region, or selectedBucket changes
     useEffect(() => {
         setEnvVars(prev => prev.map(v => {
             if (v.key === 'GOOGLE_CLOUD_PROJECT') return { ...v, value: projectId };
             if (v.key === 'GOOGLE_CLOUD_LOCATION') return { ...v, value: region };
             if (v.key === 'MODEL') return { ...v, value: v.value || 'gemini-2.5-flash' };
             if (v.key === 'GOOGLE_GENAI_USE_VERTEXAI') return { ...v, value: v.value || 'TRUE' };
+            if (v.key === 'GOOGLE_CLOUD_STORAGE_BUCKET') return { ...v, value: selectedBucket };
             return v;
         }));
-    }, [projectId, region]);
+    }, [projectId, region, selectedBucket]);
 
     const handleVarChange = (index: number, value: string) => {
         const newVars = [...envVars];
@@ -592,9 +649,8 @@ print(f"Resource Name: {remote_app.resource_name}")
             const blob = await zip.generateAsync({ type: 'blob' });
             
             // 3. Upload Source to GCS
-            const bucketsResp = await api.listBuckets(projectId);
-            const bucket = bucketsResp.items?.[0]?.name;
-            if (!bucket) throw new Error("No GCS buckets found in project. Please create one for staging.");
+            const bucket = selectedBucket;
+            if (!bucket) throw new Error("No GCS bucket selected. Please select a bucket for staging.");
             
             const sourceObjectName = `source/${agentName}-${Date.now()}.zip`;
             addLog(`Uploading source to gs://${bucket}/${sourceObjectName}...`);
@@ -809,6 +865,33 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                                     <option value="asia-east1">asia-east1</option>
                                 </select>
                             </div>
+
+                            {/* Staging Bucket */}
+                            {target === 'reasoning_engine' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-1">Staging Bucket</label>
+                                    <div className="flex gap-2">
+                                        <select 
+                                            value={selectedBucket} 
+                                            onChange={(e) => setSelectedBucket(e.target.value)} 
+                                            className="w-full bg-gray-700 border-gray-600 rounded-md px-3 py-2 text-sm text-white focus:ring-blue-500"
+                                            disabled={isLoadingBuckets || isDeploying}
+                                        >
+                                            {buckets.length === 0 && <option value="">{isLoadingBuckets ? 'Loading...' : 'No buckets found'}</option>}
+                                            {buckets.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                                        </select>
+                                        <button 
+                                            onClick={handleRefreshBuckets}
+                                            disabled={isLoadingBuckets || isDeploying}
+                                            className="px-3 bg-gray-700 hover:bg-gray-600 rounded text-white text-xs border border-gray-600"
+                                            title="Refresh Buckets"
+                                        >
+                                            ↻
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-1">GCS bucket to store the agent source code for Cloud Build.</p>
+                                </div>
+                            )}
 
                             {/* Env Variables */}
                             <div>
