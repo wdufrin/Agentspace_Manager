@@ -36,6 +36,7 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
     const [readmeContent, setReadmeContent] = useState<string>('');
     const [leftTab, setLeftTab] = useState<'architecture' | 'docs'>('architecture');
     const [isPermissionsExpanded, setIsPermissionsExpanded] = useState(false);
+    const [isRePermissionsExpanded, setIsRePermissionsExpanded] = useState(false);
     
     // Resolved Project ID
     const [projectId, setProjectId] = useState(projectNumber);
@@ -65,6 +66,7 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
         setReadmeContent('');
         setLeftTab('architecture');
         setIsPermissionsExpanded(false);
+        setIsRePermissionsExpanded(false);
 
         // 1. Resolve Project ID
         const resolveProject = async () => {
@@ -260,20 +262,19 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
             });
             
             // Add requirements if missing (basic fallback)
-            // Ensure google-cloud-aiplatform[adk,agent_engines]>=1.38 is present for Reasoning Engine
             const reqsFile = files.find(f => f.name === 'requirements.txt');
             let reqsContent = reqsFile ? reqsFile.content : '';
+            
+            // Ensure necessary packages are present
             if (!reqsContent.includes('google-cloud-aiplatform')) {
-                reqsContent += '\ngoogle-cloud-aiplatform[adk,agent_engines]>=1.38\nflask\ngunicorn\npython-dotenv';
-                zip.file('requirements.txt', reqsContent);
-                addLog('⚠️ Updated requirements.txt with ADK/Agent Engines support');
-            } else if (!reqsFile) {
-                zip.file('requirements.txt', 'google-cloud-aiplatform[adk,agent_engines]>=1.38\nflask\ngunicorn\npython-dotenv');
-                addLog('⚠️ Added default requirements.txt with ADK support');
-            } else {
-                // If present but maybe missing extras, we append them just in case or rely on the build step to force install
-                zip.file('requirements.txt', reqsContent); 
+                reqsContent += '\ngoogle-cloud-aiplatform[adk,agent_engines]>=1.38';
             }
+            if (!reqsContent.includes('flask')) reqsContent += '\nflask';
+            if (!reqsContent.includes('gunicorn')) reqsContent += '\ngunicorn';
+            if (!reqsContent.includes('python-dotenv')) reqsContent += '\npython-dotenv';
+            
+            zip.file('requirements.txt', reqsContent);
+            addLog('⚠️ Updated requirements.txt with ADK/Agent Engines support');
 
             // Generate content based on target
             if (target === 'cloud_run') {
@@ -297,6 +298,8 @@ CMD ["python", "main.py"]
 import os
 import sys
 import json
+import asyncio
+import traceback
 from flask import Flask, request, jsonify, Response, stream_with_context
 
 # Try to import AdkApp wrapper for compatibility
@@ -327,10 +330,10 @@ except ImportError as e:
         raise e
 
 # --- AUTO-WRAP LOGIC ---
-# If the imported object doesn't have 'query' or 'invoke', it's likely a raw Agent (like LlmAgent).
-# We wrap it in AdkApp to provide a standard query interface.
-if not hasattr(agent_app, 'query') and not hasattr(agent_app, 'invoke'):
-    print(f"Object type {type(agent_app)} missing query/invoke methods. Attempting to wrap in AdkApp...")
+# Check if the object is already a valid Reasoning Engine (has register_operations).
+# Raw ADK Agents have a 'query' method but lack 'register_operations' and must be wrapped in AdkApp.
+if not hasattr(agent_app, 'register_operations'):
+    print(f"Object does not have 'register_operations'. Wrapping in AdkApp...")
     if AdkApp:
         try:
             agent_app = AdkApp(agent=agent_app)
@@ -338,7 +341,7 @@ if not hasattr(agent_app, 'query') and not hasattr(agent_app, 'invoke'):
         except Exception as e:
             print(f"❌ Failed to wrap agent in AdkApp: {e}")
     else:
-        print("⚠️ AdkApp class not found. Cannot auto-wrap agent. Requests might fail.")
+        print("⚠️ AdkApp class not found. Cannot auto-wrap agent. Deployment may fail.")
 
 app = Flask(__name__)
 
@@ -349,6 +352,20 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
     response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
     return response
+
+# Helper for async execution in Flask
+def run_async(coro):
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    if loop.is_closed():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+    return loop.run_until_complete(coro)
 
 @app.route('/', methods=['POST', 'OPTIONS'])
 def invoke_simple():
@@ -367,97 +384,112 @@ def invoke_simple():
         if not user_input:
             return jsonify({"error": "Missing input. Provide 'prompt', 'text', or 'query'."}), 400
 
-        # Query the agent
+        response_data = ""
+        
+        # 1. Standard synchronous query
         if hasattr(agent_app, 'query'):
-            response = agent_app.query(payload=user_input)
+            try:
+                response_data = agent_app.query(payload=user_input)
+            except TypeError:
+                response_data = agent_app.query(user_input)
+        
+        # 2. Invoke (LangChain style)
         elif hasattr(agent_app, 'invoke'):
-            response = agent_app.invoke(user_input)
-        else:
-            response = f"Agent loaded, but query method not found on object type: {type(agent_app)}"
+            response_data = agent_app.invoke(user_input)
+            
+        # 3. Async Stream Query (AdkApp default)
+        elif hasattr(agent_app, 'async_stream_query'):
+            async def do_async_call():
+                # Create session if needed
+                session_id = None
+                if hasattr(agent_app, 'async_create_session'):
+                    try:
+                        session = await agent_app.async_create_session(user_id="default-user")
+                        session_id = session.id
+                    except:
+                        pass
+                
+                events = []
+                kwargs = {"message": user_input}
+                if session_id:
+                    kwargs["session_id"] = session_id
+                    kwargs["user_id"] = "default-user"
+                
+                async for event in agent_app.async_stream_query(**kwargs):
+                    events.append(event)
+                
+                # Extract text from events
+                texts = []
+                for e in events:
+                    if hasattr(e, 'get'):
+                        parts = e.get("content", {}).get("parts", [])
+                        for part in parts:
+                            if "text" in part:
+                                texts.append(part["text"])
+                
+                if texts:
+                    return "".join(texts)
+                return str(events)
 
-        return jsonify({"response": str(response)})
+            response_data = run_async(do_async_call())
+            
+        else:
+            return jsonify({"error": f"No compatible query method found on {type(agent_app)}. Available: {dir(agent_app)}"}), 500
+
+        return jsonify({"response": str(response_data)})
         
     except Exception as e:
-        print(f"Error invoking agent: {e}")
+        print(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
 # --- ADK Compatible Endpoints ---
 
 @app.route('/list-apps', methods=['GET'])
 def list_apps():
-    """Lists available apps (agents). Matches ADK API contract."""
-    # Assuming the current agent is the default/only app
     return jsonify(["${agentName}"])
 
 @app.route('/apps/<app_name>/users/<user_id>/sessions/<session_id>', methods=['POST', 'OPTIONS'])
 def update_session(app_name, user_id, session_id):
-    """
-    Initializes or updates session state. 
-    For this stateless Cloud Run implementation, this acts as a no-op acknowledgement.
-    """
-    if request.method == "OPTIONS":
-        return "", 204
-    
-    print(f"Session init request for app={app_name}, user={user_id}, session={session_id}")
-    return jsonify({"status": "ok", "message": "Session context received (stateless)"})
+    if request.method == "OPTIONS": return "", 204
+    return jsonify({"status": "ok", "message": "Session context received"})
 
 @app.route('/run_sse', methods=['POST', 'OPTIONS'])
 def run_sse():
-    """
-    Standard ADK endpoint for running the agent.
-    Supports both streaming=true (SSE) and streaming=false (JSON).
-    """
-    if request.method == "OPTIONS":
-        return "", 204
+    if request.method == "OPTIONS": return "", 204
 
     try:
         data = request.get_json()
-        # ADK Payload: { app_name, user_id, session_id, new_message: { parts: [{text: "..."}] }, streaming: bool }
-        
         new_message = data.get('new_message', {})
         parts = new_message.get('parts', [])
         user_text = parts[0].get('text', '') if parts else ''
-        streaming = data.get('streaming', False)
-
+        
         if not user_text:
              return jsonify({"error": "No text provided in new_message.parts"}), 400
 
-        print(f"Run SSE request: text='{user_text}', streaming={streaming}")
-
-        # Execute Agent Logic
+        # Execute Agent Logic (reusing simple invoke logic for now)
         response_text = ""
+        
         if hasattr(agent_app, 'query'):
-            # TODO: If query() supports streaming iterator, use it. For now, we assume blocking.
-            response_text = str(agent_app.query(payload=user_text))
-        elif hasattr(agent_app, 'invoke'):
-            response_text = str(agent_app.invoke(user_text))
-        else:
-            response_text = "Error: Agent does not support query() or invoke()"
-
-        # If streaming is requested, simulate SSE format or return JSON
-        if streaming:
-            # Simple SSE simulation for compatibility
-            def generate():
-                # ADK often expects specific event types like 'chunk' or 'complete'
-                # We will send a simple 'message' event with the full text for now
-                yield f"data: {json.dumps({'text': response_text})}\\n\\n"
-                yield "event: complete\\ndata: {}\\n\\n"
-            return Response(stream_with_context(generate()), mimetype='text/event-stream')
-        else:
-            # Standard JSON response
-            return jsonify({
-                "text": response_text,
-                "finished": True
-            })
+             response_text = str(agent_app.query(payload=user_text))
+        elif hasattr(agent_app, 'async_stream_query'):
+             # Reuse async logic simplified for SSE endpoint
+             async def quick_async():
+                 # Use dummy session for quick check
+                 evts = []
+                 async for e in agent_app.async_stream_query(message=user_text, user_id="u", session_id="s"):
+                     evts.append(e)
+                 return str(evts) # TODO: Parse proper text
+             response_text = run_async(quick_async())
+        
+        return jsonify({ "text": str(response_text), "finished": True })
 
     except Exception as e:
-        print(f"Error in /run_sse: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 `);
-                        addLog(`⚠️ Added Flask wrapper (main.py) with ADK-compatible endpoints (/run_sse, /list-apps) adapting '${entryPoint}' from '${entryModulePath}'.`);
+                        addLog(`⚠️ Added Flask wrapper (main.py) with Async ADK support adapting '${entryPoint}' from '${entryModulePath}'.`);
                     }
                 }
             } else {
@@ -631,6 +663,10 @@ print(f"Resource Name: {remote_app.resource_name}")
 gcloud projects add-iam-policy-binding ${projectId} \\
   --member="serviceAccount:${cloudBuildSa}" \\
   --role="roles/iam.serviceAccountUser"`;
+
+    const grantRePermissionsCommand = `gcloud projects add-iam-policy-binding ${projectId} \\
+  --member="serviceAccount:${cloudBuildSa}" \\
+  --role="roles/aiplatform.user"`;
 
     if (!isOpen) return null;
 
@@ -825,7 +861,7 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                                 </div>
                             )}
 
-                            {/* Cloud Build Permissions Warning */}
+                            {/* Cloud Build Permissions Warning (Cloud Run) */}
                             {target === 'cloud_run' && (
                                 <div className="bg-yellow-900/20 border border-yellow-700/50 p-3 rounded-md mb-4">
                                     <button 
@@ -849,6 +885,40 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                                                 </pre>
                                                 <button
                                                     onClick={() => navigator.clipboard.writeText(grantPermissionsCommand)}
+                                                    className="absolute top-2 right-2 px-2 py-1 bg-yellow-900/80 hover:bg-yellow-800 text-yellow-200 text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                                >
+                                                    Copy
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Cloud Build Permissions Warning (Reasoning Engine) */}
+                            {target === 'reasoning_engine' && (
+                                <div className="bg-yellow-900/20 border border-yellow-700/50 p-3 rounded-md mb-4">
+                                    <button 
+                                        onClick={() => setIsRePermissionsExpanded(!isRePermissionsExpanded)}
+                                        className="flex items-center justify-between w-full text-left"
+                                    >
+                                        <span className="text-sm font-semibold text-yellow-200 flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                            Permissions Required
+                                        </span>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 text-yellow-200 transition-transform ${isRePermissionsExpanded ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                                    </button>
+                                    {isRePermissionsExpanded && (
+                                        <div className="mt-3">
+                                            <p className="text-xs text-yellow-100 mb-2">
+                                                Cloud Build needs <strong>Vertex AI User</strong> role to create Reasoning Engines. Run this once:
+                                            </p>
+                                            <div className="bg-black/50 p-2 rounded border border-yellow-900/50 relative group">
+                                                 <pre className="text-[10px] text-yellow-50 whitespace-pre-wrap font-mono">
+                                                    {grantRePermissionsCommand}
+                                                </pre>
+                                                <button
+                                                    onClick={() => navigator.clipboard.writeText(grantRePermissionsCommand)}
                                                     className="absolute top-2 right-2 px-2 py-1 bg-yellow-900/80 hover:bg-yellow-800 text-yellow-200 text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity"
                                                 >
                                                     Copy
