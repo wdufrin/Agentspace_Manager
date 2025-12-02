@@ -160,6 +160,11 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                 body: JSON.stringify(payload)
             });
 
+            // Detect IAP redirect (opaque response) or 401/403
+            if (res.redirected || res.status === 401 || res.status === 403) {
+                 throw new Error(`Auth Error (IAP/IAM): Service returned status ${res.status}. If this service is protected by IAP or requires IAM authentication, browser requests will fail.`);
+            }
+
             if (!res.ok) {
                 const text = await res.text();
                 throw new Error(`HTTP ${res.status}: ${text}`);
@@ -181,7 +186,8 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
 
     const handleCopyCurl = () => {
         if (!selectedService) return;
-        const cmd = `curl -X POST -H "Content-Type: application/json" -d '{"prompt": "${prompt.replace(/'/g, "'\\''")}"}' "${selectedService.uri}"`;
+        // We use `gcloud auth print-identity-token` because Cloud Run (and IAP) usually requires an OIDC token, not an Access Token.
+        const cmd = `curl -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token)" -H "Content-Type: application/json" -d '{"prompt": "${prompt.replace(/'/g, "'\\''")}"}' "${selectedService.uri}"`;
         navigator.clipboard.writeText(cmd).then(() => {
             setCurlCopyStatus('Copied!');
             setTimeout(() => setCurlCopyStatus(''), 2000);
@@ -189,7 +195,7 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
     };
 
     const curlCommand = selectedService 
-        ? `curl -X POST -H "Content-Type: application/json" -d '{"prompt": "${prompt.replace(/'/g, "'\\''")}"}' "${selectedService.uri}"` 
+        ? `curl -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token)" -H "Content-Type: application/json" -d '{"prompt": "${prompt.replace(/'/g, "'\\''")}"}' "${selectedService.uri}"` 
         : '';
         
     const selectedAnalysis = selectedService ? analyzeService(selectedService) : null;
@@ -376,14 +382,14 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                                                 <h4 className="text-sm font-bold text-red-400 mb-2">Request Failed</h4>
                                                 <p className="text-xs text-red-200 mb-3">{testError}</p>
                                                 
-                                                {testError.includes("CORS") && (
+                                                {(testError.includes("CORS") || testError.includes("Auth Error")) && (
                                                     <div className="bg-black/40 p-3 rounded text-xs">
                                                         <p className="text-gray-400 mb-2">
-                                                            <strong>Workaround:</strong> The deployed service does not allow browser requests. 
-                                                            You can test it from your terminal using cURL:
+                                                            <strong>Workaround:</strong> The browser request failed (likely due to CORS or IAP). 
+                                                            You can test it from your terminal using cURL with an Identity Token:
                                                         </p>
                                                         <CodeBlock 
-                                                            title="cURL Command" 
+                                                            title="cURL Command (with Identity Token)" 
                                                             content={curlCommand} 
                                                             onCopy={handleCopyCurl} 
                                                             copyText={curlCopyStatus || 'Copy'} 

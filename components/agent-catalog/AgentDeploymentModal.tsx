@@ -494,7 +494,7 @@ if __name__ == "__main__":
                 }
             } else {
                 // Reasoning Engine Target
-                // Updated deployment script to align with standard deployment guide using vertexai.agent_engines
+                // Updated deployment script to correctly read requirements.txt
                 const deployScript = `
 import os
 import sys
@@ -528,6 +528,19 @@ except Exception as e:
     raise
 
 # 3. Prepare for Deployment (AdkApp Wrapper)
+
+# Gather requirements from requirements.txt to ensure remote environment matches
+reqs = ["google-cloud-aiplatform[adk,agent_engines]>=1.38", "python-dotenv"]
+if os.path.exists("requirements.txt"):
+    with open("requirements.txt", "r") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                reqs.append(line)
+# Deduplicate
+reqs = list(set(reqs))
+logger.info(f"Using requirements: {reqs}")
+
 try:
     # Try using the primary namespace
     from vertexai import agent_engines
@@ -543,8 +556,6 @@ try:
 
     # 4. Deploy
     logger.info("Creating Agent Engine (Remote App)...")
-    
-    reqs = ["google-cloud-aiplatform[adk,agent_engines]>=1.38", "python-dotenv"]
     
     remote_app = agent_engines.create(
         agent_engine=app,
@@ -563,7 +574,6 @@ except ImportError:
         logger.info("Wrapping agent in reasoning_engines.AdkApp...")
         app = reasoning_engines.AdkApp(agent=root_agent)
 
-    reqs = ["google-cloud-aiplatform[adk]>=1.38", "python-dotenv"]
     remote_app = reasoning_engines.ReasoningEngine.create(
         app,
         requirements=reqs,
