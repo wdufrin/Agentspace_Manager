@@ -10,7 +10,8 @@ const REQUIRED_APIS = [
     'logging.googleapis.com',
     'run.googleapis.com',
     'storage.googleapis.com',
-    'serviceusage.googleapis.com', // Required for this validation check itself
+    'serviceusage.googleapis.com',
+    'cloudbuild.googleapis.com', // Added for deployment
 ];
 
 // A list of all required IAM permissions for the application's features.
@@ -42,9 +43,9 @@ const ALL_REQUIRED_PERMISSIONS = [
     'discoveryengine.engines.list',
     'discoveryengine.userStores.licenseConfigsUsageStats.get', 
     'discoveryengine.userStores.listUserLicenses',
-    'discoveryengine.userStores.userLicenses.delete', // Kept for reference, though we use batchUpdate now
-    'discoveryengine.userStores.userLicenses.update', // For batchUpdateUserLicenses
-    'discoveryengine.licenseConfigs.get', // Added for fetching license display names
+    'discoveryengine.userStores.userLicenses.delete', 
+    'discoveryengine.userStores.userLicenses.update', 
+    'discoveryengine.licenseConfigs.get',
     
     // Vertex AI / AI Platform
     'aiplatform.reasoningEngines.create',
@@ -52,7 +53,7 @@ const ALL_REQUIRED_PERMISSIONS = [
     'aiplatform.reasoningEngines.get',
     'aiplatform.reasoningEngines.list',
     'aiplatform.reasoningEngines.update',
-    'aiplatform.reasoningEngines.query', // For direct query
+    'aiplatform.reasoningEngines.query',
   
     // Cloud Resource Manager
     'resourcemanager.projects.get',
@@ -75,6 +76,11 @@ const ALL_REQUIRED_PERMISSIONS = [
     'serviceusage.services.batchEnable',
     'serviceusage.services.get',
     'serviceusage.services.list',
+
+    // Cloud Build
+    'cloudbuild.builds.create',
+    'cloudbuild.builds.get',
+    'cloudbuild.builds.list',
 ];
 
 const SERVICE_ACCOUNT_REQUIRED_ROLES = [
@@ -96,6 +102,8 @@ const getAiPlatformUrl = (location: string) => `https://${location}-aiplatform.g
 const getLoggingUrl = () => 'https://logging.googleapis.com';
 
 const getCloudRunUrl = (location: string) => `https://${location}-run.googleapis.com`;
+
+const getCloudBuildUrl = () => 'https://cloudbuild.googleapis.com';
 
 /**
  * A generic helper to handle all GAPI requests and errors.
@@ -1060,23 +1068,37 @@ export async function listGcsObjects(bucketName: string, prefix: string, project
 }
 
 // GCS uploads are special and cannot use the generic gapiRequest helper due to binary bodies and non-JSON responses.
-async function gcsUploadRequest(path: string, projectId: string, body: File | string, contentType: string): Promise<void> {
+// We use fetch directly to properly handle binary payloads (Blob/File).
+async function gcsUploadRequest(path: string, projectId: string, body: File | string | Blob, contentType: string): Promise<void> {
     const client = await getGapiClient();
+    const tokenObj = client.getToken();
+    const token = tokenObj ? tokenObj.access_token : '';
+
+    if (!token) throw new Error("No access token found for GCS upload.");
+
     try {
-        const response = await client.request({
-            path,
+        const response = await fetch(path, {
             method: 'POST',
-            headers: { 'Content-Type': contentType, 'X-Goog-User-Project': projectId },
-            body,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': contentType,
+                'X-Goog-User-Project': projectId
+            },
+            body: body
         });
-        if (response.status < 200 || response.status >= 300) {
-            throw response; // Throw the whole response object on failure
+        
+        if (!response.ok) {
+             const text = await response.text();
+             let msg = text;
+             try {
+                 const json = JSON.parse(text);
+                 if(json.error && json.error.message) msg = json.error.message;
+             } catch(e) {}
+             throw new Error(`GCS upload failed: ${response.status} ${response.statusText} - ${msg}`);
         }
     } catch (err: any) {
         console.error("GCS Upload GAPI Error:", err);
-        const errorBody = typeof err.body === 'string' ? JSON.parse(err.body) : err.body;
-        const message = `GCS upload failed with status ${err.status}: ${errorBody?.error?.message || 'Unknown GCS error.'}`;
-        throw new Error(message);
+        throw new Error(err.message || 'Unknown GCS error.');
     }
 }
 
@@ -1088,6 +1110,13 @@ export async function uploadToGcs(bucketName: string, objectName: string, fileCo
 export async function uploadFileToGcs(bucketName: string, objectName: string, file: File, projectId: string): Promise<void> {
     const path = `https://storage.googleapis.com/upload/storage/v1/b/${bucketName}/o?uploadType=media&name=${encodeURIComponent(objectName)}`;
     await gcsUploadRequest(path, projectId, file, file.type || 'application/octet-stream');
+}
+
+// --- Cloud Build API ---
+export async function createCloudBuild(projectId: string, buildConfig: any): Promise<any> {
+    const path = `${getCloudBuildUrl()}/v1/projects/${projectId}/builds`;
+    const headers = { 'Content-Type': 'application/json' };
+    return gapiRequest<any>(path, 'POST', projectId, undefined, buildConfig, headers);
 }
 
 // --- Cloud Logging APIs ---

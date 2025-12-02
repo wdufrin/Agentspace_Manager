@@ -1,3 +1,6 @@
+
+
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import AgentsPage from './pages/AgentsPage';
@@ -12,6 +15,8 @@ import AgentBuilderPage from './pages/AgentBuilderPage';
 import A2aFunctionsPage from './pages/A2aFunctionsPage';
 import A2aTesterPage from './pages/A2aTesterPage';
 import McpServersPage from './pages/McpServersPage';
+import AgentCatalogPage from './pages/AgentCatalogPage';
+import CloudRunAgentsPage from './pages/CloudRunAgentsPage';
 import ProjectInput from './components/ProjectInput';
 import { initGapiClient, getGapiClient } from './services/gapiService';
 import * as api from './services/apiService';
@@ -519,6 +524,10 @@ const App: React.FC = () => {
         return <A2aTesterPage {...projectProps} onNavigate={handleNavigation} accessToken={accessToken} />;
       case Page.AGENT_BUILDER:
         return <AgentBuilderPage {...commonProps} />;
+      case Page.AGENT_CATALOG:
+        return <AgentCatalogPage {...projectProps} accessToken={accessToken} />;
+      case Page.CLOUD_RUN_AGENTS:
+        return <CloudRunAgentsPage {...projectProps} />;
       case Page.CHAT:
         return <ChatPage {...projectProps} accessToken={accessToken} context={pageContext} />;
       case Page.DATA_STORES:

@@ -10,6 +10,8 @@ export enum Page {
   AGENT_REGISTRATION = 'Agent Registration',
   A2A_TESTER = 'A2A Tester',
   AGENT_BUILDER = 'Agent Builder',
+  AGENT_CATALOG = 'Agent Catalog',
+  CLOUD_RUN_AGENTS = 'Cloud Run Agents',
   CHAT = 'Test G.E. Agent',
   DATA_STORES = 'Data Stores',
   MCP_SERVERS = 'MCP Servers',
