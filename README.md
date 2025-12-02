@@ -88,44 +88,64 @@ To use the "Sign in with Google" feature, you must configure an OAuth Client ID 
 
 You can deploy this frontend application to Google Cloud Run to make it accessible to your team.
 
-### 1. Create a Dockerfile
-Create a file named `Dockerfile` in the root of the project with the following content:
+### Option 1: Continuous Deployment from Git (Recommended)
 
-```dockerfile
-# Build Stage
-FROM node:20-slim AS build
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-# Build the Vite app (outputs to /dist)
-RUN npm run build
+This method sets up automatic deployments whenever you push to your git repository using Google Cloud Buildpacks.
 
-# Serve Stage
-FROM node:20-slim
-WORKDIR /app
-# Install a simple static file server
-RUN npm install -g serve
-# Copy built assets from the build stage
-COPY --from=build /app/dist ./dist
-# Expose port 8080 (Cloud Run default)
-EXPOSE 8080
-# Start the server
-CMD ["serve", "-s", "dist", "-l", "8080"]
-```
+1.  **Push your code** to a git repository (GitHub, Bitbucket, or Cloud Source Repositories).
+2.  Go to **Cloud Run** in the Google Cloud Console and click **Create Service**.
+3.  Select **Continuously deploy new revisions from a source repository**.
+4.  Click **Set up with Cloud Build** and connect your repository.
+5.  **Build Configuration**:
+    *   **Build Type**: Select **Googla Cloud Buildpacks**.
+    *   **Build context directory**: `.` (or leave as default).
+    *   **Entrypoint**: Leave **Empty** (The buildpack automatically detects the `npm start` script).
+    *   **Function target**: Leave **Empty**.
+6.  **Authentication**: Select **Allow unauthenticated invocations** (The app handles authentication internally via Google Sign-In).
+7.  Click **Create**.
 
-### 2. Build and Deploy
-Run the following command using the Google Cloud CLI:
+Once deployed, remember to copy the **Service URL** and add it to your OAuth Client ID's **Authorized JavaScript origins** (see Configuration step above).
 
-```sh
-gcloud run deploy gemini-manager \
-  --source . \
-  --project [YOUR_PROJECT_ID] \
-  --region us-central1 \
-  --allow-unauthenticated
-```
+### Option 2: Manual Deployment via CLI (Docker)
 
-Once deployed, copy the **Service URL** and add it to your OAuth Client ID's **Authorized JavaScript origins** (see Configuration step above).
+If you prefer to build the container manually or use a custom Dockerfile.
+
+1.  **Create a Dockerfile**:
+    Create a file named `Dockerfile` in the root of the project with the following content:
+
+    ```dockerfile
+    # Build Stage
+    FROM node:20-slim AS build
+    WORKDIR /app
+    COPY package*.json ./
+    RUN npm install
+    COPY . .
+    # Build the Vite app (outputs to /dist)
+    RUN npm run build
+
+    # Serve Stage
+    FROM node:20-slim
+    WORKDIR /app
+    # Install a simple static file server
+    RUN npm install -g serve
+    # Copy built assets from the build stage
+    COPY --from=build /app/dist ./dist
+    # Expose port 8080 (Cloud Run default)
+    EXPOSE 8080
+    # Start the server
+    CMD ["serve", "-s", "dist", "-l", "8080"]
+    ```
+
+2.  **Build and Deploy**:
+    Run the following command using the Google Cloud CLI:
+
+    ```sh
+    gcloud run deploy gemini-manager \
+      --source . \
+      --project [YOUR_PROJECT_ID] \
+      --region us-central1 \
+      --allow-unauthenticated
+    ```
 
 ## Setup Automated License Pruner
 

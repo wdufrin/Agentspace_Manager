@@ -199,29 +199,24 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 `;
 
-const generateDeploySh = (projectId: string, location: string, userStoreId: string, days: number, region: string) => `
-#!/bin/bash
-set -e
-
-# Configuration
-PROJECT_ID="${projectId}"
-REGION="${region}" # Cloud Run Region
-SERVICE_NAME="prune-licenses-func"
-SA_NAME="license-pruner-sa"
-
-# App Config
-APP_LOCATION="${location}" # Discovery Engine Location
-USER_STORE_ID="${userStoreId}"
-PRUNE_DAYS="${days}"
-
-# --- Pre-flight Check ---
-if [[ "$PROJECT_ID" =~ ^[0-9]+$ ]]; then
-  echo "⚠️  WARNING: PROJECT_ID '$PROJECT_ID' appears to be a Project Number."
-  echo "   'gcloud run deploy' requires the Project ID string (e.g., 'my-project-id')."
-  echo "   The script will proceed, but it may fail."
-  echo ""
-fi
-
+const generateDeploySh = (
+    projectId: string, 
+    location: string, 
+    userStoreId: string, 
+    days: number, 
+    region: string, 
+    customSaEmail?: string, 
+    skipProjectIam: boolean = false
+) => {
+    let saSetupBlock = '';
+    if (customSaEmail) {
+        saSetupBlock = `
+# Using manually configured Service Account
+SA_EMAIL="${customSaEmail}"
+echo "Using provided Service Account: $SA_EMAIL"
+`;
+    } else {
+        saSetupBlock = `
 # 1. Setup Service Account
 echo "Checking if Service Account \${SA_NAME} exists..."
 FOUND_SA_EMAIL=$(gcloud iam service-accounts list --project "$PROJECT_ID" --filter="email:\${SA_NAME}@" --format="value(email)" | head -n 1)
@@ -244,7 +239,16 @@ if [ -z "$SA_EMAIL" ]; then
   SA_EMAIL="\${SA_NAME}@\${PROJECT_ID}.iam.gserviceaccount.com"
 fi
 echo "Using Service Account Email: $SA_EMAIL"
+`;
+    }
 
+    let iamBlock = '';
+    if (skipProjectIam && customSaEmail) {
+        iamBlock = `
+echo "Skipping project-level IAM bindings (verified in UI)..."
+`;
+    } else {
+        iamBlock = `
 # 3. Grant Permissions
 echo "Granting IAM permissions..."
 
@@ -263,6 +267,35 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 
 echo "Waiting 30s for IAM policy propagation..."
 sleep 30
+`;
+    }
+
+    return `
+#!/bin/bash
+set -e
+
+# Configuration
+PROJECT_ID="${projectId}"
+REGION="${region}" # Cloud Run Region
+SERVICE_NAME="prune-licenses-func"
+SA_NAME="license-pruner-sa"
+
+# App Config
+APP_LOCATION="${location}" # Discovery Engine Location
+USER_STORE_ID="${userStoreId}"
+PRUNE_DAYS="${days}"
+
+# --- Pre-flight Check ---
+if [[ "$PROJECT_ID" =~ ^[0-9]+$ ]]; then
+  echo "⚠️  WARNING: PROJECT_ID '$PROJECT_ID' appears to be a Project Number."
+  echo "   'gcloud run deploy' requires the Project ID string (e.g., 'my-project-id')."
+  echo "   The script will proceed, but it may fail."
+  echo ""
+fi
+
+${saSetupBlock}
+
+${iamBlock}
 
 # 4. Deploy Cloud Run Service
 echo "Deploying Cloud Run Service..."
@@ -319,6 +352,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" "$SERVICE_URL"
 echo ""
 echo "--- TEST COMPLETE ---"
 `;
+};
 
 const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({ isOpen, onClose, projectNumber, currentConfig }) => {
     const [config, setConfig] = useState({
@@ -328,6 +362,13 @@ const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({ isOpen, o
         userStoreId: currentConfig.userStoreId || 'default_user_store',
         pruneDays: 30
     });
+    
+    // Advanced State
+    const [showAdvanced, setShowAdvanced] = useState(false);
+    const [customSaEmail, setCustomSaEmail] = useState('');
+    const [isCheckingPermissions, setIsCheckingPermissions] = useState(false);
+    const [permissionCheckResult, setPermissionCheckResult] = useState<{ status: 'success' | 'error' | null, message: string }>({ status: null, message: '' });
+    const [skipIamInScript, setSkipIamInScript] = useState(false);
     
     const [activeTab, setActiveTab] = useState<'deploy' | 'main' | 'requirements'>('deploy');
     const [copySuccess, setCopySuccess] = useState('');
@@ -362,9 +403,49 @@ const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({ isOpen, o
             setTimeout(() => setCopySuccess(''), 2000);
         });
     };
+    
+    const handleCheckPermissions = async () => {
+        if (!customSaEmail || !config.projectId) return;
+        setIsCheckingPermissions(true);
+        setPermissionCheckResult({ status: null, message: '' });
+        setSkipIamInScript(false);
+
+        const REQUIRED_ROLES = [
+            'roles/discoveryengine.admin',
+            'roles/logging.logWriter',
+            'roles/serviceusage.serviceUsageConsumer'
+        ];
+
+        try {
+            const result = await api.checkServiceAccountPermissions(config.projectId, customSaEmail, REQUIRED_ROLES);
+            if (result.hasAll) {
+                setPermissionCheckResult({ status: 'success', message: 'All required permissions are present.' });
+                setSkipIamInScript(true);
+            } else {
+                setPermissionCheckResult({ 
+                    status: 'error', 
+                    message: `Missing roles: ${result.missing.join(', ')}. The deployment script will attempt to grant them.` 
+                });
+                setSkipIamInScript(false);
+            }
+        } catch (err: any) {
+            setPermissionCheckResult({ status: 'error', message: `Check failed: ${err.message}` });
+            setSkipIamInScript(false);
+        } finally {
+            setIsCheckingPermissions(false);
+        }
+    };
 
     const mainPy = generateMainPy(config.pruneDays, config.appLocation, config.userStoreId);
-    const deploySh = generateDeploySh(config.projectId, config.appLocation, config.userStoreId, config.pruneDays, config.runRegion);
+    const deploySh = generateDeploySh(
+        config.projectId, 
+        config.appLocation, 
+        config.userStoreId, 
+        config.pruneDays, 
+        config.runRegion, 
+        customSaEmail.trim() || undefined,
+        skipIamInScript
+    );
     const requirementsTxt = `Flask==3.0.0\ngunicorn==22.0.0\ngoogle-auth>=2.22.0\nrequests>=2.31.0`;
     const dockerfile = `FROM python:3.10-slim\nENV PYTHONUNBUFFERED True\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\nCOPY . .\nCMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "8", "--timeout", "0", "main:app"]`;
 
@@ -425,6 +506,48 @@ const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({ isOpen, o
                         <div>
                             <label className="block text-sm font-medium text-gray-400">User Store ID</label>
                             <input type="text" value={config.userStoreId} onChange={(e) => setConfig({...config, userStoreId: e.target.value})} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm text-white" />
+                        </div>
+                        
+                        {/* Advanced Settings */}
+                        <div>
+                            <button 
+                                onClick={() => setShowAdvanced(!showAdvanced)} 
+                                className="text-sm font-semibold text-gray-400 hover:text-white flex items-center mb-2"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 mr-1 transition-transform ${showAdvanced ? 'rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                                </svg>
+                                Advanced Settings
+                            </button>
+                            {showAdvanced && (
+                                <div className="bg-gray-700/30 p-3 rounded-md border border-gray-600 space-y-3">
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-400 mb-1">Use Existing Service Account Email</label>
+                                        <div className="flex gap-2">
+                                            <input 
+                                                type="text" 
+                                                value={customSaEmail} 
+                                                onChange={(e) => setCustomSaEmail(e.target.value)} 
+                                                placeholder="my-sa@project.iam.gserviceaccount.com"
+                                                className="w-full bg-gray-700 border border-gray-500 rounded-md p-1.5 text-xs text-white" 
+                                            />
+                                            <button 
+                                                onClick={handleCheckPermissions}
+                                                disabled={isCheckingPermissions || !customSaEmail}
+                                                className="px-2 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700 disabled:opacity-50 shrink-0"
+                                            >
+                                                {isCheckingPermissions ? 'Checking...' : 'Check Permissions'}
+                                            </button>
+                                        </div>
+                                        {permissionCheckResult.status && (
+                                            <p className={`text-xs mt-1 ${permissionCheckResult.status === 'success' ? 'text-green-400' : 'text-yellow-400'}`}>
+                                                {permissionCheckResult.message}
+                                            </p>
+                                        )}
+                                        <p className="text-[10px] text-gray-500 mt-1">If specified, the script will use this SA instead of creating a new one.</p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <div className="pt-4">

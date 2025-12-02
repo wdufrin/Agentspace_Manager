@@ -284,6 +284,32 @@ export const checkAllPermissions = async (projectNumber: string): Promise<{
     };
 };
 
+export const checkServiceAccountPermissions = async (projectId: string, saEmail: string, requiredRoles: string[]): Promise<{ hasAll: boolean, missing: string[] }> => {
+    const client = await getGapiClient();
+    try {
+        const policy = await client.cloudresourcemanager.projects.getIamPolicy({
+            resource: projectId,
+        }).then((response: any) => response.result);
+
+        const grantedRoles = new Set<string>();
+        const memberKey = `serviceAccount:${saEmail}`;
+
+        if (policy.bindings) {
+            for (const binding of policy.bindings) {
+                if (binding.members && binding.members.includes(memberKey)) {
+                    grantedRoles.add(binding.role);
+                }
+            }
+        }
+
+        const missing = requiredRoles.filter(role => !grantedRoles.has(role));
+        return { hasAll: missing.length === 0, missing };
+    } catch (err: any) {
+        console.error("Failed to check SA permissions:", err);
+        throw new Error(err.message || "Failed to fetch IAM policy.");
+    }
+};
+
 
 export const batchEnableApis = async (projectId: string, apiIds: string[]): Promise<any> => {
     const client = await getGapiClient();
