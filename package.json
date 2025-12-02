@@ -13,7 +13,7 @@
     "start": "serve -s dist -l 8080"
   },
   "dependencies": {
-    "@google/genai": "^0.1.1",
+    "@google/genai": "*",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "serve": "^14.2.1",
