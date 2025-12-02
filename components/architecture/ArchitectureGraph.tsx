@@ -14,7 +14,7 @@ interface ArchitectureGraphProps {
 
 const NODE_TYPE_ORDER: NodeType[] = [
     'Project', 'Location', 'Collection', 'Engine', 'Assistant', 'Agent', 
-    'ReasoningEngine', 'DataStore', 'Authorization'
+    'ReasoningEngine', 'DataStore', 'Authorization', 'CloudRunService'
 ];
 
 const ArchitectureGraph: React.FC<ArchitectureGraphProps> = ({

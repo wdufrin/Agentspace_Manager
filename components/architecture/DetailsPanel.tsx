@@ -1,5 +1,5 @@
 import React from 'react';
-import { GraphNode, Page, ReasoningEngine } from '../../types';
+import { GraphNode, Page, ReasoningEngine, CloudRunService } from '../../types';
 
 interface DetailsPanelProps {
     node: GraphNode | null;
@@ -39,6 +39,10 @@ const getGcpConsoleUrl = (node: GraphNode, projectNumber: string): string | null
              const enCollectionId = id.split('/')[5];
              const enId = id.split('/').pop();
              return `https://console.cloud.google.com/gen-app-builder/locations/${enLocation}/collections/${enCollectionId}/engines/${enId}?project=${projectId}`;
+        case 'CloudRunService':
+             const crLocation = id.split('/')[3];
+             const crService = id.split('/').pop();
+             return `https://console.cloud.google.com/run/detail/${crLocation}/${crService}/metrics?project=${projectId}`;
         default:
             return `https://console.cloud.google.com/?project=${projectId}`;
     }
@@ -92,6 +96,13 @@ const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClos
                  return <DetailItem label="Solution Type" value={node.data.solutionType} />;
             case 'Authorization':
                 return <DetailItem label="Client ID" value={node.data.serverSideOauth2?.clientId} />;
+            case 'CloudRunService':
+                const crService = node.data as CloudRunService;
+                return <>
+                    <DetailItem label="URL">{crService.uri}</DetailItem>
+                    <DetailItem label="Location" value={crService.location} />
+                    <DetailItem label="Image">{crService.template?.containers?.[0]?.image}</DetailItem>
+                </>;
             default:
                 return null;
         }
@@ -114,6 +125,13 @@ const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClos
                     <ActionButton onClick={() => onDirectQuery(node.data as ReasoningEngine)}>
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 2a8 8 0 100 16 8 8 0 000-16zM6 9a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" /></svg>
                         Direct Query
+                    </ActionButton>
+                 );
+            case 'CloudRunService':
+                 return (
+                    <ActionButton onClick={() => onNavigate(Page.A2A_TESTER, { serviceToEdit: node.data })}>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 01-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                        Test A2A Endpoint
                     </ActionButton>
                  );
             default:

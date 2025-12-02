@@ -31,6 +31,7 @@ const CodeBlock: React.FC<{ content: string; onCopy: () => void; copyText: strin
 
 interface AgentAnalysis {
     isAgent: boolean;
+    isA2a: boolean;
     confidence: 'High' | 'Medium' | 'Low' | 'None';
     reasons: string[];
     score: number;
@@ -51,7 +52,12 @@ const analyzeService = (service: CloudRunService): AgentAnalysis => {
     const agentDesc = getEnv('AGENT_DESCRIPTION');
     const model = getEnv('MODEL');
     const agentUrl = getEnv('AGENT_URL');
+    const providerOrg = getEnv('PROVIDER_ORGANIZATION');
     const vertexAi = getEnv('GOOGLE_GENAI_USE_VERTEXAI');
+
+    // A2A Specific Checks
+    // If it has AGENT_URL (self-discovery) or PROVIDER_ORGANIZATION, it's likely an A2A agent.
+    const isA2a = !!(agentUrl || providerOrg || service.name.toLowerCase().includes('a2a'));
 
     // Heuristics
     if (agentName) { score += 3; reasons.push("Has AGENT_DISPLAY_NAME environment variable"); }
@@ -64,7 +70,7 @@ const analyzeService = (service: CloudRunService): AgentAnalysis => {
     
     // Weak signals
     if (service.name.toLowerCase().includes('agent')) { score += 0.5; reasons.push("Service name contains 'agent'"); }
-    if (service.name.toLowerCase().includes('a2a')) { score += 1; reasons.push("Service name contains 'a2a'"); }
+    if (isA2a) { score += 1; reasons.push("Detected as A2A Agent Protocol"); }
 
     let confidence: AgentAnalysis['confidence'] = 'None';
     if (score >= 3) confidence = 'High';
@@ -73,6 +79,7 @@ const analyzeService = (service: CloudRunService): AgentAnalysis => {
 
     return {
         isAgent: score >= 1.5, // Threshold for considering it an agent
+        isA2a,
         confidence,
         reasons,
         score,
@@ -140,6 +147,8 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
         return services.filter(s => analyzeService(s).isAgent);
     }, [services, filterAgentsOnly]);
 
+    const selectedAnalysis = selectedService ? analyzeService(selectedService) : null;
+
     // Handle Sending Request
     const handleSend = async () => {
         if (!selectedService) return;
@@ -149,14 +158,36 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
         setResponse(null);
 
         try {
-            // Default payload for standard ADK/Flask agents
-            const payload = { prompt: prompt };
+            let url = selectedService.uri;
+            let payload: any = { prompt: prompt };
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+            if (selectedAnalysis?.isA2a) {
+                // A2A agents expect JSON-RPC at /invoke
+                // Remove trailing slash if present and append /invoke
+                url = `${selectedService.uri.replace(/\/$/, '')}/invoke`;
+                
+                // Construct JSON-RPC 2.0 Payload
+                payload = {
+                    jsonrpc: "2.0",
+                    method: "chat",
+                    params: {
+                        message: {
+                            role: "user",
+                            parts: [
+                                { text: prompt }
+                            ]
+                        }
+                    },
+                    id: crypto.randomUUID() // Standard UUID for request ID
+                };
+            }
             
             // Note: This request is sent directly from the browser to the Cloud Run service.
             // If the service does not implement CORS (Access-Control-Allow-Origin), this fetch will fail.
-            const res = await fetch(selectedService.uri, {
+            const res = await fetch(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: headers,
                 body: JSON.stringify(payload)
             });
 
@@ -171,7 +202,23 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
             }
 
             const data = await res.json();
-            setResponse(data);
+
+            // Handle A2A Response Format logic for cleaner UI
+            if (selectedAnalysis?.isA2a) {
+                if (data.error) {
+                    throw new Error(`A2A Error: ${data.error.message || JSON.stringify(data.error)}`);
+                }
+                // Attempt to extract the text from the A2A JSON-RPC response
+                const text = data.result?.message?.parts?.[0]?.text;
+                if (text) {
+                    setResponse({ response: text, raw: data });
+                } else {
+                    setResponse(data);
+                }
+            } else {
+                // Standard Flask Agent response (assumes { response: "..." } or similar)
+                setResponse(data);
+            }
 
         } catch (err: any) {
             let msg = err.message || 'Request failed.';
@@ -184,21 +231,43 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
         }
     };
 
+    const getCurlCommand = () => {
+        if (!selectedService) return '';
+        const cleanPrompt = prompt.replace(/'/g, "'\\''");
+        // Use Identity Token for Cloud Run authentication
+        const baseAuth = '-H "Authorization: Bearer $(gcloud auth print-identity-token)"';
+        
+        if (selectedAnalysis?.isA2a) {
+            const url = `${selectedService.uri.replace(/\/$/, '')}/invoke`;
+            const jsonRpc = JSON.stringify({
+                jsonrpc: "2.0",
+                method: "chat",
+                params: {
+                    message: {
+                        role: "user",
+                        parts: [
+                            { text: prompt } // This will still contain unescaped quotes if prompt has them, fine for visual preview
+                        ]
+                    }
+                },
+                id: "1"
+            }, null, 0); // Compact JSON
+             // Escape single quotes for the shell command
+             const escapedJson = jsonRpc.replace(/'/g, "'\\''");
+             return `curl -X POST ${baseAuth} -H "Content-Type: application/json" -d '${escapedJson}' "${url}"`;
+        }
+        
+        return `curl -X POST ${baseAuth} -H "Content-Type: application/json" -d '{"prompt": "${cleanPrompt}"}' "${selectedService.uri}"`;
+    };
+
     const handleCopyCurl = () => {
-        if (!selectedService) return;
-        // We use `gcloud auth print-identity-token` because Cloud Run (and IAP) usually requires an OIDC token, not an Access Token.
-        const cmd = `curl -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token)" -H "Content-Type: application/json" -d '{"prompt": "${prompt.replace(/'/g, "'\\''")}"}' "${selectedService.uri}"`;
+        const cmd = getCurlCommand();
+        if (!cmd) return;
         navigator.clipboard.writeText(cmd).then(() => {
             setCurlCopyStatus('Copied!');
             setTimeout(() => setCurlCopyStatus(''), 2000);
         });
     };
-
-    const curlCommand = selectedService 
-        ? `curl -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token)" -H "Content-Type: application/json" -d '{"prompt": "${prompt.replace(/'/g, "'\\''")}"}' "${selectedService.uri}"` 
-        : '';
-        
-    const selectedAnalysis = selectedService ? analyzeService(selectedService) : null;
 
     return (
         <div className="space-y-6 flex flex-col h-full">
@@ -305,11 +374,16 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                             {selectedAnalysis && selectedAnalysis.isAgent && (
                                 <div className="px-6 pt-4">
                                     <div className="bg-gradient-to-r from-gray-800 to-gray-900 border border-teal-900/50 p-4 rounded-lg shadow-inner">
-                                        <div className="flex items-center mb-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-400 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                                                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                                            </svg>
-                                            <h4 className="text-sm font-bold text-teal-400 uppercase tracking-wider">Agent Intelligence</h4>
+                                        <div className="flex items-center mb-2 justify-between">
+                                            <div className="flex items-center">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-400 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                                                </svg>
+                                                <h4 className="text-sm font-bold text-teal-400 uppercase tracking-wider">Agent Intelligence</h4>
+                                            </div>
+                                            <span className={`text-xs px-2 py-0.5 rounded font-mono border ${selectedAnalysis.isA2a ? 'bg-purple-900/50 text-purple-300 border-purple-700' : 'bg-blue-900/50 text-blue-300 border-blue-700'}`}>
+                                                {selectedAnalysis.isA2a ? 'A2A Protocol' : 'Standard/Flask'}
+                                            </span>
                                         </div>
                                         <div className="grid grid-cols-2 gap-4 text-sm">
                                             {selectedAnalysis.agentName && (
@@ -390,7 +464,7 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                                                         </p>
                                                         <CodeBlock 
                                                             title="cURL Command (with Identity Token)" 
-                                                            content={curlCommand} 
+                                                            content={getCurlCommand()} 
                                                             onCopy={handleCopyCurl} 
                                                             copyText={curlCopyStatus || 'Copy'} 
                                                         />

@@ -1,4 +1,5 @@
 
+
 import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, LogEntry, ReasoningEngine, CloudRunService, GcsBucket, GcsObject } from '../types';
 import { getGapiClient } from './gapiService';
 
@@ -1117,6 +1118,25 @@ export async function createCloudBuild(projectId: string, buildConfig: any): Pro
     const path = `${getCloudBuildUrl()}/v1/projects/${projectId}/builds`;
     const headers = { 'Content-Type': 'application/json' };
     return gapiRequest<any>(path, 'POST', projectId, undefined, buildConfig, headers);
+}
+
+export async function getCloudBuild(projectId: string, buildId: string): Promise<any> {
+    const path = `${getCloudBuildUrl()}/v1/projects/${projectId}/builds/${buildId}`;
+    return gapiRequest<any>(path, 'GET', projectId);
+}
+
+export async function fetchBuildLogs(projectId: string, buildId: string): Promise<string[]> {
+    const path = `${getLoggingUrl()}/v2/entries:list`;
+    const filter = `resource.type="build" AND resource.labels.build_id="${buildId}"`;
+    const body = {
+        resourceNames: [`projects/${projectId}`],
+        filter: filter,
+        orderBy: "timestamp asc",
+        pageSize: 1000
+    };
+    const headers = { 'Content-Type': 'application/json' };
+    const response = await gapiRequest<{ entries?: LogEntry[] }>(path, 'POST', projectId, undefined, body, headers);
+    return (response.entries || []).map(e => e.textPayload || JSON.stringify(e.jsonPayload) || '');
 }
 
 // --- Cloud Logging APIs ---

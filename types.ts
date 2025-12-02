@@ -206,6 +206,7 @@ export interface LogEntry {
   severity: 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG' | 'DEFAULT';
   protoPayload?: any;
   jsonPayload?: any;
+  textPayload?: string;
   resource: {
     type: string;
     labels: { [key: string]: string };
@@ -261,7 +262,7 @@ export interface CloudRunService {
 }
 
 // Architecture Graph Types
-export type NodeType = 'Project' | 'Location' | 'Collection' | 'Engine' | 'Assistant' | 'Agent' | 'ReasoningEngine' | 'DataStore' | 'Authorization';
+export type NodeType = 'Project' | 'Location' | 'Collection' | 'Engine' | 'Assistant' | 'Agent' | 'ReasoningEngine' | 'DataStore' | 'Authorization' | 'CloudRunService';
 
 export interface GraphNode {
   id: string; // full resource name

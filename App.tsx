@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import AgentsPage from './pages/AgentsPage';
@@ -40,6 +37,11 @@ const ALL_REASONING_ENGINE_LOCATIONS = [
     'asia-east1', 'asia-southeast1'
 ];
 const ALL_DISCOVERY_LOCATIONS = ['global', 'us', 'eu'];
+const ALL_CLOUD_RUN_LOCATIONS = [
+    'us-central1', 'us-east1', 'us-east4', 'us-west1',
+    'europe-west1', 'europe-west2', 'europe-west4',
+    'asia-east1', 'asia-southeast1'
+];
 
 const GOOGLE_CLIENT_ID = '180054373655-2b600fnjissdmll4ipj2ndhr0i2h03fj.apps.googleusercontent.com';
 
@@ -361,6 +363,29 @@ const App: React.FC = () => {
             authorizations.forEach(auth => addNode({ id: auth.name, type: 'Authorization', label: auth.name.split('/').pop()!, data: auth }));
             allReasoningEngines.forEach(re => addNode({ id: re.name, type: 'ReasoningEngine', label: re.displayName, data: re }));
             addLog(`Found ${authorizations.length} authorizations and ${allReasoningEngines.length} reasoning engines across all locations.`);
+
+            // Scan Cloud Run Services
+            addLog("Scanning Cloud Run Services across all regions...");
+            const cloudRunPromises = ALL_CLOUD_RUN_LOCATIONS.map(loc => 
+                api.listCloudRunServices({ projectId: projectNumber } as any, loc)
+                    .then(res => res.services || [])
+                    .catch(e => { addLog(`NOTE: Could not scan Cloud Run in ${loc}: ${e.message}`); return []; })
+            );
+            const allCloudRunServices = (await Promise.all(cloudRunPromises)).flat();
+            
+            for (const service of allCloudRunServices) {
+                // Ensure Location node exists for this service
+                const locationNodeId = `${projectNodeId}/locations/${service.location}`;
+                if (!foundNodeIds.has(locationNodeId)) {
+                    addNode({ id: locationNodeId, type: 'Location', label: service.location, data: { name: locationNodeId } });
+                    addEdge(projectNodeId, locationNodeId);
+                }
+                
+                addNode({ id: service.name, type: 'CloudRunService', label: service.name.split('/').pop()!, data: service });
+                addEdge(locationNodeId, service.name);
+            }
+            addLog(`Found ${allCloudRunServices.length} Cloud Run services.`);
+
 
             for (const location of ALL_DISCOVERY_LOCATIONS) {
                 addLog(`Scanning discovery location: ${location}...`);

@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import * as api from '../../services/apiService';
 
@@ -10,6 +11,7 @@ interface AgentDeploymentModalProps {
     agentName: string;
     files: { name: string; content: string }[];
     projectNumber: string;
+    onBuildTriggered?: (buildId: string) => void;
 }
 
 interface EnvVar {
@@ -28,7 +30,7 @@ const NodeIcon: React.FC<{ type: string }> = ({ type }) => {
     }
 }
 
-const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onClose, agentName, files, projectNumber }) => {
+const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onClose, agentName, files, projectNumber, onBuildTriggered }) => {
     const [envVars, setEnvVars] = useState<EnvVar[]>([]);
     const [target, setTarget] = useState<'cloud_run' | 'reasoning_engine'>('reasoning_engine');
     const [region, setRegion] = useState('us-central1');
@@ -653,8 +655,15 @@ print(f"Resource Name: {remote_app.resource_name}")
             // 5. Trigger Build
             addLog('Triggering Cloud Build...');
             const buildOp = await api.createCloudBuild(projectId, buildConfig);
-            setBuildId(buildOp.metadata?.build?.id || 'unknown');
-            addLog(`Build triggered! ID: ${buildOp.metadata?.build?.id}`);
+            const triggeredBuildId = buildOp.metadata?.build?.id || 'unknown';
+            setBuildId(triggeredBuildId);
+            
+            // Notify parent
+            if (onBuildTriggered && triggeredBuildId !== 'unknown') {
+                onBuildTriggered(triggeredBuildId);
+            }
+
+            addLog(`Build triggered! ID: ${triggeredBuildId}`);
             addLog(`Check Cloud Build console for detailed logs.`);
 
         } catch (err: any) {
