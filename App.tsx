@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import AgentsPage from './pages/AgentsPage';
@@ -24,6 +25,7 @@ import CurlInfoModal from './components/CurlInfoModal';
 import DirectQueryChatWindow from './components/agent-engines/DirectQueryChatWindow';
 import AssistantPage from './pages/AssistantPage';
 import LicensePage from './pages/LicensePage';
+import CloudBuildProgress from './components/agent-builder/CloudBuildProgress';
 
 declare global {
     interface Window {
@@ -82,6 +84,17 @@ const App: React.FC = () => {
   const [architectureLogs, setArchitectureLogs] = useState<string[]>([]);
   const [isArchitectureLoading, setIsArchitectureLoading] = useState(false);
   const [architectureError, setArchitectureError] = useState<string | null>(null);
+
+  // Global State for Cloud Build Progress
+  const [activeBuilds, setActiveBuilds] = useState<string[]>([]);
+
+  const handleBuildTriggered = (buildId: string) => {
+      setActiveBuilds(prev => [...prev, buildId]);
+  };
+
+  const handleRemoveBuild = (buildId: string) => {
+      setActiveBuilds(prev => prev.filter(id => id !== buildId));
+  };
 
 
   const handleSetAccessToken = useCallback((token: string) => {
@@ -548,9 +561,9 @@ const App: React.FC = () => {
       case Page.A2A_TESTER:
         return <A2aTesterPage {...projectProps} onNavigate={handleNavigation} accessToken={accessToken} />;
       case Page.AGENT_BUILDER:
-        return <AgentBuilderPage {...commonProps} />;
+        return <AgentBuilderPage {...commonProps} onBuildTriggered={handleBuildTriggered} />;
       case Page.AGENT_CATALOG:
-        return <AgentCatalogPage {...projectProps} accessToken={accessToken} />;
+        return <AgentCatalogPage {...projectProps} accessToken={accessToken} onBuildTriggered={handleBuildTriggered} />;
       case Page.CLOUD_RUN_AGENTS:
         return <CloudRunAgentsPage {...projectProps} />;
       case Page.CHAT:
@@ -788,11 +801,24 @@ const App: React.FC = () => {
                 onSignOut={handleSignOut}
             />
           </header>
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-6 relative">
             {renderPage()}
           </div>
         </main>
       </div>
+      
+      {/* Global Build Progress Indicators */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 items-end">
+          {activeBuilds.map(id => (
+              <CloudBuildProgress 
+                  key={id} 
+                  projectId={projectNumber} 
+                  buildId={id} 
+                  onClose={() => handleRemoveBuild(id)} 
+              />
+          ))}
+      </div>
+
       {infoModalKey && (
         <CurlInfoModal infoKey={infoModalKey} onClose={handleCloseInfoModal} />
       )}

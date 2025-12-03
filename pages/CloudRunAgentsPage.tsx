@@ -1,9 +1,11 @@
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { CloudRunService, Config, EnvVar } from '../types';
 import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
 import Spinner from '../components/Spinner';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 interface CloudRunAgentsPageProps {
   projectNumber: string;
@@ -108,6 +110,11 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
     const [response, setResponse] = useState<any | null>(null);
     const [testError, setTestError] = useState<string | null>(null);
     const [curlCopyStatus, setCurlCopyStatus] = useState('');
+
+    // Deletion State
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [serviceToDelete, setServiceToDelete] = useState<CloudRunService | null>(null);
 
     const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
         projectId: projectNumber,
@@ -269,6 +276,32 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
         });
     };
 
+    const requestDelete = (service: CloudRunService) => {
+        setServiceToDelete(service);
+        setIsDeleteModalOpen(true);
+    };
+
+    const handleDeleteService = async () => {
+        if (!serviceToDelete) return;
+        
+        setIsDeleting(true);
+        setError(null);
+        try {
+            await api.deleteCloudRunService(serviceToDelete.name, apiConfig);
+            // Close modal and clear selection
+            setIsDeleteModalOpen(false);
+            setServiceToDelete(null);
+            setSelectedService(null);
+            
+            // Refresh list
+            await fetchServices();
+        } catch (err: any) {
+            setError(`Failed to delete service: ${err.message}`);
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
     return (
         <div className="space-y-6 flex flex-col h-full">
             {/* Header / Config */}
@@ -303,6 +336,8 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                     </div>
                 </div>
             </div>
+
+            {error && <div className="p-4 bg-red-900/30 text-red-300 text-sm rounded-lg border border-red-800">{error}</div>}
 
             {/* Main Content Area */}
             <div className="flex flex-1 gap-6 min-h-0 overflow-hidden">
@@ -354,18 +389,29 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                                 <h3 className="text-md font-semibold text-white">
                                     Service: <span className="text-blue-400">{selectedService.name.split('/').pop()}</span>
                                 </h3>
-                                <div className="flex space-x-1 bg-gray-900 p-1 rounded-lg">
+                                <div className="flex items-center gap-2">
+                                    <div className="flex space-x-1 bg-gray-900 p-1 rounded-lg">
+                                        <button 
+                                            onClick={() => setActiveTab('test')}
+                                            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${activeTab === 'test' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                                        >
+                                            Test Agent
+                                        </button>
+                                        <button 
+                                            onClick={() => setActiveTab('config')}
+                                            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${activeTab === 'config' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                                        >
+                                            Service Config
+                                        </button>
+                                    </div>
                                     <button 
-                                        onClick={() => setActiveTab('test')}
-                                        className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${activeTab === 'test' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                                        onClick={() => requestDelete(selectedService)}
+                                        className="p-1.5 text-red-400 hover:text-red-300 hover:bg-gray-700 rounded-md transition-colors"
+                                        title="Delete Service"
                                     >
-                                        Test Agent
-                                    </button>
-                                    <button 
-                                        onClick={() => setActiveTab('config')}
-                                        className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${activeTab === 'config' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`}
-                                    >
-                                        Service Config
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                        </svg>
                                     </button>
                                 </div>
                             </div>
@@ -497,6 +543,24 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                     )}
                 </div>
             </div>
+
+            {serviceToDelete && (
+                <ConfirmationModal
+                    isOpen={isDeleteModalOpen}
+                    onClose={() => setIsDeleteModalOpen(false)}
+                    onConfirm={handleDeleteService}
+                    title="Delete Cloud Run Service"
+                    confirmText="Delete"
+                    isConfirming={isDeleting}
+                >
+                    <p>Are you sure you want to permanently delete this Cloud Run service?</p>
+                    <div className="mt-2 p-3 bg-gray-700/50 rounded-md border border-gray-600">
+                        <p className="font-bold text-white">{serviceToDelete.name.split('/').pop()}</p>
+                        <p className="text-xs font-mono text-gray-400 mt-1">{serviceToDelete.uri}</p>
+                    </div>
+                    <p className="mt-4 text-sm text-yellow-300">This action cannot be undone.</p>
+                </ConfirmationModal>
+            )}
         </div>
     );
 };

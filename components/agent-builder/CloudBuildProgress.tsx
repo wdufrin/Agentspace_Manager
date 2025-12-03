@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import * as api from '../../services/apiService';
 
@@ -64,6 +65,16 @@ const CloudBuildProgress: React.FC<CloudBuildProgressProps> = ({ projectId, buil
         const intervalId = setInterval(poll, 3000);
         return () => clearInterval(intervalId);
     }, [projectId, buildId, isPolling]);
+
+    // Auto-close on success after a short delay
+    useEffect(() => {
+        if (status === 'SUCCESS' && onClose) {
+            const timer = setTimeout(() => {
+                onClose();
+            }, 5000); // 5 seconds delay to show success state before closing
+            return () => clearTimeout(timer);
+        }
+    }, [status, onClose]);
 
     const isFinished = !isPolling;
     const isSuccess = status === 'SUCCESS';

@@ -1,8 +1,8 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import ProjectInput from '../components/ProjectInput';
 import Spinner from '../components/Spinner';
 import AgentDeploymentModal from '../components/agent-catalog/AgentDeploymentModal';
-import CloudBuildProgress from '../components/agent-builder/CloudBuildProgress';
 
 declare var JSZip: any;
 
@@ -10,6 +10,7 @@ interface AgentCatalogPageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
   accessToken: string;
+  onBuildTriggered: (buildId: string) => void;
 }
 
 interface GitAgentDir {
@@ -158,7 +159,7 @@ const FilterDropdown: React.FC<{
     </div>
 );
 
-const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setProjectNumber }) => {
+const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setProjectNumber, onBuildTriggered }) => {
   // Git Catalog State
   const [gitRepoUrl, setGitRepoUrl] = useState('https://github.com/google/adk-samples/tree/main/python/agents');
   const [gitAgents, setGitAgents] = useState<GitAgentDir[]>([]);
@@ -177,14 +178,10 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [selectedGitAgentName, setSelectedGitAgentName] = useState<string>('');
   const [selectedGitFiles, setSelectedGitFiles] = useState<{name: string, content: string}[]>([]);
-  const [activeBuilds, setActiveBuilds] = useState<string[]>([]);
 
   const handleBuildTriggered = (buildId: string) => {
-      setActiveBuilds(prev => [...prev, buildId]);
-  };
-
-  const removeBuild = (id: string) => {
-      setActiveBuilds(prev => prev.filter(b => b !== id));
+      onBuildTriggered(buildId); // Notify parent
+      setIsDeployModalOpen(false); // Close modal
   };
 
   // --- Git Catalog Logic ---
@@ -357,18 +354,6 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
 
   return (
     <div className="space-y-6 h-full flex flex-col relative">
-        {/* Deployment Progress Bar - Stacks multiple notifications */}
-        <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 items-end">
-            {activeBuilds.map(id => (
-                <CloudBuildProgress 
-                    key={id} 
-                    projectId={projectNumber} 
-                    buildId={id} 
-                    onClose={() => removeBuild(id)} 
-                />
-            ))}
-        </div>
-
         {/* Deploy Modal */}
         {isDeployModalOpen && (
             <AgentDeploymentModal

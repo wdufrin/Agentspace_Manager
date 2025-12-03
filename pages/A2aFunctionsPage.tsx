@@ -76,9 +76,11 @@ except Exception as e:
     model = None
 
 
-@app.route("/", methods=["GET"])
+@app.route("/", methods=["GET", "OPTIONS"])
 def health_check():
     """Health check endpoint."""
+    if request.method == "OPTIONS":
+        return "", 204
     return jsonify({"status": "ok"}), 200
 
 @app.route("/.well-known/agent.json", methods=["GET", "OPTIONS"])

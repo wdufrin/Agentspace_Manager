@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Config, AppEngine, CloudRunService, Agent } from '../types';
 import * as api from '../services/apiService';
@@ -233,6 +234,7 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
 
             // Build the payloads
             const cardObject = {
+                protocolVersion: "0.3.0",
                 // IMPORTANT: The URL must point to the /invoke endpoint for POST requests.
                 // We append this here to ensure the registered agent is configured correctly,
                 // even if the deployed agent.json itself is slightly off.

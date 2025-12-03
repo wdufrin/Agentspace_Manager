@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Config, ReasoningEngine, GcsBucket, GcsObject } from '../../types';
 import * as api from '../../services/apiService';
@@ -120,7 +121,6 @@ const DeployModal: React.FC<DeployModalProps> = ({ isOpen, onClose, onDeploy, co
         setObjects([]);
         setSelectedObject('');
         try {
-            // FIX: Removed extra accessToken argument, which is not part of the function signature.
             const res = await api.listBuckets(apiConfig.projectId);
             setBuckets(res.items || []);
         } catch (err: any) {
@@ -137,7 +137,6 @@ const DeployModal: React.FC<DeployModalProps> = ({ isOpen, onClose, onDeploy, co
         setObjects([]);
         setSelectedObject('');
         try {
-            // FIX: Removed extra accessToken argument and corrected the argument order.
             const res = await api.listGcsObjects(selectedBucket, gcsPrefix, apiConfig.projectId);
             const pklFiles = (res.items || []).filter(item => item.name.endsWith('.pkl'));
             setObjects(pklFiles);
@@ -217,7 +216,7 @@ const DeployModal: React.FC<DeployModalProps> = ({ isOpen, onClose, onDeploy, co
         <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
             <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col">
                 <header className="p-4 border-b border-gray-700 flex justify-between items-center">
-                    <h2 className="text-xl font-bold text-white">Deploy Agent to Reasoning Engine</h2>
+                    <h2 className="text-xl font-bold text-white">Deploy Agent</h2>
                     <button onClick={handleClose} disabled={isDeploying} className="text-gray-400 hover:text-white disabled:opacity-50">&times;</button>
                 </header>
                 

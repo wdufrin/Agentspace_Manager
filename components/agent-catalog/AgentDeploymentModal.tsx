@@ -297,10 +297,13 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
         setError(null);
         addLog(`Starting deployment for ${agentName}...`);
         
+        // Use a working copy of files so we can inject code without mutating the prop
+        const filesToZip = files.map(f => ({ ...f }));
+
         // Note: entryModulePath is like "subfolder.agent"
         // We convert dots back to slashes to check file existence "subfolder/agent.py"
         const expectedFilename = `${entryModulePath.replace(/\./g, '/')}.py`;
-        const entryFileExists = files.some(f => f.name === expectedFilename);
+        const entryFileExists = filesToZip.some(f => f.name === expectedFilename);
         
         if (!entryFileExists) {
             const msg = `FATAL: The detected entry file '${expectedFilename}' (derived from '${entryModulePath}') was not found in the loaded files. Deployment cannot proceed.`;
@@ -312,46 +315,89 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
 
         addLog(`Detected Entry Point: '${entryModulePath}.${entryPoint}'`);
         
-        const isA2a = files.some(f => f.content.includes('to_a2a('));
+        const isA2a = filesToZip.some(f => f.content.includes('to_a2a('));
         if (isA2a) {
             addLog('Detected A2A (Agent-to-Agent) configuration.');
+            
+            // --- A2A PATCHING: Ensure requirements ---
+            const reqsFileIndex = filesToZip.findIndex(f => f.name === 'requirements.txt');
+            let reqsContent = reqsFileIndex >= 0 ? filesToZip[reqsFileIndex].content : '';
+            
+            let reqsUpdated = false;
+            if (!reqsContent.includes('google-cloud-aiplatform')) { reqsContent += '\ngoogle-cloud-aiplatform[adk,agent_engines]>=1.38'; reqsUpdated = true; }
+            if (!reqsContent.includes('uvicorn')) { reqsContent += '\nuvicorn'; reqsUpdated = true; }
+            if (!reqsContent.includes('fastapi')) { reqsContent += '\nfastapi'; reqsUpdated = true; }
+            
+            if (reqsFileIndex >= 0) {
+                filesToZip[reqsFileIndex].content = reqsContent;
+            } else {
+                filesToZip.push({ name: 'requirements.txt', content: reqsContent });
+            }
+            if (reqsUpdated) addLog('Updated requirements.txt with A2A dependencies.');
+
+            // --- A2A PATCHING: Inject CORS Middleware into code ---
+            const entryFileIndex = filesToZip.findIndex(f => f.name === expectedFilename);
+            if (entryFileIndex >= 0) {
+                let content = filesToZip[entryFileIndex].content;
+                let codeUpdated = false;
+
+                if (!content.includes('CORSMiddleware')) {
+                    content = 'from fastapi.middleware.cors import CORSMiddleware\n' + content;
+                    codeUpdated = true;
+                }
+
+                // Identify the app variable holding the FastAPI app (e.g. app = to_a2a(...))
+                const appMatch = content.match(/^(\w+)\s*=\s*to_a2a\(/m);
+                if (appMatch) {
+                    const appVar = appMatch[1];
+                    // Only inject if not already present
+                    if (!content.includes(`${appVar}.add_middleware`)) {
+                        const middlewareCode = `
+# Auto-injected CORS middleware for browser access
+${appVar}.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+`;
+                        content += middlewareCode;
+                        codeUpdated = true;
+                    }
+                }
+                
+                if (codeUpdated) {
+                    filesToZip[entryFileIndex].content = content;
+                    addLog(`Injected CORS middleware into ${expectedFilename} to enable browser access.`);
+                }
+            }
+        } else {
+            // Standard Agent checks
+            const reqsFileIndex = filesToZip.findIndex(f => f.name === 'requirements.txt');
+            let reqsContent = reqsFileIndex >= 0 ? filesToZip[reqsFileIndex].content : '';
+            if (!reqsContent.includes('google-cloud-aiplatform')) {
+                reqsContent += '\ngoogle-cloud-aiplatform[adk,agent_engines]>=1.38';
+                if (reqsFileIndex >= 0) filesToZip[reqsFileIndex].content = reqsContent;
+                else filesToZip.push({ name: 'requirements.txt', content: reqsContent });
+            }
         }
 
         try {
             // 2. Create Zip
             const zip = new JSZip();
             addLog("Files to be zipped:");
-            files.forEach(f => {
+            filesToZip.forEach(f => {
                 zip.file(f.name, f.content);
                 addLog(` - ${f.name} (${f.content.length} chars)`);
             });
-            
-            // Add requirements if missing (basic fallback)
-            const reqsFile = files.find(f => f.name === 'requirements.txt');
-            let reqsContent = reqsFile ? reqsFile.content : '';
-            
-            // Ensure necessary packages are present
-            if (!reqsContent.includes('google-cloud-aiplatform')) {
-                reqsContent += '\ngoogle-cloud-aiplatform[adk,agent_engines]>=1.38';
-            }
-            if (!reqsContent.includes('flask')) reqsContent += '\nflask';
-            if (!reqsContent.includes('gunicorn')) reqsContent += '\ngunicorn';
-            if (!reqsContent.includes('python-dotenv')) reqsContent += '\npython-dotenv';
-            
-            if (isA2a && !reqsContent.includes('uvicorn')) reqsContent += '\nuvicorn';
-            
-            zip.file('requirements.txt', reqsContent);
-            addLog('⚠️ Updated requirements.txt with ADK/Agent Engines support');
 
             // Generate content based on target
             if (target === 'cloud_run') {
                 // Check/Add Dockerfile
-                if (!files.some(f => f.name === 'Dockerfile')) {
+                if (!filesToZip.some(f => f.name === 'Dockerfile')) {
                     if (isA2a) {
                         // A2A uses uvicorn directly
-                        // We use the file name from entryModulePath (e.g. "agent") and entryPoint (e.g. "app")
-                        // Assuming flat structure if no dots, otherwise needs folder structure in Docker
-                        // The builder generates flat agent.py
                         const moduleFile = entryModulePath.split('.').pop() || 'agent';
                         zip.file('Dockerfile', `
 FROM python:3.10-slim
@@ -379,7 +425,7 @@ RUN pip install --no-cache-dir -r requirements.txt && pip install "google-cloud-
 CMD ["python", "main.py"]
 `); 
                         // Add Cloud Run Adapter (main.py)
-                        if (!files.some(f => f.name === 'main.py')) {
+                        if (!filesToZip.some(f => f.name === 'main.py')) {
                              zip.file('main.py', `
 import os
 import sys
@@ -719,10 +765,36 @@ print(f"Resource Name: {remote_app.resource_name}")
                 });
                 
                 // Deploy Image
+                const serviceName = agentName.toLowerCase();
+                // NOTE: Cloud Build replaces substitutions using $VARIABLE syntax.
+                // To prevent Cloud Build from trying to substitute $SERVICE_URL (which isn't a build variable),
+                // we must escape it as $$SERVICE_URL.
+                const deployScript = `
+#!/bin/bash
+set -e
+echo "Deploying Cloud Run service '${serviceName}'..."
+# Initial deploy with provided env vars
+gcloud run deploy ${serviceName} --image ${imageName} --region ${region} --allow-unauthenticated --set-env-vars "${envStrings.join(',')}"
+
+echo "Fetching Service URL..."
+# Escape $ for Cloud Build substitution using $$
+SERVICE_URL=$$(gcloud run services describe ${serviceName} --region ${region} --format='value(status.url)')
+
+if [ -z "$$SERVICE_URL" ]; then
+    echo "Error: Could not retrieve service URL."
+    exit 1
+fi
+
+echo "Detected Service URL: $$SERVICE_URL"
+echo "Updating service with AGENT_URL for self-discovery..."
+gcloud run services update ${serviceName} --region ${region} --update-env-vars=AGENT_URL=$$SERVICE_URL
+
+echo "Deployment Complete."
+`;
                 buildConfig.steps.push({
                     name: 'gcr.io/google.com/cloudsdktool/cloud-sdk',
-                    entrypoint: 'gcloud',
-                    args: ['run', 'deploy', agentName.toLowerCase(), '--image', imageName, '--region', region, '--allow-unauthenticated', '--set-env-vars', envStrings.join(',')]
+                    entrypoint: 'bash',
+                    args: ['-c', deployScript]
                 });
             } else {
                 // Reasoning Engine
@@ -896,28 +968,30 @@ gcloud projects add-iam-policy-binding ${projectId} \\
 
                             {/* Staging Bucket */}
                             {target === 'reasoning_engine' && (
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-300 mb-1">Staging Bucket</label>
-                                    <div className="flex gap-2">
-                                        <select 
-                                            value={selectedBucket} 
-                                            onChange={(e) => setSelectedBucket(e.target.value)} 
-                                            className="w-full bg-gray-700 border-gray-600 rounded-md px-3 py-2 text-sm text-white focus:ring-blue-500"
-                                            disabled={isLoadingBuckets || isDeploying}
-                                        >
-                                            {buckets.length === 0 && <option value="">{isLoadingBuckets ? 'Loading...' : 'No buckets found'}</option>}
-                                            {buckets.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
-                                        </select>
-                                        <button 
-                                            onClick={handleRefreshBuckets}
-                                            disabled={isLoadingBuckets || isDeploying}
-                                            className="px-3 bg-gray-700 hover:bg-gray-600 rounded text-white text-xs border border-gray-600"
-                                            title="Refresh Buckets"
-                                        >
-                                            ↻
-                                        </button>
+                                <div className="flex gap-2 items-end">
+                                    <div className="flex-1">
+                                        <label className="block text-sm font-medium text-gray-300 mb-1">Staging Bucket</label>
+                                        <div className="flex gap-2">
+                                            <select 
+                                                value={selectedBucket} 
+                                                onChange={(e) => setSelectedBucket(e.target.value)} 
+                                                className="w-full bg-gray-700 border-gray-600 rounded-md px-3 py-2 text-sm text-white focus:ring-blue-500"
+                                                disabled={isLoadingBuckets || isDeploying}
+                                            >
+                                                {buckets.length === 0 && <option value="">{isLoadingBuckets ? 'Loading...' : 'No buckets found'}</option>}
+                                                {buckets.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                                            </select>
+                                            <button 
+                                                onClick={handleRefreshBuckets}
+                                                disabled={isLoadingBuckets || isDeploying}
+                                                className="px-3 bg-gray-700 hover:bg-gray-600 rounded text-white text-xs border border-gray-600"
+                                                title="Refresh Buckets"
+                                            >
+                                                ↻
+                                            </button>
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-1">GCS bucket to store the agent source code for Cloud Build.</p>
                                     </div>
-                                    <p className="text-xs text-gray-500 mt-1">GCS bucket to store the agent source code for Cloud Build.</p>
                                 </div>
                             )}
 

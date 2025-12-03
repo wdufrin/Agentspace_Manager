@@ -67,6 +67,7 @@ const ALL_REQUIRED_PERMISSIONS = [
     // Cloud Run
     'run.services.get',
     'run.services.list',
+    'run.services.delete',
   
     // Cloud Storage
     'storage.buckets.list',
@@ -531,6 +532,12 @@ export async function updateAgent(originalAgent: Agent, updatedAgent: Partial<Ag
              provisioned_reasoning_engine: { reasoning_engine: updatedAgent.adkAgentDefinition.provisionedReasoningEngine?.reasoningEngine }
         };
     }
+    if (updatedAgent.a2aAgentDefinition && JSON.stringify(originalAgent.a2aAgentDefinition) !== JSON.stringify(updatedAgent.a2aAgentDefinition)) {
+        updateMask.push('a2a_agent_definition');
+        payload.a2aAgentDefinition = {
+             json_agent_card: updatedAgent.a2aAgentDefinition.jsonAgentCard
+        };
+    }
     if (updatedAgent.icon !== undefined && JSON.stringify(originalAgent.icon) !== JSON.stringify(originalAgent.icon)) {
         updateMask.push('icon');
         payload.icon = updatedAgent.icon;
@@ -631,7 +638,10 @@ export const fetchA2aAgentCard = async (
     agentUrl: string,
     identityToken: string
 ): Promise<any> => {
-    const cardUrl = `${agentUrl}/.well-known/agent.json`;
+    if (!agentUrl) throw new Error("Agent URL is required to fetch the agent card.");
+    
+    const cleanUrl = agentUrl.replace(/\/$/, '');
+    const cardUrl = `${cleanUrl}/.well-known/agent.json`;
 
     try {
         const response = await fetch(cardUrl, {
@@ -667,6 +677,8 @@ export const invokeA2aAgent = async (
     prompt: string,
     accessToken: string
 ): Promise<any> => {
+    if (!agentUrl) throw new Error("Agent URL is required to invoke the agent.");
+
     // Ensure clean URL
     const cleanUrl = agentUrl.replace(/\/$/, '');
     const invokeUrl = cleanUrl.endsWith('/invoke') ? cleanUrl : `${cleanUrl}/invoke`;
@@ -1046,6 +1058,12 @@ export async function getCloudRunService(serviceName: string, config: Config): P
     const location = serviceName.split('/')[3];
     const path = `${getCloudRunUrl(location)}/v2/${serviceName}`;
     return gapiRequest<CloudRunService>(path, 'GET', config.projectId);
+}
+
+export async function deleteCloudRunService(serviceName: string, config: Config): Promise<any> {
+    const location = serviceName.split('/')[3];
+    const path = `${getCloudRunUrl(location)}/v2/${serviceName}`;
+    return gapiRequest<any>(path, 'DELETE', config.projectId);
 }
 
 // --- Vertex AI / AI Platform APIs (General) ---

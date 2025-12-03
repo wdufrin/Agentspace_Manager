@@ -1,7 +1,9 @@
 
 
+
+
 import React, { useState, useEffect } from 'react';
-import { Agent, ReasoningEngine, Config, Authorization } from '../../types';
+import { Agent, ReasoningEngine, Config, Authorization, CloudRunService } from '../../types';
 import * as api from '../../services/apiService';
 
 const getCompatibleReasoningEngineLocation = (appLocation: string): string => {
@@ -12,7 +14,6 @@ const getCompatibleReasoningEngineLocation = (appLocation: string): string => {
         case 'eu':
             return 'europe-west1';
         default:
-            // This case shouldn't be hit with the current dropdown, but as a fallback:
             return 'us-central1'; 
     }
 };
@@ -23,6 +24,8 @@ interface AgentFormProps {
   onCancel: () => void;
   agentToEdit?: Agent | null;
 }
+
+type AgentType = 'reasoning_engine' | 'a2a';
 
 const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agentToEdit }) => {
   const [formData, setFormData] = useState({
@@ -36,7 +39,18 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
     reasoningEngineId: '901164128171720704',
     authId: '',
     starterPrompts: [''],
+    // A2A Specific
+    a2aUrl: '',
+    a2aOrg: 'My Organization',
   });
+  const [agentType, setAgentType] = useState<AgentType>('reasoning_engine');
+  
+  // Cloud Run Picker State
+  const [cloudRunRegion, setCloudRunRegion] = useState('us-central1');
+  const [cloudRunServices, setCloudRunServices] = useState<CloudRunService[]>([]);
+  const [isLoadingServices, setIsLoadingServices] = useState(false);
+  const [useCloudRunPicker, setUseCloudRunPicker] = useState(false);
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [iconPreviewError, setIconPreviewError] = useState(false);
@@ -68,6 +82,24 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
 
   useEffect(() => {
     if (agentToEdit) {
+      let type: AgentType = 'reasoning_engine';
+      let a2aUrl = '';
+      let a2aOrg = '';
+      
+      // Heuristic to detect agent type
+      if (agentToEdit.a2aAgentDefinition) {
+          type = 'a2a';
+          try {
+              const card = JSON.parse(agentToEdit.a2aAgentDefinition.jsonAgentCard);
+              a2aUrl = card.url ? card.url.replace('/invoke', '') : '';
+              a2aOrg = card.provider?.organization || '';
+          } catch (e) {
+              console.warn("Failed to parse A2A agent card JSON", e);
+          }
+      }
+
+      setAgentType(type);
+
       const rePath = agentToEdit.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine || '';
       const reParts = rePath.split('/');
 
@@ -98,6 +130,8 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
         starterPrompts: agentToEdit.starterPrompts && agentToEdit.starterPrompts.length > 0
             ? agentToEdit.starterPrompts.map(p => p.text)
             : [''],
+        a2aUrl: a2aUrl,
+        a2aOrg: a2aOrg,
       });
     }
   }, [agentToEdit, config.appLocation]);
@@ -117,11 +151,45 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
             .filter(text => text)
             .map(text => ({ text }));
         
-        const reasoningEnginePath = `projects/${projectId}/locations/${formData.reasoningEngineLocation}/reasoningEngines/${formData.reasoningEngineId}`;
-        const newToolDescription = `[Agent Metadata]
+        // Prepare payloads based on agent type
+        let agentDefinitionPayload: any = {};
+        
+        if (agentType === 'reasoning_engine') {
+            const reasoningEnginePath = `projects/${projectId}/locations/${formData.reasoningEngineLocation}/reasoningEngines/${formData.reasoningEngineId}`;
+            const newToolDescription = `[Agent Metadata]
 Created By: ${formData.createdBy || 'N/A'}
 Agent Engine: ${reasoningEnginePath}
 Additional Info: ${formData.additionalInfo || 'None'}`;
+            agentDefinitionPayload = {
+                adk_agent_definition: {
+                    tool_settings: { tool_description: newToolDescription },
+                    provisioned_reasoning_engine: { reasoning_engine: reasoningEnginePath }
+                }
+            };
+        } else {
+            // A2A Construction
+            const a2aUrl = formData.a2aUrl || '';
+            const cardObject = {
+                protocolVersion: "0.3.0",
+                url: `${a2aUrl.replace(/\/$/, '')}/invoke`,
+                provider: {
+                    organization: formData.a2aOrg,
+                    url: formData.a2aUrl,
+                },
+                name: formData.displayName,
+                description: formData.description,
+                capabilities: {},
+                defaultInputModes: ["text/plain"],
+                defaultOutputModes: ["text/plain"],
+                skills: [{ description: "Chat", examples: ["Hello"], id: "chat", name: "Chat", tags: ["chat"] }],
+                version: "1.0.0"
+            };
+            agentDefinitionPayload = {
+                a2a_agent_definition: {
+                    json_agent_card: JSON.stringify(cardObject)
+                }
+            };
+        }
 
 
         if (agentToEdit) {
@@ -150,14 +218,14 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                 payload.starterPrompts = finalStarterPrompts;
             }
             
-            const originalAdkDef = agentToEdit.adkAgentDefinition;
-            if (originalAdkDef?.toolSettings?.toolDescription !== newToolDescription ||
-                originalAdkDef?.provisionedReasoningEngine?.reasoningEngine !== reasoningEnginePath) {
-                updateMask.push('adk_agent_definition');
-                payload.adk_agent_definition = {
-                    tool_settings: { tool_description: newToolDescription },
-                    provisioned_reasoning_engine: { reasoning_engine: reasoningEnginePath }
-                };
+            // Only add definition update if relevant fields changed (simplified check)
+            if (agentType === 'reasoning_engine') {
+                 // Check if it's worth updating definition
+                 updateMask.push('adk_agent_definition');
+                 payload.adkAgentDefinition = agentDefinitionPayload.adk_agent_definition;
+            } else {
+                 updateMask.push('a2a_agent_definition');
+                 payload.a2aAgentDefinition = agentDefinitionPayload.a2a_agent_definition;
             }
 
             if (updateMask.length === 0) {
@@ -189,12 +257,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                 description: formData.description,
                 icon: formData.iconUri ? { uri: formData.iconUri } : undefined,
                 starterPrompts: finalStarterPrompts.length > 0 ? finalStarterPrompts : undefined,
-                adkAgentDefinition: {
-                    tool_settings: { tool_description: newToolDescription },
-                    provisioned_reasoning_engine: {
-                      reasoning_engine: reasoningEnginePath,
-                    },
-                },
+                ...agentDefinitionPayload
             };
         
             const finalAuthId = formData.authId?.split('/').pop()?.trim();
@@ -220,7 +283,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
 
             setCurlCommand(command);
         }
-    }, [formData, agentToEdit, config]);
+    }, [formData, agentToEdit, config, agentType]);
 
 
   useEffect(() => {
@@ -240,8 +303,11 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
     let prompt = '';
 
     if (field === 'description') {
-        const toolDesc = `Agent Engine: ${formData.reasoningEngineId}, Created By: ${formData.createdBy}, Info: ${formData.additionalInfo}`;
-        prompt = `An agent has a tool with the following metadata: "${toolDesc}". 
+        const toolDesc = agentType === 'reasoning_engine' 
+            ? `Agent Engine: ${formData.reasoningEngineId}, Created By: ${formData.createdBy}, Info: ${formData.additionalInfo}`
+            : `A2A Service URL: ${formData.a2aUrl}, Organization: ${formData.a2aOrg}`;
+            
+        prompt = `An agent has the following backend metadata: "${toolDesc}". 
 Based on this capability, rewrite the agent's main description to clearly explain what the agent does for an end-user. The new description should be a single paragraph. Do not offer multiple options.
 
 Original agent description: "${currentValue}"
@@ -359,6 +425,29 @@ Rewritten agent description:`;
         setFormData(prev => ({ ...prev, reasoningEngineId: id || '' }));
     }
   };
+  
+  const handleLoadServices = async () => {
+      setIsLoadingServices(true);
+      try {
+          const res = await api.listCloudRunServices({ projectId: config.projectId } as any, cloudRunRegion);
+          setCloudRunServices(res.services || []);
+      } catch (e) {
+          console.error(e);
+      } finally {
+          setIsLoadingServices(false);
+      }
+  };
+
+  const handleServiceSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const uri = e.target.value;
+      const svc = cloudRunServices.find(s => s.uri === uri);
+      if (uri) {
+          setFormData(prev => ({
+              ...prev,
+              a2aUrl: uri,
+          }));
+      }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -371,13 +460,53 @@ Rewritten agent description:`;
         .map(text => text.trim())
         .filter(text => text)
         .map(text => ({ text }));
+        
+    let agentDefinitionPayload: any = {};
     
-    const reasoningEnginePath = `projects/${config.projectId}/locations/${formData.reasoningEngineLocation}/reasoningEngines/${formData.reasoningEngineId}`;
-    const newToolDescription = `[Agent Metadata]
+    if (agentType === 'reasoning_engine') {
+        const reasoningEnginePath = `projects/${config.projectId}/locations/${formData.reasoningEngineLocation}/reasoningEngines/${formData.reasoningEngineId}`;
+        const newToolDescription = `[Agent Metadata]
 Created By: ${formData.createdBy || 'N/A'}
 Agent Engine: ${reasoningEnginePath}
 Additional Info: ${formData.additionalInfo || 'None'}`;
-
+        agentDefinitionPayload = {
+            adkAgentDefinition: {
+                toolSettings: { toolDescription: newToolDescription },
+                provisionedReasoningEngine: {
+                  reasoningEngine: reasoningEnginePath,
+                },
+            },
+        };
+    } else {
+        // A2A
+        if (!formData.a2aUrl) {
+            setError("Agent URL is required for A2A agents.");
+            setIsSubmitting(false);
+            return;
+        }
+        
+        const a2aUrl = formData.a2aUrl || '';
+        const cardObject = {
+            protocolVersion: "0.3.0",
+            url: `${a2aUrl.replace(/\/$/, '')}/invoke`,
+            provider: {
+                organization: formData.a2aOrg,
+                url: formData.a2aUrl,
+            },
+            name: formData.displayName,
+            description: formData.description,
+            capabilities: {},
+            defaultInputModes: ["text/plain"],
+            defaultOutputModes: ["text/plain"],
+            skills: [{ description: "Chat", examples: ["Hello"], id: "chat", name: "Chat", tags: ["chat"] }],
+            version: "1.0.0"
+        };
+        agentDefinitionPayload = {
+            a2aAgentDefinition: {
+                jsonAgentCard: JSON.stringify(cardObject)
+            }
+        };
+    }
 
     try {
       if (agentToEdit) {
@@ -387,28 +516,16 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
             description: formData.description,
             icon: { uri: formData.iconUri },
             starterPrompts: finalStarterPrompts,
-            adkAgentDefinition: {
-                toolSettings: { toolDescription: newToolDescription },
-                provisionedReasoningEngine: {
-                  reasoningEngine: reasoningEnginePath,
-                },
-            },
+            ...agentDefinitionPayload
         };
         await api.updateAgent(agentToEdit, agentPayload, config);
       } else {
-        // Build the payload for creation. Top-level keys are camelCase,
-        // but nested keys within adkAgentDefinition must be snake_case.
         const createPayload: any = {
             displayName: formData.displayName,
             description: formData.description,
             icon: { uri: formData.iconUri },
             starterPrompts: finalStarterPrompts.length > 0 ? finalStarterPrompts : undefined,
-            adkAgentDefinition: {
-                tool_settings: { tool_description: newToolDescription },
-                provisioned_reasoning_engine: {
-                  reasoning_engine: reasoningEnginePath,
-                },
-            },
+            ...agentDefinitionPayload
         };
     
         const finalAuthId = formData.authId?.split('/').pop()?.trim();
@@ -506,7 +623,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                                     className="p-2 text-gray-400 hover:text-white bg-gray-600 hover:bg-red-500 rounded-md disabled:bg-gray-600 disabled:cursor-not-allowed"
                                     aria-label="Remove prompt"
                                 >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                     </svg>
                                 </button>
@@ -566,43 +683,144 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                 </div>
 
                 <div className="space-y-4 border-t border-gray-700 p-4 rounded-md">
-                    <h3 className="text-lg font-semibold text-white">ADK Agent Details</h3>
-                     <div className="space-y-3">
-                        <div>
-                            <label htmlFor="createdBy" className="block text-sm font-medium text-gray-300">Created By</label>
-                            <input type="text" name="createdBy" value={formData.createdBy} onChange={handleChange} placeholder="e.g., your-name@example.com" className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" />
-                        </div>
-                        <div>
-                            <label htmlFor="additionalInfo" className="block text-sm font-medium text-gray-300">Additional Info</label>
-                            <textarea name="additionalInfo" value={formData.additionalInfo} onChange={handleChange} rows={3} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" />
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-semibold text-white">Backend Configuration</h3>
+                        <div className="flex bg-gray-700 rounded-md p-1">
+                            <button
+                                type="button"
+                                onClick={() => !agentToEdit && setAgentType('reasoning_engine')}
+                                className={`px-3 py-1 text-xs font-medium rounded-sm transition-colors ${agentType === 'reasoning_engine' ? 'bg-gray-600 text-white shadow' : 'text-gray-400 hover:text-white'} ${agentToEdit ? 'cursor-not-allowed opacity-70' : ''}`}
+                                disabled={!!agentToEdit}
+                            >
+                                Reasoning Engine
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => !agentToEdit && setAgentType('a2a')}
+                                className={`px-3 py-1 text-xs font-medium rounded-sm transition-colors ${agentType === 'a2a' ? 'bg-gray-600 text-white shadow' : 'text-gray-400 hover:text-white'} ${agentToEdit ? 'cursor-not-allowed opacity-70' : ''}`}
+                                disabled={!!agentToEdit}
+                            >
+                                HTTP Service (A2A)
+                            </button>
                         </div>
                     </div>
-                    <div>
-                        <label htmlFor="reasoningEngineLocation" className="block text-sm font-medium text-gray-300">Agent Engine Location</label>
-                        <div className="flex items-center space-x-2 mt-1">
-                            <input 
-                                type="text" 
-                                name="reasoningEngineLocation" 
-                                value={formData.reasoningEngineLocation} 
-                                className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-gray-400 cursor-not-allowed"
-                                disabled={isEditingDisabled}
-                                readOnly 
-                            />
-                            <button type="button" onClick={handleLoadEngines} disabled={isLoadingEngines || !formData.reasoningEngineLocation || isEditingDisabled} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-500">{isLoadingEngines ? '...' : 'Load'}</button>
-                        </div>
-                        <p className="mt-1 text-xs text-gray-400">This is automatically set based on the Agent's Location (`{config.appLocation}`) to ensure compatibility.</p>
-                    </div>
-                    {engineLoadError && <p className="text-sm text-red-400">{engineLoadError}</p>}
-                    {reasoningEngines.length > 0 && (
-                        <div>
-                            <label htmlFor="engineSelect" className="block text-sm font-medium text-gray-300">Select an Agent Engine</label>
-                            <select id="engineSelect" onChange={handleEngineSelect} value={reasoningEngines.find(re => re.name.endsWith(`/${formData.reasoningEngineId}`))?.name || ''} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white disabled:bg-gray-700/50 disabled:cursor-not-allowed">
-                                <option value="">-- Manually Entered --</option>
-                                {reasoningEngines.map(engine => (<option key={engine.name} value={engine.name}>{engine.displayName} ({engine.name.split('/').pop()})</option>))}
-                            </select>
-                        </div>
+
+                    {agentType === 'reasoning_engine' ? (
+                        <>
+                            <div className="space-y-3">
+                                <div>
+                                    <label htmlFor="createdBy" className="block text-sm font-medium text-gray-300">Created By</label>
+                                    <input type="text" name="createdBy" value={formData.createdBy} onChange={handleChange} placeholder="e.g., your-name@example.com" className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" />
+                                </div>
+                                <div>
+                                    <label htmlFor="additionalInfo" className="block text-sm font-medium text-gray-300">Additional Info</label>
+                                    <textarea name="additionalInfo" value={formData.additionalInfo} onChange={handleChange} rows={3} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" />
+                                </div>
+                            </div>
+                            <div>
+                                <label htmlFor="reasoningEngineLocation" className="block text-sm font-medium text-gray-300">Agent Engine Location</label>
+                                <div className="flex items-center space-x-2 mt-1">
+                                    <input 
+                                        type="text" 
+                                        name="reasoningEngineLocation" 
+                                        value={formData.reasoningEngineLocation} 
+                                        className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-gray-400 cursor-not-allowed"
+                                        disabled={isEditingDisabled}
+                                        readOnly 
+                                    />
+                                    <button type="button" onClick={handleLoadEngines} disabled={isLoadingEngines || !formData.reasoningEngineLocation || isEditingDisabled} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-500">{isLoadingEngines ? '...' : 'Load'}</button>
+                                </div>
+                                <p className="mt-1 text-xs text-gray-400">This is automatically set based on the Agent's Location (`{config.appLocation}`) to ensure compatibility.</p>
+                            </div>
+                            {engineLoadError && <p className="text-sm text-red-400">{engineLoadError}</p>}
+                            {reasoningEngines.length > 0 && (
+                                <div>
+                                    <label htmlFor="engineSelect" className="block text-sm font-medium text-gray-300">Select an Agent Engine</label>
+                                    <select id="engineSelect" onChange={handleEngineSelect} value={reasoningEngines.find(re => re.name.endsWith(`/${formData.reasoningEngineId}`))?.name || ''} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white disabled:bg-gray-700/50 disabled:cursor-not-allowed">
+                                        <option value="">-- Manually Entered --</option>
+                                        {reasoningEngines.map(engine => (<option key={engine.name} value={engine.name}>{engine.displayName} ({engine.name.split('/').pop()})</option>))}
+                                    </select>
+                                </div>
+                            )}
+                            <div><label htmlFor="reasoningEngineId" className="block text-sm font-medium text-gray-300">Agent Engine ID</label><input type="text" name="reasoningEngineId" value={formData.reasoningEngineId} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" required /></div>
+                        </>
+                    ) : (
+                        <>
+                            <div>
+                                <label htmlFor="a2aUrl" className="block text-sm font-medium text-gray-300">Agent URL (Required)</label>
+                                <div className="flex gap-2 items-center">
+                                    <input 
+                                        type="url" 
+                                        name="a2aUrl" 
+                                        value={formData.a2aUrl} 
+                                        onChange={handleChange} 
+                                        placeholder="https://my-service.run.app" 
+                                        className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" 
+                                        required 
+                                    />
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setUseCloudRunPicker(!useCloudRunPicker)}
+                                        className="mt-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-md text-gray-300 text-xs whitespace-nowrap"
+                                    >
+                                        {useCloudRunPicker ? 'Cancel Scan' : 'Pick from Cloud Run'}
+                                    </button>
+                                </div>
+                                <p className="mt-1 text-xs text-gray-400">The public URL of your Cloud Run service or HTTP agent.</p>
+                            </div>
+                            
+                            {useCloudRunPicker && (
+                                <div className="bg-gray-900/50 p-3 rounded-md border border-gray-700 space-y-3">
+                                    <h4 className="text-sm font-bold text-gray-300">Scan for Cloud Run Services</h4>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label className="block text-xs text-gray-400 mb-1">Region</label>
+                                            <select 
+                                                value={cloudRunRegion} 
+                                                onChange={(e) => setCloudRunRegion(e.target.value)} 
+                                                className="w-full bg-gray-700 border-gray-600 rounded-md text-xs p-1.5"
+                                            >
+                                                <option value="us-central1">us-central1</option><option value="us-east1">us-east1</option><option value="us-east4">us-east4</option><option value="us-west1">us-west1</option><option value="europe-west1">europe-west1</option><option value="europe-west2">europe-west2</option><option value="europe-west4">europe-west4</option><option value="asia-east1">asia-east1</option><option value="asia-southeast1">asia-southeast1</option>
+                                            </select>
+                                        </div>
+                                        <div className="flex items-end">
+                                            <button 
+                                                type="button" 
+                                                onClick={handleLoadServices}
+                                                disabled={isLoadingServices} 
+                                                className="w-full px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                                            >
+                                                {isLoadingServices ? 'Scanning...' : 'Scan'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    {cloudRunServices.length > 0 && (
+                                        <div>
+                                            <label className="block text-xs text-gray-400 mb-1">Select Service</label>
+                                            <select 
+                                                onChange={handleServiceSelect}
+                                                value={formData.a2aUrl}
+                                                className="w-full bg-gray-700 border-gray-600 rounded-md text-xs p-1.5"
+                                            >
+                                                <option value="">-- Select a Service --</option>
+                                                {cloudRunServices.map(s => (
+                                                    <option key={s.name} value={s.uri}>
+                                                        {s.name.split('/').pop()} ({s.uri})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            <div>
+                                <label htmlFor="a2aOrg" className="block text-sm font-medium text-gray-300">Provider Organization</label>
+                                <input type="text" name="a2aOrg" value={formData.a2aOrg} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" />
+                            </div>
+                        </>
                     )}
-                    <div><label htmlFor="reasoningEngineId" className="block text-sm font-medium text-gray-300">Agent Engine ID</label><input type="text" name="reasoningEngineId" value={formData.reasoningEngineId} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed" required /></div>
                 </div>
             </fieldset>
         </form>

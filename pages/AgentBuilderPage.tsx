@@ -3,7 +3,6 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Config, Collection, DataStore, GcsBucket } from '../types';
 import * as api from '../services/apiService';
 import AgentDeploymentModal from '../components/agent-catalog/AgentDeploymentModal';
-import CloudBuildProgress from '../components/agent-builder/CloudBuildProgress';
 
 declare var JSZip: any;
 
@@ -23,7 +22,6 @@ interface AgentConfig {
     useGoogleSearch: boolean;
     enableOAuth: boolean;
     authId: string;
-    enableA2A: boolean; // New A2A option
 }
 
 const generatePythonCode = (config: AgentConfig): string => {
@@ -95,10 +93,6 @@ def print_tool_context(tool_context: ToolContext):
 `;
         toolListForAgent.push('print_tool_context');
     }
-    
-    if (config.enableA2A) {
-        toolImports.add('from google.adk.a2a.utils.agent_to_a2a import to_a2a');
-    }
 
     const formatPythonString = (str: string) => {
         const needsTripleQuotes = str.includes('\n') || str.includes('"');
@@ -120,19 +114,10 @@ def print_tool_context(tool_context: ToolContext):
         ...Array.from(toolImports),
     ].join('\n');
 
-    let appWrapper = '';
-    if (config.enableA2A) {
-        appWrapper = `
-# Make the agent A2A-compatible
-# This creates an ASGI application compatible with uvicorn
-app = to_a2a(root_agent)
-`;
-    } else {
-        appWrapper = `
+    const appWrapper = `
 # Wrap the agent in an AdkApp object for deployment
 app = AdkApp(agent=root_agent)
 `;
-    }
 
     return `
 ${imports}
@@ -176,31 +161,10 @@ const generateRequirementsFile = (config: AgentConfig): string => {
         requirements.add('google-auth-oauthlib>=1.2.2');
         requirements.add('google-api-python-client');
     }
-    if (config.enableA2A) {
-        requirements.add('google-adk[a2a]');
-        requirements.add('uvicorn');
-    }
     return Array.from(requirements).join('\n');
 };
 
 const generateReadmeFile = (config: AgentConfig): string => {
-    let deploymentSection = `
-## Deployment
-
-Use the **"Deploy to Reasoning Engine"** button in the Agent Builder UI to deploy this agent directly to Google Cloud Vertex AI without manual steps.
-`;
-
-    if (config.enableA2A) {
-        deploymentSection = `
-## Deployment (A2A)
-
-This agent is configured for Agent-to-Agent (A2A) communication. 
-It should be deployed as a web service (e.g., Cloud Run) rather than a Reasoning Engine.
-
-When deploying via the builder, select **Cloud Run** as the target.
-`;
-    }
-
     return `
 # Agent Quickstart
 
@@ -214,14 +178,20 @@ This agent was created using the Gemini Enterprise Manager Agent Builder.
     pip install -r requirements.txt
     \`\`\`
 3.  **Run the agent:**
-    ${config.enableA2A ? 'Run `uvicorn agent:app --reload` to start the A2A server.' : 'You can use the `agent.py` file to run or debug your agent locally.'}
+    You can use the \`agent.py\` file to run or debug your agent locally.
 
-${deploymentSection}
+## Deployment
+
+Use the **"Deploy Agent"** button in the Agent Builder UI to deploy this agent directly to Google Cloud Vertex AI without manual steps.
 `.trim();
 };
 
+interface AgentBuilderPageProps {
+    projectNumber: string;
+    onBuildTriggered: (buildId: string) => void;
+}
 
-const AgentBuilderPage: React.FC<{ projectNumber: string; }> = ({ projectNumber }) => {
+const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, onBuildTriggered }) => {
     const [agentConfig, setAgentConfig] = useState<AgentConfig>({
         name: '',
         description: 'An agent that can do awesome things.',
@@ -231,7 +201,6 @@ const AgentBuilderPage: React.FC<{ projectNumber: string; }> = ({ projectNumber 
         useGoogleSearch: false,
         enableOAuth: false,
         authId: '',
-        enableA2A: false,
     });
     
     // State for Vertex AI config
@@ -262,7 +231,6 @@ const AgentBuilderPage: React.FC<{ projectNumber: string; }> = ({ projectNumber 
 
     // State for deployment
     const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
-    const [activeBuilds, setActiveBuilds] = useState<string[]>([]);
 
     const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectNumber,
@@ -444,12 +412,8 @@ Rewritten Instruction:`;
     };
 
     const handleBuildTriggered = (buildId: string) => {
-        setActiveBuilds(prev => [...prev, buildId]);
+        onBuildTriggered(buildId); // Notify parent
         setIsDeployModalOpen(false); // Close modal on success
-    };
-
-    const removeBuild = (id: string) => {
-        setActiveBuilds(prev => prev.filter(b => b !== id));
     };
     
     const codeToDisplay = useMemo(() => {
@@ -495,18 +459,6 @@ Rewritten Instruction:`;
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full relative">
-            {/* Deployment Progress Bar - Stacks multiple notifications */}
-            <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 items-end">
-                {activeBuilds.map(id => (
-                    <CloudBuildProgress 
-                        key={id} 
-                        projectId={projectNumber} 
-                        buildId={id} 
-                        onClose={() => removeBuild(id)} 
-                    />
-                ))}
-            </div>
-
             {isDeployModalOpen && (
                 <AgentDeploymentModal
                     isOpen={isDeployModalOpen}
@@ -622,29 +574,6 @@ Rewritten Instruction:`;
                         </div>
                     )}
                 </div>
-                
-                {/* A2A Section */}
-                <div className="space-y-3 p-3 bg-gray-900/50 rounded-md">
-                    <h3 className="text-lg font-semibold text-white">Agent-to-Agent (A2A)</h3>
-                    <div className="flex items-center">
-                        <input 
-                            type="checkbox" 
-                            id="enableA2A"
-                            name="enableA2A"
-                            checked={agentConfig.enableA2A}
-                            onChange={handleAgentConfigChange}
-                            className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500"
-                        />
-                        <label htmlFor="enableA2A" className="ml-2 text-sm font-medium text-gray-300">Enable A2A Protocol</label>
-                    </div>
-                    {agentConfig.enableA2A && (
-                        <p className="text-xs text-gray-400 pl-6 mt-1">
-                            Wraps the agent using <code>to_a2a()</code> to expose it as an A2A-compliant service. 
-                            <strong>Recommended Deployment:</strong> Cloud Run.
-                        </p>
-                    )}
-                </div>
-
 
                 {/* Tool Builder */}
                 <div className="space-y-3 p-3 bg-gray-900/50 rounded-md">
@@ -723,7 +652,7 @@ Rewritten Instruction:`;
                     <div className="flex gap-3">
                         <button onClick={() => setIsDeployModalOpen(true)} className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-500 hover:to-teal-400 text-white font-bold rounded-lg shadow-lg transform transition-transform active:scale-95 flex justify-center items-center gap-2">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" /></svg>
-                            Deploy to Reasoning Engine
+                            Deploy Agent
                         </button>
                         <button onClick={handleDownloadCode} className="px-4 py-3 bg-gray-600 text-white text-sm font-semibold rounded-lg hover:bg-gray-500" title="Download Source Code (.zip)">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>

@@ -69,6 +69,9 @@ export interface Agent {
       reasoningEngine: string;
     };
   };
+  a2aAgentDefinition?: {
+    jsonAgentCard: string;
+  };
   managedAgentDefinition?: any;
   authorizations?: string[]; // Deprecated
   authorizationConfig?: AuthorizationConfig;
@@ -218,7 +221,7 @@ export interface LogEntry {
 export interface GcsBucket {
     id: string;
     name: string;
-}
+    }
 
 export interface GcsObject {
     name: string;
