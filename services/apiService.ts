@@ -1057,6 +1057,50 @@ export async function listVertexAiModels(location: string, projectId: string): P
     return response.result;
 }
 
+export const generateVertexContent = async (config: Config, prompt: string, model: string = 'gemini-2.5-flash'): Promise<string> => {
+    const { projectId } = config;
+    const location = 'us-central1'; // Default to a region that supports the model
+    
+    // Get token from gapi client
+    const client = await getGapiClient();
+    const tokenObj = client.getToken();
+    if (!tokenObj || !tokenObj.access_token) {
+        throw new Error("User not authenticated. Please sign in or set a token.");
+    }
+    const accessToken = tokenObj.access_token;
+
+    const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${model}:generateContent`;
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Goog-User-Project': projectId
+        },
+        body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 512
+            }
+        })
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Vertex AI Request Failed: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    // Vertex AI response structure
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (typeof text !== 'string') {
+        throw new Error("Unexpected response format from Vertex AI.");
+    }
+    return text;
+};
+
 // --- GCS Storage API ---
 export async function listBuckets(projectId: string): Promise<{ items: GcsBucket[] }> {
     const path = `https://storage.googleapis.com/storage/v1/b`;

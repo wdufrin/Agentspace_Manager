@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Config, AppEngine, CloudRunService, Agent } from '../types';
 import * as api from '../services/apiService';
@@ -53,6 +54,10 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
         agentUrl: '',
         iconUri: 'https://www.gstatic.com/lamda/images/gemini/google_bard_logo_32px_clr_r2.svg',
     });
+    
+    // AI Rewrite State
+    const [isRewriting, setIsRewriting] = useState(false);
+    const [rewriteError, setRewriteError] = useState<string | null>(null);
     
     // State for IAM command generation (now auto-populated)
     const [iamServiceDetails, setIamServiceDetails] = useState({
@@ -191,6 +196,31 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
         }
     };
     
+    const handleRewrite = async () => {
+        if (!agentDetails.agentDescription.trim()) {
+            setRewriteError('Please enter some description to rewrite.');
+            return;
+        }
+        setIsRewriting(true);
+        setRewriteError(null);
+        
+        const prompt = `Rewrite the following agent description to be clear, concise, and user-friendly for a tool in an agentic system. Do not include markdown or multiple options. Just the single paragraph description.
+        
+        Original Description: "${agentDetails.agentDescription}"
+        
+        Rewritten Description:`;
+
+        try {
+            const text = await api.generateVertexContent(apiConfig, prompt);
+            const rewrittenText = text.trim().replace(/^["']|["']$/g, '').replace(/^```\w*\n?|\n?```$/g, '').trim();
+            setAgentDetails(prev => ({ ...prev, agentDescription: rewrittenText }));
+        } catch (err: any) {
+            setRewriteError(`AI rewrite failed: ${err.message}`);
+        } finally {
+            setIsRewriting(false);
+        }
+    };
+    
     const handleRegisterAgent = async () => {
         setIsRegistering(true);
         setRegistrationError(null);
@@ -309,6 +339,7 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
             {/* Step 3: Agent Details */}
             <div className="bg-gray-800 p-4 rounded-lg shadow-md">
                 <h2 className="text-lg font-semibold text-white mb-3">Step 2: Select Deployed Function & Review Details</h2>
+                {rewriteError && <p className="text-red-400 text-sm mb-3">{rewriteError}</p>}
                 <div className="space-y-4">
                     <div>
                         <label htmlFor="agentUrl" className="block text-sm font-medium text-gray-400 mb-1">Agent URL</label>
@@ -329,7 +360,25 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
                         </div>
                     </div>
                      <div>
-                        <label htmlFor="agentDescription" className="block text-sm font-medium text-gray-400 mb-1">Agent Description</label>
+                        <div className="flex justify-between items-center mb-1">
+                            <label htmlFor="agentDescription" className="block text-sm font-medium text-gray-400">Agent Description</label>
+                            <button
+                                type="button"
+                                onClick={handleRewrite}
+                                disabled={isRewriting}
+                                className="p-1 text-gray-400 bg-gray-700 hover:bg-indigo-600 hover:text-white rounded-md transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed"
+                                title="Rewrite description with AI"
+                            >
+                                {isRewriting ? (
+                                    <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-white"></div>
+                                ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                        <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+                                        <path d="M12.736 3.97a6 6 0 014.243 4.243l2.022-2.022a1 1 0 10-1.414-1.414L15.56 6.8A6.002 6.002 0 0112.736 3.97zM3.97 12.736a6 6 0 01-1.243-5.222L4.75 9.536a1 1 0 001.414-1.414L4.142 6.1A6.002 6.002 0 013.97 12.736z" />
+                                    </svg>
+                                )}
+                            </button>
+                        </div>
                         <textarea id="agentDescription" name="agentDescription" value={agentDetails.agentDescription} onChange={handleDetailsChange} rows={3} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full" />
                     </div>
                 </div>

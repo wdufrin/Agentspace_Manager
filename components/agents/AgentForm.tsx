@@ -1,16 +1,8 @@
+
+
 import React, { useState, useEffect } from 'react';
 import { Agent, ReasoningEngine, Config, Authorization } from '../../types';
 import * as api from '../../services/apiService';
-import { GoogleGenAI } from '@google/genai';
-
-// Defer AI client initialization to avoid crash on load
-let ai: GoogleGenAI | null = null;
-const getAiClient = () => {
-    if (!ai) {
-        ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-    }
-    return ai;
-};
 
 const getCompatibleReasoningEngineLocation = (appLocation: string): string => {
     switch (appLocation) {
@@ -258,11 +250,8 @@ Rewritten agent description:`;
     }
 
     try {
-        const response = await getAiClient().models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-        });
-        const rewrittenText = response.text.trim();
+        const text = await api.generateVertexContent(config, prompt);
+        const rewrittenText = text.trim();
         // Clean up if the model returns markdown or quotes
         const cleanedText = rewrittenText.replace(/^["']|["']$/g, '').replace(/^```\w*\n?|\n?```$/g, '').trim();
         setFormData(prev => ({ ...prev, [field]: cleanedText }));

@@ -95,13 +95,14 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
         const readme = files.find(f => f.name.toLowerCase() === 'readme.md' || f.name.toLowerCase().endsWith('/readme.md'))?.content || '';
         const envExample = files.find(f => f.name === '.env.example' || f.name.endsWith('/.env.example'))?.content || '';
         const hasDockerfile = files.some(f => f.name === 'Dockerfile');
+        const isA2a = files.some(f => f.content.includes('to_a2a('));
 
         // Set Readme
         setReadmeContent(readme);
         if (readme) setLeftTab('docs');
 
         // Determine Default Target
-        if (hasDockerfile) {
+        if (hasDockerfile || isA2a) {
             setTarget('cloud_run');
         } else {
             setTarget('reasoning_engine');
@@ -117,7 +118,7 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
 
         if (!detectedFile) {
             detectedFile = files.find(f => f.name.endsWith('.py') && 
-               (f.content.includes('AdkApp(') || f.content.includes('ReasoningEngine.create(') || f.content.includes('Agent(')));
+               (f.content.includes('AdkApp(') || f.content.includes('ReasoningEngine.create(') || f.content.includes('Agent(') || f.content.includes('to_a2a(')));
         }
 
         if (detectedFile) {
@@ -137,8 +138,8 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
             }
             
             // Detect Entry Point Variable
-            // Look for patterns like: var = Class(...)
-            const appMatch = mainFileContent.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([a-zA-Z0-9_.]*Agent|[a-zA-Z0-9_.]*AdkApp|[a-zA-Z0-9_.]*ReasoningEngine)\(/m);
+            // Look for patterns like: var = Class(...) or var = to_a2a(...)
+            const appMatch = mainFileContent.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([a-zA-Z0-9_.]*Agent|[a-zA-Z0-9_.]*AdkApp|[a-zA-Z0-9_.]*ReasoningEngine|to_a2a)\(/m);
             if (appMatch && appMatch[1]) {
                 setEntryPoint(appMatch[1]);
             } else if (mainFileContent.includes('agent =')) {
@@ -310,6 +311,11 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
         }
 
         addLog(`Detected Entry Point: '${entryModulePath}.${entryPoint}'`);
+        
+        const isA2a = files.some(f => f.content.includes('to_a2a('));
+        if (isA2a) {
+            addLog('Detected A2A (Agent-to-Agent) configuration.');
+        }
 
         try {
             // 2. Create Zip
@@ -332,6 +338,8 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
             if (!reqsContent.includes('gunicorn')) reqsContent += '\ngunicorn';
             if (!reqsContent.includes('python-dotenv')) reqsContent += '\npython-dotenv';
             
+            if (isA2a && !reqsContent.includes('uvicorn')) reqsContent += '\nuvicorn';
+            
             zip.file('requirements.txt', reqsContent);
             addLog('⚠️ Updated requirements.txt with ADK/Agent Engines support');
 
@@ -339,7 +347,26 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
             if (target === 'cloud_run') {
                 // Check/Add Dockerfile
                 if (!files.some(f => f.name === 'Dockerfile')) {
-                    zip.file('Dockerfile', `
+                    if (isA2a) {
+                        // A2A uses uvicorn directly
+                        // We use the file name from entryModulePath (e.g. "agent") and entryPoint (e.g. "app")
+                        // Assuming flat structure if no dots, otherwise needs folder structure in Docker
+                        // The builder generates flat agent.py
+                        const moduleFile = entryModulePath.split('.').pop() || 'agent';
+                        zip.file('Dockerfile', `
+FROM python:3.10-slim
+WORKDIR /app
+COPY . .
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
+# Ensure uvicorn is installed (though reqs should have it)
+RUN pip install uvicorn
+CMD ["uvicorn", "${moduleFile}:${entryPoint}", "--host", "0.0.0.0", "--port", "8080"]
+`);
+                        addLog('Generated Dockerfile for A2A (uvicorn).');
+                    } else {
+                        // Standard Agent uses Flask wrapper
+                        zip.file('Dockerfile', `
 FROM python:3.10-slim
 WORKDIR /app
 # Install build dependencies for libraries that require compilation (e.g. pyarrow, numpy)
@@ -351,9 +378,9 @@ RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt && pip install "google-cloud-aiplatform[adk,agent_engines]>=1.38"
 CMD ["python", "main.py"]
 `); 
-                    // Add Cloud Run Adapter (main.py)
-                    if (!files.some(f => f.name === 'main.py')) {
-                         zip.file('main.py', `
+                        // Add Cloud Run Adapter (main.py)
+                        if (!files.some(f => f.name === 'main.py')) {
+                             zip.file('main.py', `
 import os
 import sys
 import json
@@ -548,7 +575,8 @@ def run_sse():
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 `);
-                        addLog(`⚠️ Added Flask wrapper (main.py) with Async ADK support adapting '${entryPoint}' from '${entryModulePath}'.`);
+                            addLog(`⚠️ Added Flask wrapper (main.py) with Async ADK support adapting '${entryPoint}' from '${entryModulePath}'.`);
+                        }
                     }
                 }
             } else {

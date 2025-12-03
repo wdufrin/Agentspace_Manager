@@ -3,7 +3,6 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Config, Collection, DataStore, GcsBucket } from '../types';
 import * as api from '../services/apiService';
 import AgentDeploymentModal from '../components/agent-catalog/AgentDeploymentModal';
-import { GoogleGenAI } from "@google/genai";
 import CloudBuildProgress from '../components/agent-builder/CloudBuildProgress';
 
 declare var JSZip: any;
@@ -24,16 +23,8 @@ interface AgentConfig {
     useGoogleSearch: boolean;
     enableOAuth: boolean;
     authId: string;
+    enableA2A: boolean; // New A2A option
 }
-
-// Defer AI client initialization to avoid crash on load
-let ai: GoogleGenAI | null = null;
-const getAiClient = () => {
-    if (!ai) {
-        ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-    }
-    return ai;
-};
 
 const generatePythonCode = (config: AgentConfig): string => {
     const toolImports = new Set<string>();
@@ -104,6 +95,10 @@ def print_tool_context(tool_context: ToolContext):
 `;
         toolListForAgent.push('print_tool_context');
     }
+    
+    if (config.enableA2A) {
+        toolImports.add('from google.adk.a2a.utils.agent_to_a2a import to_a2a');
+    }
 
     const formatPythonString = (str: string) => {
         const needsTripleQuotes = str.includes('\n') || str.includes('"');
@@ -125,6 +120,19 @@ def print_tool_context(tool_context: ToolContext):
         ...Array.from(toolImports),
     ].join('\n');
 
+    let appWrapper = '';
+    if (config.enableA2A) {
+        appWrapper = `
+# Make the agent A2A-compatible
+# This creates an ASGI application compatible with uvicorn
+app = to_a2a(root_agent)
+`;
+    } else {
+        appWrapper = `
+# Wrap the agent in an AdkApp object for deployment
+app = AdkApp(agent=root_agent)
+`;
+    }
 
     return `
 ${imports}
@@ -142,8 +150,7 @@ root_agent = ${agentClass}(
     tools=[${toolListForAgent.join(', ')}],
 )
 
-# Wrap the agent in an AdkApp object for deployment
-app = AdkApp(agent=root_agent)
+${appWrapper}
 `.trim();
 };
 
@@ -169,10 +176,31 @@ const generateRequirementsFile = (config: AgentConfig): string => {
         requirements.add('google-auth-oauthlib>=1.2.2');
         requirements.add('google-api-python-client');
     }
+    if (config.enableA2A) {
+        requirements.add('google-adk[a2a]');
+        requirements.add('uvicorn');
+    }
     return Array.from(requirements).join('\n');
 };
 
-const generateReadmeFile = (): string => {
+const generateReadmeFile = (config: AgentConfig): string => {
+    let deploymentSection = `
+## Deployment
+
+Use the **"Deploy to Reasoning Engine"** button in the Agent Builder UI to deploy this agent directly to Google Cloud Vertex AI without manual steps.
+`;
+
+    if (config.enableA2A) {
+        deploymentSection = `
+## Deployment (A2A)
+
+This agent is configured for Agent-to-Agent (A2A) communication. 
+It should be deployed as a web service (e.g., Cloud Run) rather than a Reasoning Engine.
+
+When deploying via the builder, select **Cloud Run** as the target.
+`;
+    }
+
     return `
 # Agent Quickstart
 
@@ -186,11 +214,9 @@ This agent was created using the Gemini Enterprise Manager Agent Builder.
     pip install -r requirements.txt
     \`\`\`
 3.  **Run the agent:**
-    You can use the \`agent.py\` file to run or debug your agent locally.
+    ${config.enableA2A ? 'Run `uvicorn agent:app --reload` to start the A2A server.' : 'You can use the `agent.py` file to run or debug your agent locally.'}
 
-## Deployment
-
-Use the **"Deploy to Reasoning Engine"** button in the Agent Builder UI to deploy this agent directly to Google Cloud Vertex AI without manual steps.
+${deploymentSection}
 `.trim();
 };
 
@@ -205,6 +231,7 @@ const AgentBuilderPage: React.FC<{ projectNumber: string; }> = ({ projectNumber 
         useGoogleSearch: false,
         enableOAuth: false,
         authId: '',
+        enableA2A: false,
     });
     
     // State for Vertex AI config
@@ -250,7 +277,7 @@ const AgentBuilderPage: React.FC<{ projectNumber: string; }> = ({ projectNumber 
         const agentCode = generatePythonCode(agentConfig);
         const envCode = generateEnvFile(agentConfig, projectNumber, vertexLocation);
         const reqsCode = generateRequirementsFile(agentConfig);
-        const readmeCode = generateReadmeFile();
+        const readmeCode = generateReadmeFile(agentConfig);
         
         setGeneratedAgentCode(agentCode);
         setGeneratedEnvCode(envCode);
@@ -368,11 +395,8 @@ Rewritten Instruction:`;
         }
 
         try {
-            const response = await getAiClient().models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: prompt,
-            });
-            const rewrittenText = response.text.trim();
+            const text = await api.generateVertexContent(apiConfig, prompt);
+            const rewrittenText = text.trim();
             // Clean up if the model returns markdown or quotes
             const cleanedText = rewrittenText.replace(/^["']|["']$/g, '').replace(/^```\w*\n?|\n?```$/g, '').trim();
             setAgentConfig(prev => ({ ...prev, [field]: cleanedText }));
@@ -598,6 +622,28 @@ Rewritten Instruction:`;
                         </div>
                     )}
                 </div>
+                
+                {/* A2A Section */}
+                <div className="space-y-3 p-3 bg-gray-900/50 rounded-md">
+                    <h3 className="text-lg font-semibold text-white">Agent-to-Agent (A2A)</h3>
+                    <div className="flex items-center">
+                        <input 
+                            type="checkbox" 
+                            id="enableA2A"
+                            name="enableA2A"
+                            checked={agentConfig.enableA2A}
+                            onChange={handleAgentConfigChange}
+                            className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500"
+                        />
+                        <label htmlFor="enableA2A" className="ml-2 text-sm font-medium text-gray-300">Enable A2A Protocol</label>
+                    </div>
+                    {agentConfig.enableA2A && (
+                        <p className="text-xs text-gray-400 pl-6 mt-1">
+                            Wraps the agent using <code>to_a2a()</code> to expose it as an A2A-compliant service. 
+                            <strong>Recommended Deployment:</strong> Cloud Run.
+                        </p>
+                    )}
+                </div>
 
 
                 {/* Tool Builder */}
@@ -622,7 +668,7 @@ Rewritten Instruction:`;
                 </div>
                 
                 {/* Added Tools */}
-                {agentConfig.tools.length > 0 &&
+                {agentConfig.tools.length > 0 && (
                     <div className="space-y-2 p-3 bg-gray-900/50 rounded-md">
                         <h3 className="text-lg font-semibold text-white">Agent's Custom Tools</h3>
                         {agentConfig.tools.map((tool, index) => (
