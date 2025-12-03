@@ -612,7 +612,7 @@ Rewritten Instruction:`;
                             </div>
                         ))}
                     </div>
-                }
+                )}
             </div>
 
             {/* Right Panel: Code Preview & Deploy */}
