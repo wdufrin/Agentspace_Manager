@@ -10,7 +10,6 @@ import DataStoresPage from './pages/DataStoresPage';
 import BackupPage from './pages/BackupPage';
 import ModelArmorPage from './pages/ModelArmorPage';
 import AgentBuilderPage from './pages/AgentBuilderPage';
-import A2aFunctionsPage from './pages/A2aFunctionsPage';
 import A2aTesterPage from './pages/A2aTesterPage';
 import McpServersPage from './pages/McpServersPage';
 import AgentCatalogPage from './pages/AgentCatalogPage';
@@ -554,14 +553,12 @@ const App: React.FC = () => {
         return <AuthorizationsPage {...commonProps} />;
       case Page.AGENT_ENGINES:
         return <AgentEnginesPage {...commonProps} accessToken={accessToken} onDirectQuery={handleDirectQuery} />;
-      case Page.A2A_FUNCTIONS:
-        return <A2aFunctionsPage {...projectProps} context={pageContext} />;
       case Page.AGENT_REGISTRATION:
         return <AgentRegistrationPage {...projectProps} />;
       case Page.A2A_TESTER:
         return <A2aTesterPage {...projectProps} onNavigate={handleNavigation} accessToken={accessToken} />;
       case Page.AGENT_BUILDER:
-        return <AgentBuilderPage {...commonProps} onBuildTriggered={handleBuildTriggered} />;
+        return <AgentBuilderPage {...projectProps} context={pageContext} onBuildTriggered={handleBuildTriggered} />;
       case Page.AGENT_CATALOG:
         return <AgentCatalogPage {...projectProps} accessToken={accessToken} onBuildTriggered={handleBuildTriggered} />;
       case Page.CLOUD_RUN_AGENTS:

@@ -141,7 +141,7 @@ const A2aTesterPage: React.FC<A2aTesterPageProps> = ({ projectNumber, setProject
         if (!onNavigate) return;
         const selectedService = services.find(s => s.uri === serviceUrl);
         if (selectedService) {
-            onNavigate(Page.A2A_FUNCTIONS, { serviceToEdit: selectedService });
+            onNavigate(Page.AGENT_BUILDER, { serviceToEdit: selectedService });
         }
     };
 

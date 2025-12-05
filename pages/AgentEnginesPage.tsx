@@ -1,9 +1,12 @@
-import React, { useState, useCallback, useMemo } from 'react';
-import { ReasoningEngine, Config, Agent } from '../types';
+
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { ReasoningEngine, Config, Agent, CloudRunService } from '../types';
 import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
 import ConfirmationModal from '../components/ConfirmationModal';
 import EngineDetails from '../components/agent-engines/EngineDetails';
+import McpServerDetails from '../components/mcp-servers/McpServerDetails';
+import CloudRunQueryModal from '../components/agent-engines/CloudRunQueryModal';
 
 interface AgentEnginesPageProps {
   projectNumber: string;
@@ -11,8 +14,37 @@ interface AgentEnginesPageProps {
   onDirectQuery: (engine: ReasoningEngine) => void;
 }
 
+type ResourceType = 'Reasoning Engine' | 'Cloud Run (A2A)' | 'Cloud Run (Agent)' | 'Cloud Run Service';
+
+interface UnifiedResource {
+    id: string; // Full resource name
+    shortId: string;
+    displayName: string;
+    type: ResourceType;
+    location: string;
+    data: ReasoningEngine | CloudRunService;
+    sessionCount?: number; // Only for RE
+    uri?: string; // Only for Cloud Run
+}
+
+const analyzeCloudRunService = (service: CloudRunService): { isA2a: boolean, isAgent: boolean, displayName: string } => {
+    const envVars = service.template?.containers?.[0]?.env || [];
+    const getEnv = (name: string) => envVars.find(e => e.name === name)?.value;
+    
+    const agentName = getEnv('AGENT_DISPLAY_NAME');
+    const agentUrl = getEnv('AGENT_URL');
+    const providerOrg = getEnv('PROVIDER_ORGANIZATION');
+    
+    const isA2a = !!(agentUrl || providerOrg || service.name.toLowerCase().includes('a2a'));
+    const isAgent = isA2a || !!agentName || service.name.toLowerCase().includes('agent');
+    
+    const displayName = agentName || service.name.split('/').pop() || 'Unknown Service';
+    
+    return { isA2a, isAgent, displayName };
+};
+
 const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, accessToken, onDirectQuery }) => {
-  const [engines, setEngines] = useState<ReasoningEngine[]>([]);
+  const [resources, setResources] = useState<UnifiedResource[]>([]);
   const [allAgents, setAllAgents] = useState<Agent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,17 +52,19 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
   
   // State for view management
   const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
-  const [selectedEngine, setSelectedEngine] = useState<ReasoningEngine | null>(null);
+  const [selectedResource, setSelectedResource] = useState<UnifiedResource | null>(null);
   
   // State for multi-select and delete confirmation
-  const [selectedEngines, setSelectedEngines] = useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   
-  // State for clearing sessions
+  // State for clearing sessions (RE only)
   const [engineToClearSessions, setEngineToClearSessions] = useState<ReasoningEngine | null>(null);
   const [isClearingSessions, setIsClearingSessions] = useState(false);
 
+  // State for Cloud Run Query
+  const [cloudRunQueryService, setCloudRunQueryService] = useState<CloudRunService | null>(null);
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectNumber,
@@ -42,304 +76,280 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
       assistantId: 'default_assistant'
   }), [projectNumber, location]);
 
-  const agentsByEngine = useMemo(() => {
+  const agentsByResource = useMemo(() => {
     if (!allAgents.length) return {};
     
     return allAgents.reduce((acc, agent) => {
-        const engineName = agent.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine;
-        if (engineName) {
-            if (!acc[engineName]) {
-                acc[engineName] = [];
+        // Check for Reasoning Engine Link
+        const reName = agent.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine;
+        if (reName) {
+            if (!acc[reName]) acc[reName] = [];
+            acc[reName].push(agent);
+        }
+
+        // Check for A2A Link (via Agent Card URL matching Service URL)
+        if (agent.a2aAgentDefinition?.jsonAgentCard) {
+            try {
+                const card = JSON.parse(agent.a2aAgentDefinition.jsonAgentCard);
+                const agentUrl = card.url; // e.g. https://service.run.app/invoke
+                
+                // Find matching Cloud Run resource by URI
+                const matchingResource = resources.find(r => r.uri && agentUrl && agentUrl.startsWith(r.uri));
+                if (matchingResource) {
+                    if (!acc[matchingResource.id]) acc[matchingResource.id] = [];
+                    acc[matchingResource.id].push(agent);
+                }
+            } catch (e) {
+                // ignore parsing error
             }
-            acc[engineName].push(agent);
         }
         return acc;
     }, {} as { [key: string]: Agent[] });
-  }, [allAgents]);
+  }, [allAgents, resources]);
 
-  const fetchEngines = useCallback(async () => {
+  const fetchResources = useCallback(async () => {
     if (!projectNumber || !location) {
-      setEngines([]);
-      setError("Project ID/Number and Location are required to list agent engines.");
+      setResources([]);
+      setError("Project ID/Number and Location are required to list resources.");
       return;
     }
     setIsLoading(true);
     setError(null);
-    setEngines([]);
+    setResources([]);
     setAllAgents([]);
-    setSelectedEngines(new Set()); // Clear selection on refresh
+    setSelectedIds(new Set());
 
     try {
-      // Step 1: Fetch the primary resource list (Reasoning Engines). This is critical.
-      const enginesResponse = await api.listReasoningEngines(apiConfig);
-      const fetchedEngines = enginesResponse.reasoningEngines || [];
+        const unifiedList: UnifiedResource[] = [];
+        const errors: string[] = [];
 
-      // Step 1.5: Fetch session counts for each engine.
-      if (fetchedEngines.length > 0) {
-        const sessionPromises = fetchedEngines.map(engine =>
-            api.listReasoningEngineSessions(engine.name, apiConfig)
-                .then(res => ({
-                    engineName: engine.name,
-                    sessionCount: res.sessions?.length || 0,
-                }))
-                .catch(err => {
-                    console.warn(`Could not fetch sessions for engine ${engine.name.split('/').pop()}:`, err instanceof Error ? err.message : String(err));
-                    return { engineName: engine.name, sessionCount: undefined };
-                })
-        );
-        const sessionResults = await Promise.all(sessionPromises);
-        const sessionCountMap = new Map(sessionResults.map(res => [res.engineName, res.sessionCount]));
-        
-        const enginesWithSessions = fetchedEngines.map(engine => ({
-            ...engine,
-            sessionCount: sessionCountMap.get(engine.name),
-        }));
-        setEngines(enginesWithSessions);
-      } else {
-         setEngines(fetchedEngines);
-      }
+        // 1. Fetch Reasoning Engines
+        try {
+            const reResponse = await api.listReasoningEngines(apiConfig);
+            const engines = reResponse.reasoningEngines || [];
+            
+            // Fetch session counts in parallel
+            if (engines.length > 0) {
+                const sessionPromises = engines.map(engine =>
+                    api.listReasoningEngineSessions(engine.name, apiConfig)
+                        .then(res => ({ name: engine.name, count: res.sessions?.length || 0 }))
+                        .catch(() => ({ name: engine.name, count: undefined }))
+                );
+                const sessionCounts = await Promise.all(sessionPromises);
+                const countMap = new Map(sessionCounts.map(s => [s.name, s.count]));
 
-
-      if (fetchedEngines.length === 0) {
-        return; // The finally block will handle isLoading
-      }
-
-      // Step 2: Attempt to fetch agent usage data. This is non-critical and best-effort.
-      try {
-        const agentsList: Agent[] = [];
-        const discoveryLocations = ['global', 'us', 'eu'];
-
-        for (const discoveryLocation of discoveryLocations) {
-          console.log(`Searching for agents in Discovery Engine location: ${discoveryLocation}`);
-          const locationConfig = { ...apiConfig, appLocation: discoveryLocation };
-          
-          try {
-            const collectionsResponse = await api.listResources('collections', locationConfig);
-            const collections = collectionsResponse.collections || [];
-
-            for (const collection of collections) {
-              const collectionId = collection.name.split('/').pop()!;
-              const collectionConfig = { ...locationConfig, collectionId };
-              
-              try {
-                const appEnginesResponse = await api.listResources('engines', collectionConfig);
-                const appEngines = appEnginesResponse.engines || [];
-
-                for (const appEngine of appEngines) {
-                  const appId = appEngine.name.split('/').pop()!;
-                  const appConfig = { ...collectionConfig, appId };
-                  
-                  const assistantsResponse = await api.listResources('assistants', appConfig);
-                  const assistants = assistantsResponse.assistants || [];
-
-                  for (const assistant of assistants) {
-                    const assistantId = assistant.name.split('/').pop()!;
-                    const assistantConfig = { ...appConfig, assistantId };
-                    
-                    const agentsResponse = await api.listResources('agents', assistantConfig);
-                    if (agentsResponse.agents) {
-                      agentsList.push(...agentsResponse.agents);
-                    }
-                  }
-                }
-              } catch (enginesError: any) {
-                console.warn(`Could not fetch app engines for collection '${collection.name}' in location '${discoveryLocation}': ${enginesError.message}`);
-              }
+                engines.forEach(engine => {
+                    unifiedList.push({
+                        id: engine.name,
+                        shortId: engine.name.split('/').pop()!,
+                        displayName: engine.displayName,
+                        type: 'Reasoning Engine',
+                        location: location,
+                        data: engine,
+                        sessionCount: countMap.get(engine.name)
+                    });
+                });
             }
-          } catch (collectionsError: any) {
-              console.warn(`Could not fetch collections for location '${discoveryLocation}': ${collectionsError.message}`);
-          }
+        } catch (e: any) {
+            errors.push(`Reasoning Engines: ${e.message}`);
         }
-        setAllAgents(agentsList);
-      } catch (agentFetchError: any) {
-        console.error("A general error occurred while fetching agent usage data:", agentFetchError);
-        setError("Successfully fetched agent engines, but failed to determine agent usage. The 'Used By Agents' column may be incomplete or empty.");
-        setAllAgents([]); // Ensure it's empty on failure
-      }
 
-    } catch (enginesError: any) {
-      // This is a fatal error for this page, as we can't get the primary list.
-      setError(enginesError.message || 'Failed to fetch agent engines.');
-      setEngines([]);
-      setAllAgents([]);
+        // 2. Fetch Cloud Run Services
+        try {
+            const crResponse = await api.listCloudRunServices(apiConfig, location);
+            const services = crResponse.services || [];
+            
+            services.forEach(service => {
+                const analysis = analyzeCloudRunService(service);
+                
+                // FILTER: Only list agents and A2A services
+                if (!analysis.isAgent) return;
+
+                let type: ResourceType = 'Cloud Run Service';
+                if (analysis.isA2a) type = 'Cloud Run (A2A)';
+                else if (analysis.isAgent) type = 'Cloud Run (Agent)';
+                
+                unifiedList.push({
+                    id: service.name,
+                    shortId: service.name.split('/').pop()!,
+                    displayName: analysis.displayName,
+                    type: type,
+                    location: location,
+                    data: service,
+                    uri: service.uri
+                });
+            });
+        } catch (e: any) {
+            console.warn("Cloud Run fetch failed", e);
+        }
+
+        setResources(unifiedList);
+        if (errors.length > 0) {
+            setError(errors.join(' | '));
+        }
+
+        // 3. Fetch Agents for Usage Mapping
+        try {
+            const agentsList: Agent[] = [];
+            const discoveryLocations = ['global', 'us', 'eu'];
+            
+            await Promise.all(discoveryLocations.map(async (loc) => {
+                const locConfig = { ...apiConfig, appLocation: loc };
+                try {
+                    const collections = (await api.listResources('collections', locConfig)).collections || [];
+                    for (const col of collections) {
+                        const colConfig = { ...locConfig, collectionId: col.name.split('/').pop()! };
+                        try {
+                            const engines = (await api.listResources('engines', colConfig)).engines || [];
+                            for (const eng of engines) {
+                                const engConfig = { ...colConfig, appId: eng.name.split('/').pop()! };
+                                const assistants = (await api.listResources('assistants', engConfig)).assistants || [];
+                                for (const ast of assistants) {
+                                    const astConfig = { ...engConfig, assistantId: ast.name.split('/').pop()! };
+                                    const res = await api.listResources('agents', astConfig);
+                                    if (res.agents) agentsList.push(...res.agents);
+                                }
+                            }
+                        } catch (e) {}
+                    }
+                } catch (e) {}
+            }));
+            setAllAgents(agentsList);
+        } catch (e) {
+            console.warn("Failed to fetch usage data", e);
+        }
+
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch resources.');
     } finally {
       setIsLoading(false);
     }
   }, [apiConfig, location, projectNumber]);
   
-  const handleToggleSelect = (engineName: string) => {
-    setSelectedEngines(prev => {
+  useEffect(() => {
+      if (projectNumber) {
+          fetchResources();
+      }
+  }, [projectNumber, location]);
+
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds(prev => {
         const newSet = new Set(prev);
-        if (newSet.has(engineName)) {
-            newSet.delete(engineName);
-        } else {
-            newSet.add(engineName);
-        }
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
         return newSet;
     });
   };
 
   const handleToggleSelectAll = () => {
-      if (selectedEngines.size === engines.length) {
-          setSelectedEngines(new Set());
+      if (selectedIds.size === resources.length) {
+          setSelectedIds(new Set());
       } else {
-          setSelectedEngines(new Set(engines.map(e => e.name)));
+          setSelectedIds(new Set(resources.map(r => r.id)));
       }
   };
 
-  const openDeleteModal = (engine?: ReasoningEngine) => {
-      // If a specific engine is provided (from a row button), select only that one.
-      if (engine) {
-          setSelectedEngines(new Set([engine.name]));
+  const openDeleteModal = (resource?: UnifiedResource) => {
+      if (resource) {
+          setSelectedIds(new Set([resource.id]));
       }
-      // Open the modal if there's a selection from either source.
-      if (selectedEngines.size > 0 || engine) {
+      if (selectedIds.size > 0 || resource) {
           setIsDeleteModalOpen(true);
       }
   };
   
   const confirmDelete = async () => {
-    if (selectedEngines.size === 0) return;
-
+    if (selectedIds.size === 0) return;
     setIsDeleting(true);
     setError(null);
 
-    const enginesToDelete: string[] = Array.from(selectedEngines);
+    const failures: string[] = [];
+    const resourcesToDelete = resources.filter(r => selectedIds.has(r.id));
 
-    const deletionPromises = enginesToDelete.map(async (engineName: string) => {
+    for (const res of resourcesToDelete) {
         try {
-            await api.deleteReasoningEngine(engineName, apiConfig);
-        } catch (err: unknown) {
-            // FIX: Safely convert the 'unknown' error to a string for inspection, preventing a type error.
-            const errorMessage = err instanceof Error ? err.message : String(err);
-            if (errorMessage.toLowerCase().includes('resource has children')) {
-                const engineId = engineName.split('/').pop() || engineName;
-                console.log(`Engine ${engineId} has active sessions. Attempting to delete them...`);
-                
-                const sessionsResponse = await api.listReasoningEngineSessions(engineName, apiConfig);
-                const sessions = sessionsResponse.sessions || [];
-                
-                if (sessions.length > 0) {
-                    console.log(`Found ${sessions.length} sessions to delete.`);
-                    // FIX: Ensure session.name is treated as a string before being passed to the API call.
-                    const deleteSessionPromises = sessions.map(session => 
-                        api.deleteReasoningEngineSession(String(session.name), apiConfig)
-                    );
-                    await Promise.all(deleteSessionPromises);
-                    console.log(`All sessions for ${engineId} deleted.`);
-                }
-                
-                // Retry deleting the engine
-                console.log(`Retrying deletion of engine ${engineId}...`);
-                await api.deleteReasoningEngine(engineName, apiConfig);
-
+            if (res.type === 'Reasoning Engine') {
+                await api.deleteReasoningEngine(res.id, apiConfig);
             } else {
-                // If it's a different error, re-throw it.
-                throw err;
+                await api.deleteCloudRunService(res.id, apiConfig);
+            }
+        } catch (err: any) {
+            if (err.message?.toLowerCase().includes('resource has children') && res.type === 'Reasoning Engine') {
+                 try {
+                     const sessions = (await api.listReasoningEngineSessions(res.id, apiConfig)).sessions || [];
+                     await Promise.all(sessions.map(s => api.deleteReasoningEngineSession(s.name, apiConfig)));
+                     await api.deleteReasoningEngine(res.id, apiConfig);
+                 } catch (retryErr: any) {
+                     failures.push(`- ${res.shortId}: ${retryErr.message}`);
+                 }
+            } else {
+                failures.push(`- ${res.shortId}: ${err.message}`);
             }
         }
-    });
-
-    const results = await Promise.allSettled(deletionPromises);
-
-    const failures: string[] = [];
-    results.forEach((result, index) => {
-        if (result.status === 'rejected') {
-            const engineName = String(enginesToDelete[index]).split('/').pop() || enginesToDelete[index];
-            
-            // FIX: Robustly handle the 'reason' for rejection, which is of type 'unknown', to safely extract an error message string.
-            const reason = result.reason;
-            const errorMessage = reason instanceof Error ? reason.message : String(reason);
-
-            failures.push(`- ${engineName}: ${errorMessage}`);
-        }
-    });
+    }
 
     if (failures.length > 0) {
-        setError(`Failed to delete ${failures.length} engine(s):\n${failures.join('\n')}`);
+        setError(`Failed to delete some resources:\n${failures.join('\n')}`);
     }
 
     setIsDeleting(false);
     setIsDeleteModalOpen(false);
-    await fetchEngines(); // Refresh list, which also clears selection
+    await fetchResources();
   };
   
-  const handleViewEngine = (engine: ReasoningEngine) => {
-    setSelectedEngine(engine);
+  const handleViewResource = (resource: UnifiedResource) => {
+    setSelectedResource(resource);
     setViewMode('details');
   };
 
   const handleConfirmClearSessions = async () => {
     if (!engineToClearSessions) return;
-
     setIsClearingSessions(true);
-    setError(null);
-
     try {
-        const sessionsResponse = await api.listReasoningEngineSessions(engineToClearSessions.name, apiConfig);
-        const sessions = sessionsResponse.sessions || [];
-        
-        if (sessions.length === 0) {
-            // No sessions to delete, just close and refresh
-            setIsClearingSessions(false);
-            setEngineToClearSessions(null);
-            await fetchEngines();
-            return;
-        }
-        
-        const deletionPromises = sessions.map(session => 
-            api.deleteReasoningEngineSession(session.name, apiConfig)
-        );
-        
-        const results = await Promise.allSettled(deletionPromises);
-        
-        const failures: string[] = [];
-        results.forEach((result, index) => {
-            if (result.status === 'rejected') {
-                const sessionName = sessions[index].name.split('/').pop();
-                // FIX: Robustly handle the 'reason' for rejection, which is of type 'unknown', to safely extract an error message string.
-                const reason = result.reason;
-                const errorMessage = reason instanceof Error ? reason.message : String(reason);
-                failures.push(`- Session ${sessionName}: ${errorMessage}`);
-            }
-        });
-        
-        if (failures.length > 0) {
-            setError(`Failed to terminate ${failures.length} of ${sessions.length} session(s):\n${failures.join('\n')}`);
-        }
-
+        const sessions = (await api.listReasoningEngineSessions(engineToClearSessions.name, apiConfig)).sessions || [];
+        await Promise.all(sessions.map(s => api.deleteReasoningEngineSession(s.name, apiConfig)));
     } catch (err: any) {
         setError(`Failed to clear sessions: ${err.message}`);
     } finally {
         setIsClearingSessions(false);
         setEngineToClearSessions(null);
-        await fetchEngines(); // Refresh the list to show updated counts
+        fetchResources();
     }
   };
 
   const renderContent = () => {
     if (isLoading && viewMode === 'list') { return <Spinner />; }
     
-    if (viewMode === 'details' && selectedEngine) {
-        return (
-            <EngineDetails 
-                engine={selectedEngine} 
-                usingAgents={agentsByEngine[selectedEngine.name] || []}
-                onBack={() => { setViewMode('list'); setSelectedEngine(null); }}
-                config={apiConfig}
-            />
-        );
+    if (viewMode === 'details' && selectedResource) {
+        if (selectedResource.type === 'Reasoning Engine') {
+            return (
+                <EngineDetails 
+                    engine={selectedResource.data as ReasoningEngine} 
+                    usingAgents={agentsByResource[selectedResource.id] || []}
+                    onBack={() => { setViewMode('list'); setSelectedResource(null); }}
+                    config={apiConfig}
+                />
+            );
+        } else {
+            return (
+                <McpServerDetails 
+                    service={selectedResource.data as CloudRunService}
+                    config={apiConfig}
+                    onBack={() => { setViewMode('list'); setSelectedResource(null); }}
+                />
+            );
+        }
     }
     
-    const isAllSelected = selectedEngines.size === engines.length && engines.length > 0;
+    const isAllSelected = selectedIds.size === resources.length && resources.length > 0;
 
     return (
         <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-                <h2 className="text-xl font-bold text-white">Agent Engines</h2>
-                 {selectedEngines.size > 0 && (
+                <h2 className="text-xl font-bold text-white">Agent Engines & Services</h2>
+                 {selectedIds.size > 0 && (
                     <div className="flex items-center gap-4">
-                        <span className="text-sm text-gray-300">{selectedEngines.size} selected</span>
+                        <span className="text-sm text-gray-300">{selectedIds.size} selected</span>
                         <button
                             onClick={() => openDeleteModal()}
                             disabled={isDeleting}
@@ -351,59 +361,50 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                 )}
             </div>
              {error && <div className="p-4 bg-red-900/20 text-red-300 text-sm rounded-b-lg whitespace-pre-wrap">{error}</div>}
-            {engines.length === 0 && !isLoading && !error && (
-                 <p className="text-gray-400 p-6 text-center">No agent engines found in this location. Use the controls above to fetch them.</p>
+            {resources.length === 0 && !isLoading && !error && (
+                 <p className="text-gray-400 p-6 text-center">No agent resources found in this location.</p>
             )}
-            {engines.length > 0 && (
+            {resources.length > 0 && (
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-700">
                         <thead className="bg-gray-700/50">
                             <tr>
-                                <th scope="col" className="px-6 py-3">
-                                    <input
-                                        type="checkbox"
-                                        checked={isAllSelected}
-                                        onChange={handleToggleSelectAll}
-                                        aria-label="Select all engines"
-                                        className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600"
-                                    />
+                                <th scope="col" className="px-6 py-3 w-10">
+                                    <input type="checkbox" checked={isAllSelected} onChange={handleToggleSelectAll} className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600" />
                                 </th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Display Name</th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Engine ID</th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Type</th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Resource ID</th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Used By Agents</th>
                                 <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="bg-gray-800 divide-y divide-gray-700">
-                            {engines.map((engine) => {
-                                const engineId = engine.name.split('/').pop() || '';
-                                const isSelected = selectedEngines.has(engine.name);
-                                const usingAgents = agentsByEngine[engine.name] || [];
+                            {resources.map((res) => {
+                                const isSelected = selectedIds.has(res.id);
+                                const usingAgents = agentsByResource[res.id] || [];
+                                const isRE = res.type === 'Reasoning Engine';
 
                                 return (
-                                    <tr key={engine.name} className={`${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'} transition-colors`}>
+                                    <tr key={res.id} className={`${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'} transition-colors`}>
                                         <td className="px-6 py-4">
-                                            <input
-                                                type="checkbox"
-                                                checked={isSelected}
-                                                onChange={() => handleToggleSelect(engine.name)}
-                                                aria-label={`Select engine ${engine.displayName}`}
-                                                className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600"
-                                            />
+                                            <input type="checkbox" checked={isSelected} onChange={() => handleToggleSelect(res.id)} className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600" />
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{engine.displayName}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">{engineId}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{res.displayName}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                            <span className={`px-2 py-1 rounded text-xs font-semibold ${isRE ? 'bg-purple-900 text-purple-200' : 'bg-teal-900 text-teal-200'}`}>
+                                                {res.type}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">{res.shortId}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                                             {usingAgents.length > 0 ? (
                                                 <ul className="space-y-1">
-                                                    {usingAgents.map(agent => {
-                                                        const agentEngineId = agent.name.split('/')[7];
-                                                        return (
-                                                            <li key={agent.name} className="text-xs" title={agent.name}>
-                                                                - {agentEngineId}/{agent.displayName}
-                                                            </li>
-                                                        );
-                                                    })}
+                                                    {usingAgents.map(agent => (
+                                                        <li key={agent.name} className="text-xs" title={agent.name}>
+                                                            - {agent.displayName}
+                                                        </li>
+                                                    ))}
                                                 </ul>
                                             ) : (
                                                 <span className="text-xs text-gray-500 italic">Not in use</span>
@@ -411,52 +412,25 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                             <div className="flex justify-end items-center gap-4">
-                                                <div className="flex items-center gap-2">
-                                                    {typeof engine.sessionCount === 'number' ? (
-                                                        <button
-                                                            onClick={() => setEngineToClearSessions(engine)}
-                                                            disabled={engine.sessionCount === 0 || isClearingSessions}
-                                                            className={`flex items-center justify-center text-xs font-bold rounded-full h-5 w-5 transition-colors ${
-                                                                engine.sessionCount > 0 
-                                                                    ? 'bg-green-500 text-white hover:bg-green-400 disabled:bg-green-700 disabled:cursor-not-allowed' 
-                                                                    : 'bg-gray-600 text-gray-300 cursor-not-allowed'
-                                                            }`}
-                                                            title={engine.sessionCount > 0 ? `Terminate ${engine.sessionCount} active session(s)` : `${engine.sessionCount} active session(s)`}
-                                                        >
-                                                            {isClearingSessions && engineToClearSessions?.name === engine.name ? (
-                                                                <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-white"></div>
-                                                            ) : (
-                                                                engine.sessionCount
-                                                            )}
-                                                        </button>
-                                                    ) : (engine.sessionCount === undefined && !isLoading) ? (
-                                                        <span 
-                                                            className="flex items-center justify-center text-xs font-bold rounded-full h-5 w-5 bg-yellow-500 text-black"
-                                                            title="Could not fetch session count"
-                                                        >
-                                                            !
-                                                        </span>
-                                                    ): null}
-                                                    <button 
-                                                        onClick={() => onDirectQuery(engine)} 
-                                                        className="font-semibold text-green-400 hover:text-green-300"
-                                                    >
-                                                        Direct Query
-                                                    </button>
-                                                </div>
-                                                <button 
-                                                    onClick={() => handleViewEngine(engine)} 
-                                                    className="font-semibold text-blue-400 hover:text-blue-300"
-                                                >
-                                                    Details
-                                                </button>
-                                                <button 
-                                                    onClick={() => openDeleteModal(engine)} 
-                                                    disabled={isDeleting}
-                                                    className="font-semibold text-red-400 hover:text-red-300 disabled:text-gray-500"
-                                                >
-                                                    Delete
-                                                </button>
+                                                {isRE ? (
+                                                    <div className="flex items-center gap-2">
+                                                        {typeof res.sessionCount === 'number' && (
+                                                            <button
+                                                                onClick={() => setEngineToClearSessions(res.data as ReasoningEngine)}
+                                                                disabled={res.sessionCount === 0 || isClearingSessions}
+                                                                className={`flex items-center justify-center text-xs font-bold rounded-full h-5 w-5 transition-colors ${res.sessionCount > 0 ? 'bg-green-500 text-white hover:bg-green-400' : 'bg-gray-600 text-gray-300 cursor-not-allowed'}`}
+                                                                title={`${res.sessionCount} active session(s)`}
+                                                            >
+                                                                {isClearingSessions && engineToClearSessions?.name === res.id ? '...' : res.sessionCount}
+                                                            </button>
+                                                        )}
+                                                        <button onClick={() => onDirectQuery(res.data as ReasoningEngine)} className="font-semibold text-green-400 hover:text-green-300">Direct Query</button>
+                                                    </div>
+                                                ) : (
+                                                    <button onClick={() => setCloudRunQueryService(res.data as CloudRunService)} className="font-semibold text-green-400 hover:text-green-300">Direct Query</button>
+                                                )}
+                                                <button onClick={() => handleViewResource(res)} className="font-semibold text-blue-400 hover:text-blue-300">Details</button>
+                                                <button onClick={() => openDeleteModal(res)} disabled={isDeleting} className="font-semibold text-red-400 hover:text-red-300 disabled:text-gray-500">Delete</button>
                                             </div>
                                         </td>
                                     </tr>
@@ -478,7 +452,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
             <div className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-300 font-mono h-[38px] flex items-center">
-                {projectNumber || <span className="text-gray-500 italic">Not set (configure on Agents page)</span>}
+                {projectNumber || <span className="text-gray-500 italic">Not set</span>}
             </div>
           </div>
           <div>
@@ -503,11 +477,11 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
         </div>
         {viewMode === 'list' && (
             <button
-                onClick={fetchEngines}
+                onClick={fetchResources}
                 disabled={isLoading}
                 className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500"
             >
-            {isLoading ? 'Loading...' : 'Fetch Engines'}
+            {isLoading ? 'Loading...' : 'Refresh Resources'}
             </button>
         )}
       </div>
@@ -518,23 +492,23 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
             isOpen={isDeleteModalOpen}
             onClose={() => setIsDeleteModalOpen(false)}
             onConfirm={confirmDelete}
-            title={`Confirm Deletion of ${selectedEngines.size} Engine(s)`}
+            title={`Confirm Deletion of ${selectedIds.size} Resource(s)`}
             confirmText="Delete"
             isConfirming={isDeleting}
         >
-            <p>Are you sure you want to permanently delete the following agent engine(s)?</p>
+            <p>Are you sure you want to permanently delete the following resources?</p>
             <ul className="mt-2 p-3 bg-gray-700/50 rounded-md border border-gray-600 max-h-48 overflow-y-auto space-y-1">
-                {Array.from(selectedEngines).map(engineName => {
-                    const engine = engines.find(e => e.name === engineName);
+                {Array.from(selectedIds).map(id => {
+                    const res = resources.find(r => r.id === id);
                     return (
-                        <li key={engineName} className="text-sm">
-                            <p className="font-bold text-white">{engine?.displayName || 'Unknown Engine'}</p>
-                            <p className="text-xs font-mono text-gray-400 mt-1">{String(engineName).split('/').pop()}</p>
+                        <li key={id} className="text-sm">
+                            <p className="font-bold text-white">{res?.displayName || 'Unknown Resource'}</p>
+                            <p className="text-xs font-mono text-gray-400 mt-1">{String(id).split('/').pop()}</p>
                         </li>
                     )
                 })}
             </ul>
-            <p className="mt-4 text-sm text-yellow-300">This action cannot be undone and may break agents that rely on these engines.</p>
+            <p className="mt-4 text-sm text-yellow-300">This action cannot be undone.</p>
         </ConfirmationModal>
       )}
 
@@ -543,17 +517,21 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
             isOpen={!!engineToClearSessions}
             onClose={() => setEngineToClearSessions(null)}
             onConfirm={handleConfirmClearSessions}
-            title={`Terminate All Sessions?`}
+            title={`Terminate Sessions`}
             confirmText={isClearingSessions ? 'Terminating...' : 'Terminate All'}
             isConfirming={isClearingSessions}
         >
-            <p>Are you sure you want to terminate all {engineToClearSessions.sessionCount} active session(s) for the engine?</p>
-            <div className="mt-2 p-3 bg-gray-700/50 rounded-md border border-gray-600">
-                <p className="font-bold text-white">{engineToClearSessions.displayName}</p>
-                <p className="text-xs font-mono text-gray-400 mt-1">{engineToClearSessions.name.split('/').pop()}</p>
-            </div>
-            <p className="mt-4 text-sm text-yellow-300">This action cannot be undone and will interrupt any ongoing conversations.</p>
+            <p>Are you sure you want to terminate active sessions for <strong>{engineToClearSessions.displayName}</strong>?</p>
         </ConfirmationModal>
+      )}
+
+      {cloudRunQueryService && (
+          <CloudRunQueryModal 
+            isOpen={!!cloudRunQueryService} 
+            onClose={() => setCloudRunQueryService(null)}
+            service={cloudRunQueryService}
+            accessToken={accessToken}
+          />
       )}
     </div>
   );

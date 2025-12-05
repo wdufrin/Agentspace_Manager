@@ -1,18 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import ProjectInput from '../components/ProjectInput';
 import { CloudRunService } from '../types';
 import * as api from '../services/apiService';
+import A2aDeployModal from '../components/a2a/A2aDeployModal';
+import ProjectInput from '../components/ProjectInput';
 
 declare var JSZip: any;
 
-interface A2aFunctionsPageProps {
-  projectNumber: string;
-  setProjectNumber: (projectNumber: string) => void;
-  context?: any;
-}
-
-interface FunctionConfig {
+interface A2aConfig {
     serviceName: string;
     displayName: string;
     providerOrganization: string;
@@ -23,7 +18,19 @@ interface FunctionConfig {
     allowUnauthenticated: boolean;
 }
 
-// --- Code Generation Logic ---
+// --- A2A Generators ---
+const generateA2aEnvYaml = (config: A2aConfig, projectId: string): string => {
+    // Generate valid YAML with block scalar for the multiline description
+    return `GOOGLE_CLOUD_PROJECT: "${projectId}"
+GOOGLE_CLOUD_LOCATION: "${config.region}"
+GOOGLE_GENAI_USE_VERTEXAI: "TRUE"
+MODEL: "${config.model}"
+AGENT_DISPLAY_NAME: "${config.displayName}"
+PROVIDER_ORGANIZATION: "${config.providerOrganization}"
+AGENT_DESCRIPTION: |
+${config.instruction.split('\n').map(line => '  ' + line).join('\n')}
+`.trim();
+};
 
 const generateMainPy = (instruction: string): string => `
 import os
@@ -52,13 +59,16 @@ LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION")
 # Agent card details from environment
 AGENT_URL = os.getenv("AGENT_URL", "URL_NOT_SET")
 AGENT_DISPLAY_NAME = os.getenv("AGENT_DISPLAY_NAME", "A2A Function")
+# Use environment variable for description if available, else fallback
 AGENT_DESCRIPTION = os.getenv("AGENT_DESCRIPTION", "An agent-to-agent function.")
 PROVIDER_ORGANIZATION = os.getenv("PROVIDER_ORGANIZATION", "Unknown")
 
 # This is the DEFAULT instruction if none is provided in the request
-DEFAULT_SYSTEM_INSTRUCTION = """
+# We prefer the one from env var (which supports updates without code changes), 
+# but fallback to the hardcoded string if needed.
+DEFAULT_SYSTEM_INSTRUCTION = os.getenv("AGENT_DESCRIPTION", """
 ${instruction}
-"""
+""")
 
 # Initialize Vertex AI SDK
 try:
@@ -213,9 +223,8 @@ def invoke():
         return jsonify({
             "jsonrpc": "2.0",
             "result": {
-                "kind": "Message",
                 "message": {
-                    "role": "agent",
+                    "role": "model",
                     "parts": [
                         {
                             "text": result_text
@@ -268,7 +277,7 @@ gunicorn==22.0.0
 google-cloud-aiplatform>=1.55.0
 `;
 
-const generateGcloudCommand = (config: FunctionConfig, projectId: string): string => {
+const generateGcloudCommand = (config: A2aConfig, projectId: string): string => {
     const authFlag = config.allowUnauthenticated ? '--allow-unauthenticated' : '--no-allow-unauthenticated';
     
     return `
@@ -284,10 +293,6 @@ PROJECT_ID="${projectId}"
 SERVICE_NAME="${config.serviceName}"
 REGION="${config.region}"
 MEMORY="${config.memory}"
-MODEL_NAME="${config.model}"
-AGENT_DISPLAY_NAME="${config.displayName}"
-AGENT_DESCRIPTION="${config.instruction}" # Using instruction as description
-PROVIDER_ORGANIZATION="${config.providerOrganization}"
 
 # --- Pre-flight Check ---
 # Check if PROJECT_ID looks like a number (which causes gcloud deploy to fail)
@@ -303,7 +308,7 @@ fi
 echo "Starting deployment of service '$SERVICE_NAME' to project '$PROJECT_ID'..."
 
 # Step 1: Deploy the service from source code.
-# We set all environment variables except AGENT_URL, which we don't know yet.
+# Environment variables are loaded from env.yaml to handle multiline strings cleanly.
 gcloud run deploy "$SERVICE_NAME" \\
   --source . \\
   --project "$PROJECT_ID" \\
@@ -311,7 +316,7 @@ gcloud run deploy "$SERVICE_NAME" \\
   --memory "$MEMORY" \\
   --clear-base-image \\
   ${authFlag} \\
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=${projectId},GOOGLE_CLOUD_LOCATION=${config.region},GOOGLE_GENAI_USE_VERTEXAI=TRUE,MODEL=${config.model},AGENT_DISPLAY_NAME='${config.displayName}',AGENT_DESCRIPTION='${config.instruction}',PROVIDER_ORGANIZATION='${config.providerOrganization}'"
+  --env-vars-file=env.yaml
 
 echo "Initial deployment complete. Fetching service URL..."
 
@@ -338,9 +343,16 @@ echo "Your A2A function is now available at: $SERVICE_URL"
 `;
 };
 
+interface A2aFunctionsPageProps {
+  projectNumber: string;
+  setProjectNumber: (projectNumber: string) => void;
+  context?: any;
+  onBuildTriggered?: (buildId: string) => void;
+}
 
-const A2aFunctionsPage: React.FC<A2aFunctionsPageProps> = ({ projectNumber, setProjectNumber, context }) => {
-    const [config, setConfig] = useState<FunctionConfig>({
+const A2aFunctionsPage: React.FC<A2aFunctionsPageProps> = ({ projectNumber, setProjectNumber, context, onBuildTriggered }) => {
+    // --- A2A State ---
+    const [a2aConfig, setA2aConfig] = useState<A2aConfig>({
         serviceName: 'my-a2a-function',
         displayName: 'My A2A Function',
         providerOrganization: 'My Company',
@@ -354,17 +366,21 @@ const A2aFunctionsPage: React.FC<A2aFunctionsPageProps> = ({ projectNumber, setP
     const [deployProjectId, setDeployProjectId] = useState(projectNumber);
     const [isResolvingId, setIsResolvingId] = useState(false);
     
-    const [generatedCode, setGeneratedCode] = useState({
+    const [a2aGeneratedCode, setA2aGeneratedCode] = useState({
         main: '',
         dockerfile: '',
         requirements: '',
         gcloud: '',
+        yaml: '',
     });
     
-    const [activeTab, setActiveTab] = useState<'main' | 'dockerfile' | 'requirements'>('main');
-    const [copySuccess, setCopySuccess] = useState('');
+    const [a2aActiveTab, setA2aActiveTab] = useState<'main' | 'dockerfile' | 'requirements' | 'env'>('main');
+    const [a2aCopySuccess, setA2aCopySuccess] = useState('');
     const [isFixMode, setIsFixMode] = useState(false);
+    const [isA2aDeployModalOpen, setIsA2aDeployModalOpen] = useState(false);
 
+    
+    // --- Common Logic ---
     const fetchProjectId = async () => {
         if (!projectNumber) return;
         setIsResolvingId(true);
@@ -374,29 +390,27 @@ const A2aFunctionsPage: React.FC<A2aFunctionsPageProps> = ({ projectNumber, setP
                 setDeployProjectId(project.projectId);
             }
         } catch (e) {
-            console.warn("Could not auto-resolve Project ID from Number for gcloud script:", e);
+            console.warn("Could not auto-resolve Project ID from Number:", e);
         } finally {
             setIsResolvingId(false);
         }
     };
 
-    // Sync deployProjectId when projectNumber changes from parent
     useEffect(() => {
-        setDeployProjectId(projectNumber); // Default to number first
+        setDeployProjectId(projectNumber); 
         fetchProjectId();
     }, [projectNumber]);
 
-    // Handle context from navigation (Fix Service workflow)
+    // Handle Fix Mode context
     useEffect(() => {
         if (context && context.serviceToEdit) {
-            const service: CloudRunService = context.serviceToEdit;
             setIsFixMode(true);
-            
+            const service: CloudRunService = context.serviceToEdit;
             const container = service.template?.containers?.[0];
             const envVars = container?.env || [];
             const getEnv = (key: string) => envVars.find(e => e.name === key)?.value || '';
 
-            setConfig(prev => ({
+            setA2aConfig(prev => ({
                 ...prev,
                 serviceName: service.name.split('/').pop() || prev.serviceName,
                 region: service.location || prev.region,
@@ -408,206 +422,158 @@ const A2aFunctionsPage: React.FC<A2aFunctionsPageProps> = ({ projectNumber, setP
         }
     }, [context]);
 
+    // A2A Code Generation
     useEffect(() => {
-        setGeneratedCode({
-            main: generateMainPy(config.instruction),
+        setA2aGeneratedCode({
+            main: generateMainPy(a2aConfig.instruction),
             dockerfile: generateDockerfile(),
             requirements: generateRequirementsTxt(),
-            gcloud: generateGcloudCommand(config, deployProjectId)
+            gcloud: generateGcloudCommand(a2aConfig, deployProjectId),
+            yaml: generateA2aEnvYaml(a2aConfig, deployProjectId),
         });
-    }, [config, deployProjectId]);
-    
-    const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    }, [a2aConfig, deployProjectId]);
+
+    // --- Handlers ---
+    const handleA2aConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
         if (type === 'checkbox') {
-             setConfig(prev => ({...prev, [name]: (e.target as HTMLInputElement).checked }));
+             setA2aConfig(prev => ({...prev, [name]: (e.target as HTMLInputElement).checked }));
         } else if (name === 'serviceName') {
             const sanitizedValue = value.toLowerCase().replace(/[^a-z0-9-]/g, '').substring(0, 63);
-            setConfig(prev => ({...prev, [name]: sanitizedValue }));
+            setA2aConfig(prev => ({...prev, [name]: sanitizedValue }));
         } else {
-            setConfig(prev => ({...prev, [name]: value as any }));
+            setA2aConfig(prev => ({...prev, [name]: value as any }));
         }
     };
-    
-    const handleCopy = (content: string) => {
+
+    const handleCopy = (content: string, setSuccess: React.Dispatch<React.SetStateAction<string>>) => {
         navigator.clipboard.writeText(content).then(() => {
-            setCopySuccess('Copied!');
-            setTimeout(() => setCopySuccess(''), 2000);
+            setSuccess('Copied!');
+            setTimeout(() => setSuccess(''), 2000);
         });
     };
 
-    const handleDownloadCode = async () => {
+    const handleDownloadA2a = async () => {
         const zip = new JSZip();
-        zip.file('main.py', generatedCode.main);
-        zip.file('Dockerfile', generatedCode.dockerfile);
-        zip.file('requirements.txt', generatedCode.requirements);
-        // Include the deployment script
-        zip.file('deploy.sh', generatedCode.gcloud);
-
+        zip.file('main.py', a2aGeneratedCode.main);
+        zip.file('Dockerfile', a2aGeneratedCode.dockerfile);
+        zip.file('requirements.txt', a2aGeneratedCode.requirements);
+        zip.file('deploy.sh', a2aGeneratedCode.gcloud);
+        zip.file('env.yaml', a2aGeneratedCode.yaml);
         const blob = await zip.generateAsync({ type: 'blob' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${config.serviceName}-source.zip`;
+        a.download = `${a2aConfig.serviceName}-source.zip`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
     };
 
-    const codeToDisplay = {
-        main: generatedCode.main,
-        dockerfile: generatedCode.dockerfile,
-        requirements: generatedCode.requirements
-    }[activeTab];
+    const a2aCodeDisplay = { 
+        main: a2aGeneratedCode.main, 
+        dockerfile: a2aGeneratedCode.dockerfile, 
+        requirements: a2aGeneratedCode.requirements,
+        env: a2aGeneratedCode.yaml
+    }[a2aActiveTab];
 
-    const isNumericId = /^\d+$/.test(deployProjectId);
+    const a2aFilesForBuild = [
+        { name: 'main.py', content: a2aGeneratedCode.main },
+        { name: 'Dockerfile', content: a2aGeneratedCode.dockerfile },
+        { name: 'requirements.txt', content: a2aGeneratedCode.requirements },
+        { name: 'deploy.sh', content: a2aGeneratedCode.gcloud },
+        { name: 'env.yaml', content: a2aGeneratedCode.yaml }
+    ];
+
+    const handleBuildTriggered = (id: string) => {
+        if (onBuildTriggered) onBuildTriggered(id);
+        setIsA2aDeployModalOpen(false);
+    };
 
     return (
-        <div className="space-y-6">
-            <h1 className="text-2xl font-bold text-white">A2A Function Builder</h1>
-            <p className="text-gray-400 -mt-4">
-                Create and deploy a secure, serverless Cloud Run function that can act as a specialized agent or tool. 
-                This builder generates code with <strong>CORS support</strong> and <strong>JSON-RPC 2.0</strong> compatibility enabled.
-            </p>
+        <div className="space-y-6 flex flex-col lg:h-full">
+            <div className="flex justify-between items-center shrink-0">
+                <h1 className="text-2xl font-bold text-white">A2A Function Builder</h1>
+            </div>
+            
+            <A2aDeployModal isOpen={isA2aDeployModalOpen} onClose={() => setIsA2aDeployModalOpen(false)} projectNumber={projectNumber} serviceName={a2aConfig.serviceName} region={a2aConfig.region} files={a2aFilesForBuild} onBuildTriggered={handleBuildTriggered} />
             
             {isFixMode && (
-                <div className="bg-yellow-900/30 border border-yellow-700 p-4 rounded-lg mb-4">
-                    <h3 className="text-yellow-400 font-bold mb-1">Fixing Service: {config.serviceName}</h3>
-                    <p className="text-sm text-gray-300">
-                        The configuration below has been pre-filled from your deployed service. 
-                        The generated code now includes the necessary CORS and JSON-RPC headers. 
-                        Follow the deployment steps below to update your service.
-                    </p>
+                <div className="bg-yellow-900/30 border border-yellow-700 p-4 rounded-lg shrink-0">
+                    <h3 className="text-yellow-400 font-bold mb-1">Fixing Service: {a2aConfig.serviceName}</h3>
+                    <p className="text-sm text-gray-300">Configuration pre-filled from deployed service.</p>
                 </div>
             )}
 
-            {/* Configuration Card */}
-            <div className="bg-gray-800 p-4 rounded-lg shadow-md">
-                <h2 className="text-lg font-semibold text-white mb-3">1. Configure Your Function</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-1">Project Number (for API)</label>
-                        <ProjectInput value={projectNumber} onChange={setProjectNumber} />
-                    </div>
-                    <div>
-                        <label htmlFor="deployProjectId" className="block text-sm font-medium text-gray-400 mb-1">Project ID (for gcloud Script)</label>
-                        <div className="flex gap-2">
-                            <input 
-                                id="deployProjectId" 
-                                type="text" 
-                                value={deployProjectId} 
-                                onChange={(e) => setDeployProjectId(e.target.value)} 
-                                className={`bg-gray-700 border rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px] ${isNumericId ? 'border-yellow-500 focus:ring-yellow-500' : 'border-gray-600'}`}
-                                placeholder="e.g. my-project-id"
-                            />
-                            <button 
-                                onClick={fetchProjectId}
-                                disabled={isResolvingId}
-                                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-md text-white disabled:opacity-50"
-                                title="Attempt to resolve Project ID string"
-                            >
-                                {isResolvingId ? '...' : '↻'}
-                            </button>
-                        </div>
-                        {isNumericId ? (
-                            <p className="text-[11px] text-yellow-400 mt-1 font-medium">
-                                ⚠️ This looks like a Project Number. The <code>gcloud deploy</code> command requires the <strong>Project ID string</strong> (e.g., 'my-app-prod'). Please replace it manually.
-                            </p>
-                        ) : (
-                            <p className="text-[10px] text-gray-500 mt-1">Required: gcloud requires the string ID, not the number.</p>
-                        )}
-                    </div>
-                     <div>
-                        <label htmlFor="serviceName" className="block text-sm font-medium text-gray-400 mb-1">Service Name</label>
-                        <input id="serviceName" name="serviceName" type="text" value={config.serviceName} onChange={handleConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px]" />
-                    </div>
-                     <div>
-                        <label htmlFor="displayName" className="block text-sm font-medium text-gray-400 mb-1">Agent Display Name</label>
-                        <input id="displayName" name="displayName" type="text" value={config.displayName} onChange={handleConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]" />
-                    </div>
-                     <div>
-                        <label htmlFor="providerOrganization" className="block text-sm font-medium text-gray-400 mb-1">Provider Organization</label>
-                        <input id="providerOrganization" name="providerOrganization" type="text" value={config.providerOrganization} onChange={handleConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]" />
-                    </div>
-                     <div>
-                        <label htmlFor="model" className="block text-sm font-medium text-gray-400 mb-1">Gemini Model</label>
-                        <select id="model" name="model" value={config.model} onChange={handleConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px]">
-                            <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-                            <option value="gemini-2.5-pro">gemini-2.5-pro</option>
-                        </select>
-                    </div>
-                     <div>
-                        <label htmlFor="region" className="block text-sm font-medium text-gray-400 mb-1">Region</label>
-                        <select id="region" name="region" value={config.region} onChange={handleConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px]">
-                           <option value="us-central1">us-central1</option><option value="us-east1">us-east1</option><option value="us-east4">us-east4</option><option value="us-west1">us-west1</option><option value="europe-west1">europe-west1</option><option value="europe-west2">europe-west2</option><option value="europe-west4">europe-west4</option><option value="asia-east1">asia-east1</option><option value="asia-southeast1">asia-southeast1</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label htmlFor="memory" className="block text-sm font-medium text-gray-400 mb-1">Memory</label>
-                        <select id="memory" name="memory" value={config.memory} onChange={handleConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px]">
-                           <option value="512Mi">512Mi</option><option value="1Gi">1Gi</option><option value="2Gi">2Gi</option><option value="4Gi">4Gi</option>
-                        </select>
-                    </div>
-                    <div className="md:col-span-2">
-                         <label htmlFor="instruction" className="block text-sm font-medium text-gray-400 mb-1">System Instruction (Used for Agent Description)</label>
-                         <textarea id="instruction" name="instruction" value={config.instruction} onChange={handleConfigChange} rows={3} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full" />
-                    </div>
-                    <div className="md:col-span-2 bg-gray-900/50 p-3 rounded-md border border-gray-700">
-                        <label className="flex items-center space-x-3 cursor-pointer">
-                            <input 
-                                type="checkbox" 
-                                name="allowUnauthenticated" 
-                                checked={config.allowUnauthenticated} 
-                                onChange={handleConfigChange} 
-                                className="h-5 w-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 transition-colors"
-                            />
-                            <div>
-                                <span className="block text-sm font-bold text-white">Allow unauthenticated invocations</span>
-                                <span className="block text-xs text-gray-400 mt-0.5">
-                                    Required for the "A2A Tester" page to work (browsers cannot authenticate CORS preflight requests).
-                                </span>
-                            </div>
-                        </label>
-                    </div>
-                </div>
-            </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                 {/* Code Generation Card */}
-                <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col">
-                    <h2 className="text-lg font-semibold text-white mb-3">2. Generated Source Code</h2>
-                     <div className="flex justify-between items-center mb-2">
-                        <div>
-                            <div className="flex border-b border-gray-700">
-                                <button onClick={() => setActiveTab('main')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'main' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>main.py</button>
-                                <button onClick={() => setActiveTab('dockerfile')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'dockerfile' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>Dockerfile</button>
-                                <button onClick={() => setActiveTab('requirements')} className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'requirements' ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>requirements.txt</button>
-                            </div>
-                        </div>
-                        <button onClick={() => handleCopy(codeToDisplay)} className="px-3 py-1.5 bg-gray-600 text-white text-xs font-semibold rounded-md hover:bg-gray-500 w-24">
-                            {copySuccess || 'Copy'}
-                        </button>
-                    </div>
-                    <div className="bg-gray-900 rounded-b-md flex-1 overflow-auto h-96">
-                        <pre className="p-4 text-xs text-gray-300 whitespace-pre-wrap"><code>{codeToDisplay}</code></pre>
-                    </div>
-                </div>
+            {/* Layout Container */}
+            <div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-0">
                 
-                 {/* Deployment Card */}
-                <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col">
-                    <h2 className="text-lg font-semibold text-white mb-3">3. Deploy from Your Terminal</h2>
-                    <p className="text-sm text-gray-400 mb-2">Download the source code, unzip it, and run the generated shell script from within the folder to deploy your function.</p>
-                     <div className="bg-gray-900 rounded-md flex-1 overflow-auto h-96">
-                        <pre className="p-4 text-xs text-gray-300 whitespace-pre-wrap"><code>{generatedCode.gcloud}</code></pre>
+                {/* Left Column: Configuration (Box 1) */}
+                <div className="bg-gray-800 p-4 rounded-lg shadow-md lg:w-1/3 flex flex-col overflow-y-auto border border-gray-700">
+                    <h2 className="text-lg font-semibold text-white mb-3 shrink-0">1. Configure Function</h2>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400 mb-1">Project Number</label>
+                            <ProjectInput value={projectNumber} onChange={setProjectNumber} />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400 mb-1">Project ID</label>
+                            <div className="flex gap-2">
+                                <input type="text" value={deployProjectId} onChange={(e) => setDeployProjectId(e.target.value)} className={`bg-gray-700 border rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px] ${/^\d+$/.test(deployProjectId) ? 'border-yellow-500' : 'border-gray-600'}`} placeholder="e.g. my-project-id" />
+                                <button onClick={fetchProjectId} disabled={isResolvingId} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-md text-white disabled:opacity-50">{isResolvingId ? '...' : '↻'}</button>
+                            </div>
+                        </div>
+                        <div><label className="block text-sm font-medium text-gray-400 mb-1">Service Name</label><input name="serviceName" type="text" value={a2aConfig.serviceName} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]" /></div>
+                        <div><label className="block text-sm font-medium text-gray-400 mb-1">Display Name</label><input name="displayName" type="text" value={a2aConfig.displayName} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]" /></div>
+                        <div><label className="block text-sm font-medium text-gray-400 mb-1">Provider Organization</label><input name="providerOrganization" type="text" value={a2aConfig.providerOrganization} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]" /></div>
+                        <div><label className="block text-sm font-medium text-gray-400 mb-1">Region</label><select name="region" value={a2aConfig.region} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"><option value="us-central1">us-central1</option><option value="europe-west1">europe-west1</option><option value="asia-east1">asia-east1</option></select></div>
+                        <div><label className="block text-sm font-medium text-gray-400 mb-1">System Instruction</label><textarea name="instruction" value={a2aConfig.instruction} onChange={handleA2aConfigChange} rows={4} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full" /></div>
+                        <div className="bg-gray-900/50 p-2 rounded-md border border-gray-700"><label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="allowUnauthenticated" checked={a2aConfig.allowUnauthenticated} onChange={handleA2aConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Allow unauthenticated invocations</span></label></div>
                     </div>
-                    <div className="mt-2 flex justify-end gap-2">
-                        <button onClick={handleDownloadCode} className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-md hover:bg-green-500">
-                            Download Source (.zip)
-                        </button>
-                        <button onClick={() => handleCopy(generatedCode.gcloud)} className="px-3 py-1.5 bg-gray-600 text-white text-xs font-semibold rounded-md hover:bg-gray-500">
-                            {copySuccess || 'Copy Script'}
-                        </button>
+                </div>
+
+                {/* Right Column: Code & Deploy (Box 2 & 3) */}
+                <div className="flex flex-col gap-6 flex-1 min-h-0">
+                    {/* Box 2: Generated Source Code */}
+                    <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col flex-1 min-h-0 border border-gray-700">
+                        <h2 className="text-lg font-semibold text-white mb-3 shrink-0">2. Generated Source Code</h2>
+                        <div className="flex justify-between items-center mb-2 shrink-0">
+                            <div className="flex border-b border-gray-700">
+                                {['main', 'dockerfile', 'requirements', 'env'].map(tab => (
+                                    <button key={tab} onClick={() => setA2aActiveTab(tab as any)} className={`px-3 py-2 text-xs font-medium transition-colors ${a2aActiveTab === tab ? 'border-b-2 border-blue-500 text-white' : 'text-gray-400'}`}>
+                                        {tab === 'main' ? 'main.py' : tab === 'dockerfile' ? 'Dockerfile' : tab === 'requirements' ? 'requirements.txt' : 'env.yaml'}
+                                    </button>
+                                ))}
+                            </div>
+                            <button onClick={() => handleCopy(a2aCodeDisplay, setA2aCopySuccess)} className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500">{a2aCopySuccess || 'Copy'}</button>
+                        </div>
+                        <div className="bg-gray-900 rounded-b-md flex-1 overflow-auto border border-gray-700">
+                            <pre className="p-4 text-xs text-gray-300 whitespace-pre-wrap"><code>{a2aCodeDisplay}</code></pre>
+                        </div>
+                    </div>
+
+                    {/* Box 3: Deployment Options */}
+                    <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col flex-1 min-h-0 border border-gray-700">
+                        <h2 className="text-lg font-semibold text-white mb-3 shrink-0">3. Deployment Options</h2>
+                        <div className="flex flex-col gap-4 flex-1 min-h-0 overflow-y-auto">
+                            <div className="bg-blue-900/20 p-4 rounded-md border border-blue-800 shrink-0">
+                                <h3 className="text-sm font-bold text-blue-300 mb-1">Option A: Cloud Build (Automated)</h3>
+                                <button onClick={() => setIsA2aDeployModalOpen(true)} className="w-full mt-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-teal-500 text-white font-bold rounded-md shadow-lg flex items-center justify-center gap-2">Deploy with Cloud Build</button>
+                            </div>
+                            <div className="bg-gray-900/50 p-4 rounded-md border border-gray-700 flex-1 flex flex-col min-h-[150px]">
+                                <div className="flex justify-between items-center mb-2 shrink-0">
+                                    <h3 className="text-sm font-bold text-gray-200">Option B: Manual Deployment (CLI)</h3>
+                                    <div className="flex gap-2">
+                                        <button onClick={handleDownloadA2a} className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500">Download Source (.zip)</button>
+                                        <button onClick={() => handleCopy(a2aGeneratedCode.gcloud, setA2aCopySuccess)} className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500">{a2aCopySuccess || 'Copy Script'}</button>
+                                    </div>
+                                </div>
+                                <div className="bg-black rounded-md overflow-y-auto flex-1 min-h-0 border border-gray-800">
+                                    <pre className="p-3 text-xs text-gray-300 whitespace-pre-wrap font-mono"><code>{a2aGeneratedCode.gcloud}</code></pre>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

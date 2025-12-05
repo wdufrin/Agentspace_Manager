@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { CloudRunService, Config, EnvVar } from '../../types';
 import * as api from '../../services/apiService';
@@ -23,6 +24,7 @@ const McpServerDetails: React.FC<McpServerDetailsProps> = ({ service, config, on
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isJsonExpanded, setIsJsonExpanded] = useState(false);
+    const [copySuccess, setCopySuccess] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchDetails = async () => {
@@ -40,15 +42,91 @@ const McpServerDetails: React.FC<McpServerDetailsProps> = ({ service, config, on
         fetchDetails();
     }, [service.name, config]);
     
+    // Helper to extract A2A info
+    const getA2aInfo = (svc: CloudRunService) => {
+        const env = svc.template?.containers?.[0]?.env || [];
+        const get = (n: string) => env.find(e => e.name === n)?.value;
+        return {
+            displayName: get('AGENT_DISPLAY_NAME'),
+            description: get('AGENT_DESCRIPTION'),
+            org: get('PROVIDER_ORGANIZATION'),
+            model: get('MODEL'),
+            url: get('AGENT_URL')
+        };
+    };
+
+    const handleCopyAgentCard = () => {
+        if (!fullService) return;
+        const info = getA2aInfo(fullService);
+        if (!info.url) return;
+
+        const card = {
+            name: info.displayName || '',
+            description: info.description || '',
+            url: `${info.url.replace(/\/$/, '')}/invoke`,
+            provider: {
+                organization: info.org || '',
+                url: info.url
+            },
+            protocolVersion: "0.3.0",
+            capabilities: {
+                streaming: false
+            },
+            defaultInputModes: ["text/plain"],
+            defaultOutputModes: ["text/plain"],
+            skills: [{
+                description: "Chat with the agent.",
+                examples: ["Hello, world!"],
+                id: "chat",
+                name: "Chat Skill",
+                tags: ["chat"]
+            }],
+            version: "1.0.0"
+        };
+        
+        navigator.clipboard.writeText(JSON.stringify(card, null, 2));
+        setCopySuccess('Copied!');
+        setTimeout(() => setCopySuccess(null), 2000);
+    };
+
     const renderContent = () => {
         if (isLoading) return <Spinner />;
         if (error) return <p className="text-red-400 text-center mt-4">{error}</p>;
         if (!fullService) return null;
 
         const container = fullService.template?.containers?.[0];
+        const a2aInfo = getA2aInfo(fullService);
+        const isA2a = !!(a2aInfo.displayName || a2aInfo.url || a2aInfo.org);
 
         return (
             <>
+                {isA2a && (
+                    <div className="mt-6 border-t border-gray-700 pt-6">
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                                <h3 className="text-lg font-semibold text-white">A2A Agent Configuration</h3>
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-teal-900 text-teal-200 border border-teal-700">DETECTED</span>
+                            </div>
+                            <button
+                                onClick={handleCopyAgentCard}
+                                className="px-3 py-1 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700"
+                                title="Copy the JSON Agent Card definition"
+                            >
+                                {copySuccess || 'Copy Agent Card'}
+                            </button>
+                        </div>
+                        <div className="bg-teal-900/10 border border-teal-800 rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <DetailItem label="Agent Display Name" value={a2aInfo.displayName} isMono={false} />
+                            <DetailItem label="Model" value={a2aInfo.model} />
+                            <div className="md:col-span-2">
+                                <DetailItem label="Description" value={a2aInfo.description} isMono={false} />
+                            </div>
+                            <DetailItem label="Provider Organization" value={a2aInfo.org} isMono={false} />
+                            <DetailItem label="Agent Discovery URL" value={a2aInfo.url} />
+                        </div>
+                    </div>
+                )}
+
                 <div className="mt-6 border-t border-gray-700 pt-6">
                     <h3 className="text-lg font-semibold text-white">Labels</h3>
                      <div className="mt-2 text-sm text-white font-mono bg-gray-700 p-2 rounded">

@@ -39,6 +39,9 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
     const [isFetchingDataStores, setIsFetchingDataStores] = useState(false);
     const [dataStoresError, setDataStoresError] = useState<string | null>(null);
 
+    // State for copying agent card
+    const [copyCardSuccess, setCopyCardSuccess] = useState<string | null>(null);
+
 
     const agentId = agent.name.split('/').pop() || '';
     const isToggling = togglingAgentId === agentId;
@@ -132,6 +135,14 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
             setDataStoresError(err.message || 'Failed to fetch accessible data stores.');
         } finally {
             setIsFetchingDataStores(false);
+        }
+    };
+
+    const handleCopyAgentCard = () => {
+        if (agent.a2aAgentDefinition?.jsonAgentCard) {
+            navigator.clipboard.writeText(agent.a2aAgentDefinition.jsonAgentCard);
+            setCopyCardSuccess('Copied!');
+            setTimeout(() => setCopyCardSuccess(null), 2000);
         }
     };
 
@@ -236,6 +247,15 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                                         className="px-5 py-2.5 bg-gray-600 text-white font-semibold rounded-md hover:bg-gray-700"
                                     >
                                         Update Agent
+                                    </button>
+                                )}
+                                {agent.a2aAgentDefinition?.jsonAgentCard && (
+                                    <button 
+                                        onClick={handleCopyAgentCard}
+                                        className="px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700"
+                                        title="Copy the A2A Agent Card JSON to clipboard"
+                                    >
+                                        {copyCardSuccess || 'Copy Agent Card'}
                                     </button>
                                 )}
                             </div>

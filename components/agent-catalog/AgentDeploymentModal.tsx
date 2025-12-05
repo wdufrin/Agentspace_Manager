@@ -139,15 +139,20 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
             
             // Detect Entry Point Variable
             // Look for patterns like: var = Class(...) or var = to_a2a(...)
-            const appMatch = mainFileContent.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([a-zA-Z0-9_.]*Agent|[a-zA-Z0-9_.]*AdkApp|[a-zA-Z0-9_.]*ReasoningEngine|to_a2a)\(/m);
-            if (appMatch && appMatch[1]) {
-                setEntryPoint(appMatch[1]);
-            } else if (mainFileContent.includes('agent =')) {
-                setEntryPoint('agent');
-            } else if (mainFileContent.includes('app =')) {
-                setEntryPoint('app');
+            // Prefer root_agent if available
+            if (mainFileContent.includes('root_agent =')) {
+                setEntryPoint('root_agent');
             } else {
-                setEntryPoint('app'); // Default convention
+                const appMatch = mainFileContent.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([a-zA-Z0-9_.]*Agent|[a-zA-Z0-9_.]*AdkApp|[a-zA-Z0-9_.]*ReasoningEngine|to_a2a)\(/m);
+                if (appMatch && appMatch[1]) {
+                    setEntryPoint(appMatch[1]);
+                } else if (mainFileContent.includes('agent =')) {
+                    setEntryPoint('agent');
+                } else if (mainFileContent.includes('app =')) {
+                    setEntryPoint('app');
+                } else {
+                    setEntryPoint('app'); // Default convention
+                }
             }
         } else {
             // Fallback
@@ -315,73 +320,30 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
 
         addLog(`Detected Entry Point: '${entryModulePath}.${entryPoint}'`);
         
-        const isA2a = filesToZip.some(f => f.content.includes('to_a2a('));
-        if (isA2a) {
-            addLog('Detected A2A (Agent-to-Agent) configuration.');
-            
-            // --- A2A PATCHING: Ensure requirements ---
-            const reqsFileIndex = filesToZip.findIndex(f => f.name === 'requirements.txt');
-            let reqsContent = reqsFileIndex >= 0 ? filesToZip[reqsFileIndex].content : '';
-            
-            let reqsUpdated = false;
-            if (!reqsContent.includes('google-cloud-aiplatform')) { reqsContent += '\ngoogle-cloud-aiplatform[adk,agent_engines]>=1.38'; reqsUpdated = true; }
+        // --- Dependency Checks ---
+        const reqsFileIndex = filesToZip.findIndex(f => f.name === 'requirements.txt');
+        let reqsContent = reqsFileIndex >= 0 ? filesToZip[reqsFileIndex].content : '';
+        let reqsUpdated = false;
+
+        // Ensure google-adk is present with updated version
+        if (!reqsContent.includes('google-cloud-aiplatform')) { 
+            reqsContent += '\ngoogle-cloud-aiplatform[adk,agent_engines]>=1.111'; 
+            reqsUpdated = true; 
+        }
+        
+        // If targeting Cloud Run, we use A2A which requires uvicorn/fastapi
+        if (target === 'cloud_run') {
             if (!reqsContent.includes('uvicorn')) { reqsContent += '\nuvicorn'; reqsUpdated = true; }
             if (!reqsContent.includes('fastapi')) { reqsContent += '\nfastapi'; reqsUpdated = true; }
-            
-            if (reqsFileIndex >= 0) {
-                filesToZip[reqsFileIndex].content = reqsContent;
-            } else {
-                filesToZip.push({ name: 'requirements.txt', content: reqsContent });
-            }
-            if (reqsUpdated) addLog('Updated requirements.txt with A2A dependencies.');
-
-            // --- A2A PATCHING: Inject CORS Middleware into code ---
-            const entryFileIndex = filesToZip.findIndex(f => f.name === expectedFilename);
-            if (entryFileIndex >= 0) {
-                let content = filesToZip[entryFileIndex].content;
-                let codeUpdated = false;
-
-                if (!content.includes('CORSMiddleware')) {
-                    content = 'from fastapi.middleware.cors import CORSMiddleware\n' + content;
-                    codeUpdated = true;
-                }
-
-                // Identify the app variable holding the FastAPI app (e.g. app = to_a2a(...))
-                const appMatch = content.match(/^(\w+)\s*=\s*to_a2a\(/m);
-                if (appMatch) {
-                    const appVar = appMatch[1];
-                    // Only inject if not already present
-                    if (!content.includes(`${appVar}.add_middleware`)) {
-                        const middlewareCode = `
-# Auto-injected CORS middleware for browser access
-${appVar}.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-`;
-                        content += middlewareCode;
-                        codeUpdated = true;
-                    }
-                }
-                
-                if (codeUpdated) {
-                    filesToZip[entryFileIndex].content = content;
-                    addLog(`Injected CORS middleware into ${expectedFilename} to enable browser access.`);
-                }
-            }
-        } else {
-            // Standard Agent checks
-            const reqsFileIndex = filesToZip.findIndex(f => f.name === 'requirements.txt');
-            let reqsContent = reqsFileIndex >= 0 ? filesToZip[reqsFileIndex].content : '';
-            if (!reqsContent.includes('google-cloud-aiplatform')) {
-                reqsContent += '\ngoogle-cloud-aiplatform[adk,agent_engines]>=1.38';
-                if (reqsFileIndex >= 0) filesToZip[reqsFileIndex].content = reqsContent;
-                else filesToZip.push({ name: 'requirements.txt', content: reqsContent });
-            }
+            if (!reqsContent.includes('a2a-sdk')) { reqsContent += '\na2a-sdk>=0.0.19'; reqsUpdated = true; }
         }
+
+        if (reqsFileIndex >= 0) {
+            filesToZip[reqsFileIndex].content = reqsContent;
+        } else {
+            filesToZip.push({ name: 'requirements.txt', content: reqsContent });
+        }
+        if (reqsUpdated) addLog('Updated requirements.txt with necessary dependencies.');
 
         try {
             // 2. Create Zip
@@ -394,251 +356,107 @@ ${appVar}.add_middleware(
 
             // Generate content based on target
             if (target === 'cloud_run') {
+                // Cloud Run: Generate a main.py wrapper using to_a2a
+                if (!filesToZip.some(f => f.name === 'main.py')) {
+                    const mainPyContent = `
+import os
+import importlib
+import uvicorn
+import logging
+from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
+import traceback
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Try to import to_a2a.
+try:
+    from google.adk.a2a.utils.agent_to_a2a import to_a2a
+    logger.info("Successfully imported to_a2a.")
+except ImportError as e:
+    logger.error(f"Failed to import to_a2a: {e}")
+    logger.error("Please ensure 'google-cloud-aiplatform[adk,agent_engines]>=1.111' is in requirements.txt")
+    # Don't raise, just log. We'll fallback later.
+    to_a2a = None
+
+# Dynamic import of agent
+# Entry point variables determined during build
+MODULE_NAME = "${entryModulePath}"
+VARIABLE_NAME = "${entryPoint}"
+
+agent_obj = None
+try:
+    logger.info(f"Importing {VARIABLE_NAME} from {MODULE_NAME}...")
+    module = importlib.import_module(MODULE_NAME)
+    agent_obj = getattr(module, VARIABLE_NAME)
+    logger.info("Agent object loaded successfully.")
+except Exception as e:
+    logger.error(f"Failed to load agent object: {e}")
+    traceback.print_exc()
+    # Don't raise, fallback.
+
+# Wrap agent in A2A app if it isn't already one.
+init_error = None
+try:
+    if agent_obj and (hasattr(agent_obj, 'router') or hasattr(agent_obj, 'openapi_schema') or type(agent_obj).__name__ == 'FastAPI'):
+        logger.info("Agent object appears to be a FastAPI app. Using directly.")
+        app = agent_obj
+    elif agent_obj and to_a2a:
+        logger.info("Wrapping agent object with to_a2a...")
+        # Configure CORS via SDK to correctly handle preflight OPTIONS requests
+        app = to_a2a(agent_obj, cors_origins=["*"])
+        logger.info("Agent wrapped successfully.")
+    else:
+        raise Exception("Agent object missing or to_a2a unavailable.")
+
+except Exception as e:
+    init_error = e
+    logger.error(f"Failed to initialize agent app: {e}")
+    # Fallback to dummy app to keep container running for debugging
+    app = FastAPI()
+    @app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"])
+    async def catch_all(path_name: str):
+        return Response(content=f"Agent Initialization Failed. Check logs.\\nError: {init_error}", status_code=500, media_type="text/plain")
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    logger.info(f"Starting uvicorn on port {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
+`;
+                    zip.file('main.py', mainPyContent);
+                    addLog('Generated main.py using to_a2a with CORS support for Cloud Run.');
+                }
+
                 // Check/Add Dockerfile
                 if (!filesToZip.some(f => f.name === 'Dockerfile')) {
-                    if (isA2a) {
-                        // A2A uses uvicorn directly
-                        const moduleFile = entryModulePath.split('.').pop() || 'agent';
-                        zip.file('Dockerfile', `
+                    // Use uvicorn directly if main.py is set up, or just python main.py
+                    zip.file('Dockerfile', `
 FROM python:3.10-slim
 WORKDIR /app
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake && rm -rf /var/lib/apt/lists/*
 COPY . .
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
-# Ensure uvicorn is installed (though reqs should have it)
+# Ensure uvicorn is installed
 RUN pip install uvicorn
-CMD ["uvicorn", "${moduleFile}:${entryPoint}", "--host", "0.0.0.0", "--port", "8080"]
-`);
-                        addLog('Generated Dockerfile for A2A (uvicorn).');
-                    } else {
-                        // Standard Agent uses Flask wrapper
-                        zip.file('Dockerfile', `
-FROM python:3.10-slim
-WORKDIR /app
-# Install build dependencies for libraries that require compilation (e.g. pyarrow, numpy)
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake && rm -rf /var/lib/apt/lists/*
-COPY . .
-# Upgrade pip to ensure latest wheel support
-RUN pip install --upgrade pip
-# Force ADK install here to ensure google.adk namespace is available
-RUN pip install --no-cache-dir -r requirements.txt && pip install "google-cloud-aiplatform[adk,agent_engines]>=1.38"
 CMD ["python", "main.py"]
-`); 
-                        // Add Cloud Run Adapter (main.py)
-                        if (!filesToZip.some(f => f.name === 'main.py')) {
-                             zip.file('main.py', `
-import os
-import sys
-import json
-import asyncio
-import traceback
-from flask import Flask, request, jsonify, Response, stream_with_context
-
-# Try to import AdkApp wrapper for compatibility
-AdkApp = None
-try:
-    from vertexai.agent_engines import AdkApp
-except ImportError:
-    try:
-        from vertexai.preview.reasoning_engines import AdkApp
-    except ImportError:
-        try:
-            from google.cloud.aiplatform.reasoning_engines import AdkApp
-        except ImportError:
-            pass
-
-# Add current directory to path
-sys.path.append(os.getcwd())
-
-# Import the detected agent/app object
-try:
-    from ${entryModulePath} import ${entryPoint} as agent_app
-except ImportError as e:
-    print(f"FATAL: Could not import '${entryPoint}' from '${entryModulePath}'. Error: {e}")
-    # Fallback to root import if subfolder import fails
-    try:
-        from ${entryModulePath.split('.').pop()} import ${entryPoint} as agent_app
-    except:
-        raise e
-
-# --- AUTO-WRAP LOGIC ---
-# Check if the object is already a valid Reasoning Engine (has register_operations).
-# Raw ADK Agents have a 'query' method but lack 'register_operations' and must be wrapped in AdkApp.
-if not hasattr(agent_app, 'register_operations'):
-    print(f"Object does not have 'register_operations'. Wrapping in AdkApp...")
-    if AdkApp:
-        try:
-            agent_app = AdkApp(agent=agent_app)
-            print("✅ Successfully wrapped agent in AdkApp.")
-        except Exception as e:
-            print(f"❌ Failed to wrap agent in AdkApp: {e}")
-    else:
-        print("⚠️ AdkApp class not found. Cannot auto-wrap agent. Deployment may fail.")
-
-app = Flask(__name__)
-
-# --- CORS Configuration ---
-@app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
-    return response
-
-# Helper for async execution in Flask
-def run_async(coro):
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    
-    if loop.is_closed():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-    return loop.run_until_complete(coro)
-
-@app.route('/', methods=['POST', 'OPTIONS'])
-def invoke_simple():
-    """
-    Simple adapter to query the agent. 
-    Accepts: { "prompt": "..." } or { "text": "..." }
-    """
-    # Explicitly handle CORS preflight requests
-    if request.method == "OPTIONS":
-        return "", 204
-
-    try:
-        data = request.json
-        user_input = data.get('prompt') or data.get('text') or data.get('query') or data.get('message')
-        
-        if not user_input:
-            return jsonify({"error": "Missing input. Provide 'prompt', 'text', or 'query'."}), 400
-
-        response_data = ""
-        
-        # 1. Standard synchronous query
-        if hasattr(agent_app, 'query'):
-            try:
-                response_data = agent_app.query(payload=user_input)
-            except TypeError:
-                response_data = agent_app.query(user_input)
-        
-        # 2. Invoke (LangChain style)
-        elif hasattr(agent_app, 'invoke'):
-            response_data = agent_app.invoke(user_input)
-            
-        # 3. Async Stream Query (AdkApp default)
-        elif hasattr(agent_app, 'async_stream_query'):
-            async def do_async_call():
-                # Create session if needed
-                session_id = None
-                if hasattr(agent_app, 'async_create_session'):
-                    try:
-                        session = await agent_app.async_create_session(user_id="default-user")
-                        session_id = session.id
-                    except:
-                        pass
-                
-                events = []
-                kwargs = {"message": user_input}
-                if session_id:
-                    kwargs["session_id"] = session_id
-                    kwargs["user_id"] = "default-user"
-                
-                async for event in agent_app.async_stream_query(**kwargs):
-                    events.append(event)
-                
-                # Extract text from events
-                texts = []
-                for e in events:
-                    if hasattr(e, 'get'):
-                        parts = e.get("content", {}).get("parts", [])
-                        for part in parts:
-                            if "text" in part:
-                                texts.append(part["text"])
-                
-                if texts:
-                    return "".join(texts)
-                return str(events)
-
-            response_data = run_async(do_async_call())
-            
-        else:
-            return jsonify({"error": f"No compatible query method found on {type(agent_app)}. Available: {dir(agent_app)}"}), 500
-
-        return jsonify({"response": str(response_data)})
-        
-    except Exception as e:
-        print(traceback.format_exc())
-        return jsonify({"error": str(e)}), 500
-
-# --- ADK Compatible Endpoints ---
-
-@app.route('/list-apps', methods=['GET'])
-def list_apps():
-    return jsonify(["${agentName}"])
-
-@app.route('/apps/<app_name>/users/<user_id>/sessions/<session_id>', methods=['POST', 'OPTIONS'])
-def update_session(app_name, user_id, session_id):
-    if request.method == "OPTIONS": return "", 204
-    return jsonify({"status": "ok", "message": "Session context received"})
-
-@app.route('/run_sse', methods=['POST', 'OPTIONS'])
-def run_sse():
-    if request.method == "OPTIONS": return "", 204
-
-    try:
-        data = request.get_json()
-        new_message = data.get('new_message', {})
-        parts = new_message.get('parts', [])
-        user_text = parts[0].get('text', '') if parts else ''
-        
-        if not user_text:
-             return jsonify({"error": "No text provided in new_message.parts"}), 400
-
-        # Execute Agent Logic (reusing simple invoke logic for now)
-        response_text = ""
-        
-        if hasattr(agent_app, 'query'):
-             response_text = str(agent_app.query(payload=user_text))
-        elif hasattr(agent_app, 'async_stream_query'):
-             # Reuse async logic simplified for SSE endpoint
-             async def quick_async():
-                 # Use dummy session for quick check
-                 evts = []
-                 async for e in agent_app.async_stream_query(message=user_text, user_id="u", session_id="s"):
-                     evts.append(e)
-                 return str(evts) # TODO: Parse proper text
-             response_text = run_async(quick_async())
-        
-        return jsonify({ "text": str(response_text), "finished": True })
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 `);
-                            addLog(`⚠️ Added Flask wrapper (main.py) with Async ADK support adapting '${entryPoint}' from '${entryModulePath}'.`);
-                        }
-                    }
+                    addLog('Generated Dockerfile for Cloud Run (python main.py).');
                 }
             } else {
-                // Reasoning Engine Target
-                // Updated deployment script to correctly read requirements.txt
+                // Reasoning Engine Target (unchanged logic but updated dependency version)
                 const deployScript = `
 import os
 import sys
 import logging
 import vertexai
 
-# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 1. Initialize Vertex AI
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 location = os.getenv("GOOGLE_CLOUD_LOCATION")
 staging_bucket = os.getenv("STAGING_BUCKET")
@@ -646,7 +464,6 @@ staging_bucket = os.getenv("STAGING_BUCKET")
 logger.info(f"Initializing Vertex AI: project={project_id}, location={location}, staging_bucket={staging_bucket}")
 vertexai.init(project=project_id, location=location, staging_bucket=staging_bucket)
 
-# 2. Import the Agent Code
 sys.path.append(os.getcwd())
 target_module = "${entryModulePath}"
 target_object = "${entryPoint}"
@@ -660,36 +477,24 @@ except Exception as e:
     logger.error(f"Failed to import agent: {e}")
     raise
 
-# 3. Prepare for Deployment (AdkApp Wrapper)
-
-# Gather requirements from requirements.txt to ensure remote environment matches
-reqs = ["google-cloud-aiplatform[adk,agent_engines]>=1.38", "python-dotenv"]
+reqs = ["google-cloud-aiplatform[adk,agent_engines]>=1.111", "python-dotenv"]
 if os.path.exists("requirements.txt"):
     with open("requirements.txt", "r") as f:
         for line in f:
             line = line.strip()
             if line and not line.startswith("#"):
                 reqs.append(line)
-# Deduplicate
 reqs = list(set(reqs))
 logger.info(f"Using requirements: {reqs}")
 
 try:
-    # Try using the primary namespace
     from vertexai import agent_engines
-    logger.info("Using 'vertexai.agent_engines'")
-    
-    # Check if already wrapped or has register_operations
     if hasattr(root_agent, 'register_operations'):
-        logger.info("Object appears to be a valid Agent Engine app. Skipping AdkApp wrap.")
         app = root_agent
     else:
-        logger.info("Wrapping agent in AdkApp...")
         app = agent_engines.AdkApp(agent=root_agent, enable_tracing=True)
 
-    # 4. Deploy
-    logger.info("Creating Agent Engine (Remote App)...")
-    
+    logger.info("Creating Agent Engine...")
     remote_app = agent_engines.create(
         agent_engine=app,
         requirements=reqs,
@@ -697,14 +502,11 @@ try:
     )
 
 except ImportError:
-    # Fallback to Preview namespace if agent_engines not found (older SDKs)
-    logger.warning("'vertexai.agent_engines' not found. Falling back to 'vertexai.preview.reasoning_engines'.")
+    logger.warning("Fallback to preview namespace.")
     from vertexai.preview import reasoning_engines
-    
     if hasattr(root_agent, 'register_operations'):
         app = root_agent
     else:
-        logger.info("Wrapping agent in reasoning_engines.AdkApp...")
         app = reasoning_engines.AdkApp(agent=root_agent)
 
     remote_app = reasoning_engines.ReasoningEngine.create(
@@ -766,18 +568,13 @@ print(f"Resource Name: {remote_app.resource_name}")
                 
                 // Deploy Image
                 const serviceName = agentName.toLowerCase();
-                // NOTE: Cloud Build replaces substitutions using $VARIABLE syntax.
-                // To prevent Cloud Build from trying to substitute $SERVICE_URL (which isn't a build variable),
-                // we must escape it as $$SERVICE_URL.
                 const deployScript = `
 #!/bin/bash
 set -e
 echo "Deploying Cloud Run service '${serviceName}'..."
-# Initial deploy with provided env vars
 gcloud run deploy ${serviceName} --image ${imageName} --region ${region} --allow-unauthenticated --set-env-vars "${envStrings.join(',')}"
 
 echo "Fetching Service URL..."
-# Escape $ for Cloud Build substitution using $$
 SERVICE_URL=$$(gcloud run services describe ${serviceName} --region ${region} --format='value(status.url)')
 
 if [ -z "$$SERVICE_URL" ]; then
@@ -798,12 +595,10 @@ echo "Deployment Complete."
                 });
             } else {
                 // Reasoning Engine
-                // Ensure dependencies are installed before running deployment script
                 buildConfig.steps.push({
                     name: 'python:3.10',
                     entrypoint: 'bash',
-                    // Note: Use force install for [adk,agent_engines] to ensure extras are picked up
-                    args: ['-c', 'pip install --upgrade pip && pip install -r requirements.txt && pip install "google-cloud-aiplatform[adk,agent_engines]>=1.38" && python deploy_re.py'],
+                    args: ['-c', 'pip install --upgrade pip && pip install -r requirements.txt && pip install "google-cloud-aiplatform[adk,agent_engines]>=1.111" && python deploy_re.py'],
                     env: envStrings
                 });
             }
@@ -814,7 +609,6 @@ echo "Deployment Complete."
             const triggeredBuildId = buildOp.metadata?.build?.id || 'unknown';
             setBuildId(triggeredBuildId);
             
-            // Notify parent
             if (onBuildTriggered && triggeredBuildId !== 'unknown') {
                 onBuildTriggered(triggeredBuildId);
             }
@@ -942,7 +736,7 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                                     <label className={`cursor-pointer p-4 rounded-lg border-2 transition-all ${target === 'cloud_run' ? 'border-blue-500 bg-blue-900/20' : 'border-gray-600 bg-gray-700/30 hover:border-gray-500'}`}>
                                         <input type="radio" name="target" value="cloud_run" checked={target === 'cloud_run'} onChange={() => setTarget('cloud_run')} className="hidden" />
                                         <div className="font-bold text-white mb-1">Cloud Run</div>
-                                        <div className="text-xs text-gray-400">Deploy as a scalable HTTP service.</div>
+                                        <div className="text-xs text-gray-400">Deploy as a scalable HTTP service with native A2A protocol support.</div>
                                     </label>
                                     <label className={`cursor-pointer p-4 rounded-lg border-2 transition-all ${target === 'reasoning_engine' ? 'border-red-500 bg-red-900/20' : 'border-gray-600 bg-gray-700/30 hover:border-gray-500'}`}>
                                         <input type="radio" name="target" value="reasoning_engine" checked={target === 'reasoning_engine'} onChange={() => setTarget('reasoning_engine')} className="hidden" />
@@ -970,7 +764,7 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                             {target === 'reasoning_engine' && (
                                 <div className="flex gap-2 items-end">
                                     <div className="flex-1">
-                                        <label className="block text-sm font-medium text-gray-300 mb-1">Staging Bucket</label>
+                                        <label className="block text-sm font-medium text-gray-300 mb-1">Agent Engine Staging Bucket</label>
                                         <div className="flex gap-2">
                                             <select 
                                                 value={selectedBucket} 
