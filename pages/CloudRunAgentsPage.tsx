@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { CloudRunService, Config, EnvVar } from '../types';
 import * as api from '../services/apiService';
@@ -116,6 +114,18 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
     const [isDeleting, setIsDeleting] = useState(false);
     const [serviceToDelete, setServiceToDelete] = useState<CloudRunService | null>(null);
 
+    // AI Analysis State
+    const [aiAnalysis, setAiAnalysis] = useState<{
+        isAgent: boolean;
+        confidence: string;
+        summary: string;
+        detectedFramework?: string;
+        detectedName?: string;
+        isA2a?: boolean;
+    } | null>(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [analysisError, setAnalysisError] = useState<string | null>(null);
+
     const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
         projectId: projectNumber,
         appLocation: 'global',
@@ -148,13 +158,81 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
         if (projectNumber) fetchServices();
     }, [projectNumber, region]);
 
-    // Filter Logic
+    // Run Gemini Analysis when service selected
+    useEffect(() => {
+        if (selectedService) {
+            runGeminiAnalysis(selectedService);
+        } else {
+            setAiAnalysis(null);
+            setAnalysisError(null);
+        }
+    }, [selectedService]);
+
+    const runGeminiAnalysis = async (service: CloudRunService) => {
+        if (!projectNumber) return;
+        setIsAnalyzing(true);
+        setAiAnalysis(null);
+        setAnalysisError(null);
+        
+        try {
+            const envVars = service.template?.containers?.[0]?.env || [];
+            const envString = JSON.stringify(envVars.reduce((acc: any, curr) => {
+                acc[curr.name] = curr.value || 'SECRET';
+                return acc;
+            }, {}));
+
+            const prompt = `You are an expert system analyzer. Analyze this Google Cloud Run service configuration to identify if it is acting as an AI Agent.
+            
+            Service Name: ${service.name}
+            Image: ${service.template?.containers?.[0]?.image}
+            Environment Variables: ${envString}
+            Labels: ${JSON.stringify(service.labels || {})}
+            
+            Criteria for AI Agent:
+            - Uses Large Language Models (LLMs) or Generative AI.
+            - Uses frameworks like LangChain, Firebase Genkit, or Vertex AI.
+            - Has environment variables indicating model configuration (e.g., MODEL, OPENAI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI).
+            - Exposes endpoints like /invoke, /chat, or /.well-known/agent.json (A2A protocol).
+            
+            Respond with a JSON object (no markdown, just the object):
+            {
+                "isAgent": boolean,
+                "confidence": "High" | "Medium" | "Low",
+                "summary": "A brief 1-sentence reasoning.",
+                "detectedFramework": "e.g. LangChain, Vertex AI, or Unknown",
+                "detectedName": "Display name if found or inferred",
+                "isA2a": boolean
+            }`;
+
+            // Use Gemini 2.5 Flash for speed and reliability
+            const result = await api.generateVertexContent(apiConfig, prompt, 'gemini-2.5-flash');
+            
+            // Robust JSON parsing to handle potential markdown code blocks or extra text
+            const jsonStart = result.indexOf('{');
+            const jsonEnd = result.lastIndexOf('}');
+            if (jsonStart === -1 || jsonEnd === -1) {
+                 throw new Error("Response did not contain a valid JSON object.");
+            }
+            const jsonStr = result.substring(jsonStart, jsonEnd + 1);
+            
+            const analysis = JSON.parse(jsonStr);
+            setAiAnalysis(analysis);
+        } catch (err: any) {
+            console.error("Gemini Analysis Failed:", err);
+            setAnalysisError(`Gemini Analysis Failed: ${err.message}`);
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
+    // Filter Logic (Heuristic for list speed)
     const displayedServices = useMemo(() => {
         if (!filterAgentsOnly) return services;
         return services.filter(s => analyzeService(s).isAgent);
     }, [services, filterAgentsOnly]);
 
-    const selectedAnalysis = selectedService ? analyzeService(selectedService) : null;
+    // Heuristic analysis for fallback/comparison
+    const heuristicAnalysis = selectedService ? analyzeService(selectedService) : null;
 
     // Handle Sending Request
     const handleSend = async () => {
@@ -169,7 +247,7 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
             let payload: any = { prompt: prompt };
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
-            if (selectedAnalysis?.isA2a) {
+            if (heuristicAnalysis?.isA2a) {
                 // A2A agents expect JSON-RPC at /invoke
                 // Remove trailing slash if present and append /invoke
                 url = `${selectedService.uri.replace(/\/$/, '')}/invoke`;
@@ -211,7 +289,7 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
             const data = await res.json();
 
             // Handle A2A Response Format logic for cleaner UI
-            if (selectedAnalysis?.isA2a) {
+            if (heuristicAnalysis?.isA2a) {
                 if (data.error) {
                     throw new Error(`A2A Error: ${data.error.message || JSON.stringify(data.error)}`);
                 }
@@ -244,7 +322,7 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
         // Use Identity Token for Cloud Run authentication
         const baseAuth = '-H "Authorization: Bearer $(gcloud auth print-identity-token)"';
         
-        if (selectedAnalysis?.isA2a) {
+        if (heuristicAnalysis?.isA2a) {
             const url = `${selectedService.uri.replace(/\/$/, '')}/invoke`;
             const jsonRpc = JSON.stringify({
                 jsonrpc: "2.0",
@@ -387,7 +465,7 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                         <>
                             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
                                 <h3 className="text-md font-semibold text-white">
-                                    Service: <span className="text-blue-400">{selectedService.name.split('/').pop()}</span>
+                                    Service: <span className="text-blue-400">{selectedService.name.split('/').pop()}</p>
                                 </h3>
                                 <div className="flex items-center gap-2">
                                     <div className="flex space-x-1 bg-gray-900 p-1 rounded-lg">
@@ -416,50 +494,64 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                                 </div>
                             </div>
 
-                            {/* Agent Analysis Card */}
-                            {selectedAnalysis && selectedAnalysis.isAgent && (
-                                <div className="px-6 pt-4">
-                                    <div className="bg-gradient-to-r from-gray-800 to-gray-900 border border-teal-900/50 p-4 rounded-lg shadow-inner">
-                                        <div className="flex items-center mb-2 justify-between">
-                                            <div className="flex items-center">
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-400 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                                                </svg>
-                                                <h4 className="text-sm font-bold text-teal-400 uppercase tracking-wider">Agent Intelligence</h4>
-                                            </div>
-                                            <span className={`text-xs px-2 py-0.5 rounded font-mono border ${selectedAnalysis.isA2a ? 'bg-purple-900/50 text-purple-300 border-purple-700' : 'bg-blue-900/50 text-blue-300 border-blue-700'}`}>
-                                                {selectedAnalysis.isA2a ? 'A2A Protocol' : 'Standard/Flask'}
+                            {/* Agent Analysis Card - Replaced with Gemini Analysis */}
+                            <div className="px-6 pt-4">
+                                <div className="bg-gradient-to-r from-gray-800 to-gray-900 border border-teal-900/50 p-4 rounded-lg shadow-inner min-h-[100px] flex flex-col justify-center">
+                                    <div className="flex items-center mb-2 justify-between">
+                                        <div className="flex items-center">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-400 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                                            </svg>
+                                            <h4 className="text-sm font-bold text-teal-400 uppercase tracking-wider">Agent Intelligence (Gemini AI)</h4>
+                                        </div>
+                                        {aiAnalysis && (
+                                            <span className={`text-xs px-2 py-0.5 rounded font-mono border ${aiAnalysis.isA2a ? 'bg-purple-900/50 text-purple-300 border-purple-700' : 'bg-blue-900/50 text-blue-300 border-blue-700'}`}>
+                                                {aiAnalysis.isA2a ? 'A2A Protocol' : 'Standard/Flask'}
                                             </span>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-4 text-sm">
-                                            {selectedAnalysis.agentName && (
-                                                <div>
-                                                    <span className="text-gray-500 block text-xs">Display Name</span>
-                                                    <span className="text-white font-medium">{selectedAnalysis.agentName}</span>
-                                                </div>
-                                            )}
-                                            {selectedAnalysis.model && (
-                                                <div>
-                                                    <span className="text-gray-500 block text-xs">Model</span>
-                                                    <span className="text-white font-medium">{selectedAnalysis.model}</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                        {selectedAnalysis.agentDescription && (
-                                            <div className="mt-2">
-                                                <span className="text-gray-500 block text-xs">Description</span>
-                                                <p className="text-gray-300 text-xs mt-0.5">{selectedAnalysis.agentDescription}</p>
-                                            </div>
                                         )}
-                                        <div className="mt-3 pt-3 border-t border-gray-800">
-                                            <p className="text-xs text-gray-500">Identified because:</p>
-                                            <ul className="text-xs text-gray-400 list-disc list-inside mt-1">
-                                                {selectedAnalysis.reasons.map((r, i) => <li key={i}>{r}</li>)}
-                                            </ul>
-                                        </div>
                                     </div>
+
+                                    {isAnalyzing ? (
+                                        <div className="flex items-center text-sm text-gray-400">
+                                            <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-teal-400 mr-3"></div>
+                                            Analyzing configuration with Gemini AI...
+                                        </div>
+                                    ) : analysisError ? (
+                                        <div className="text-sm text-red-400 bg-red-900/20 p-2 rounded border border-red-800">
+                                            <span className="font-bold">Analysis Error:</span> {analysisError}
+                                        </div>
+                                    ) : aiAnalysis ? (
+                                        <>
+                                            <div className="grid grid-cols-2 gap-4 text-sm">
+                                                {aiAnalysis.detectedName && (
+                                                    <div>
+                                                        <span className="text-gray-500 block text-xs">Detected Name</span>
+                                                        <span className="text-white font-medium">{aiAnalysis.detectedName}</span>
+                                                    </div>
+                                                )}
+                                                {aiAnalysis.detectedFramework && (
+                                                    <div>
+                                                        <span className="text-gray-500 block text-xs">Framework</span>
+                                                        <span className="text-white font-medium">{aiAnalysis.detectedFramework}</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="mt-2">
+                                                <span className="text-gray-500 block text-xs">Analysis Summary</span>
+                                                <p className="text-gray-300 text-xs mt-0.5">{aiAnalysis.summary}</p>
+                                            </div>
+                                            <div className="mt-3 pt-3 border-t border-gray-800 flex justify-between items-center">
+                                                <span className="text-xs text-gray-500">Confidence Score</span>
+                                                <span className={`text-xs font-bold px-2 py-0.5 rounded ${aiAnalysis.confidence === 'High' ? 'bg-green-900 text-green-300' : aiAnalysis.confidence === 'Medium' ? 'bg-yellow-900 text-yellow-300' : 'bg-gray-700 text-gray-300'}`}>
+                                                    {aiAnalysis.confidence}
+                                                </span>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <p className="text-xs text-gray-500 italic">Select a service to analyze.</p>
+                                    )}
                                 </div>
-                            )}
+                            </div>
 
                             <div className="flex-1 overflow-y-auto p-6 space-y-6">
                                 {activeTab === 'test' && (

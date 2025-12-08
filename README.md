@@ -1,4 +1,8 @@
 
+
+
+
+
 # Gemini Enterprise Manager
 
 A web interface to manage Google Cloud Gemini Enterprise resources, including agents, authorizations, and reasoning engines. This UI provides a user-friendly way to perform operations similar to the `gcloud` CLI tool for Gemini Enterprise. It includes a guided setup process to validate and enable necessary Google Cloud APIs, making project configuration straightforward.
@@ -9,9 +13,9 @@ This application is built using React and communicates with Google Cloud APIs vi
 
 > **Note:** Ensure you have a `screenshots/` folder in your repository root containing these images for them to appear.
 
-| Agent Manager | Agent Engines |
+| Agent Manager | Available Agents |
 |:---:|:---:|
-| ![Agent Manager](screenshots/agent_manager.png) | ![Agent Engines](screenshots/agent_engine.png) |
+| ![Agent Manager](screenshots/agent_manager.png) | ![Available Agents](screenshots/agent_engine.png) |
 
 | Assistant | Authorizations |
 |:---:|:---:|
@@ -173,7 +177,7 @@ curl -X GET \
 ```
 
 ### Licenses (Pruning & Revocation)
-The application uses the `batchUpdateUserLicenses` method for both bulk pruning and single-user revocation. This method allows updating the state of the user store in a single operation.
+The application uses the `batchUpdateUserLicenses` method for both bulk pruning and singleuser revocation. This method allows updating the state of the user store in a single operation.
 
 ```sh
 # Batch update to set the state of licenses (effectively deleting unlisted ones)

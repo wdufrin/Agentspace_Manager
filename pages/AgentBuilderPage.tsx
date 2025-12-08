@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Config, DataStore, CloudRunService, GcsBucket } from '../types';
 import * as api from '../services/apiService';
@@ -1078,8 +1080,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                     <select name="model" value={adkConfig.model} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]">
                                         <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                                        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                                        <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
                                     </select>
                                 </div>
                                 <div>

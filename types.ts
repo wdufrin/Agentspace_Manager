@@ -5,7 +5,7 @@ export enum Page {
   AGENTS = 'Agents Manager',
   ASSISTANT = 'Assistant',
   AUTHORIZATIONS = 'Authorizations',
-  AGENT_ENGINES = 'Agent Engines',
+  AGENT_ENGINES = 'Available Agents',
   AGENT_REGISTRATION = 'Agent Registration',
   A2A_TESTER = 'A2A Tester',
   AGENT_BUILDER = 'Agent Builder',

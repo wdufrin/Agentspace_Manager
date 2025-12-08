@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { ReasoningEngine, Config, Agent, CloudRunService } from '../types';
 import * as api from '../services/apiService';
@@ -162,12 +164,10 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
             services.forEach(service => {
                 const analysis = analyzeCloudRunService(service);
                 
-                // FILTER: Only list agents and A2A services
-                if (!analysis.isAgent) return;
+                // FILTER: Only list A2A services (Explicitly filter out generic Agents)
+                if (!analysis.isA2a) return;
 
-                let type: ResourceType = 'Cloud Run Service';
-                if (analysis.isA2a) type = 'Cloud Run (A2A)';
-                else if (analysis.isAgent) type = 'Cloud Run (Agent)';
+                let type: ResourceType = 'Cloud Run (A2A)';
                 
                 unifiedList.push({
                     id: service.name,
@@ -346,7 +346,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
     return (
         <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-                <h2 className="text-xl font-bold text-white">Agent Engines & Services</h2>
+                <h2 className="text-xl font-bold text-white">Available Agents</h2>
                  {selectedIds.size > 0 && (
                     <div className="flex items-center gap-4">
                         <span className="text-sm text-gray-300">{selectedIds.size} selected</span>
@@ -362,7 +362,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
             </div>
              {error && <div className="p-4 bg-red-900/20 text-red-300 text-sm rounded-b-lg whitespace-pre-wrap">{error}</div>}
             {resources.length === 0 && !isLoading && !error && (
-                 <p className="text-gray-400 p-6 text-center">No agent resources found in this location.</p>
+                 <p className="text-gray-400 p-6 text-center">No available agent resources (A2A or Reasoning Engines) found in this location.</p>
             )}
             {resources.length > 0 && (
                 <div className="overflow-x-auto">

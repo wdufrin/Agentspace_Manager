@@ -1100,7 +1100,7 @@ export const generateVertexContent = async (config: Config, prompt: string, mode
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             generationConfig: {
                 temperature: 0.7,
-                maxOutputTokens: 512
+                maxOutputTokens: 8192 // Increased from 512
             }
         })
     });
