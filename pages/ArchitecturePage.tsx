@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { GraphEdge, GraphNode, Page, ReasoningEngine, Agent } from '../../types';
 import ProjectInput from '../components/ProjectInput';
@@ -23,18 +24,6 @@ const MetricCard: React.FC<{ title: string; value: number; icon: React.ReactElem
         </div>
     </div>
 );
-
-const ALL_REASONING_ENGINE_LOCATIONS = [
-    'us-central1', 'us-east1', 'us-east4', 'us-west1',
-    'europe-west1', 'europe-west2', 'europe-west4',
-    'asia-east1', 'asia-southeast1'
-];
-const ALL_DISCOVERY_LOCATIONS = ['global', 'us', 'eu'];
-const ALL_CLOUD_RUN_LOCATIONS = [
-    'us-central1', 'us-east1', 'us-east4', 'us-west1',
-    'europe-west1', 'europe-west2', 'europe-west4',
-    'asia-east1', 'asia-southeast1'
-];
 
 interface ArchitecturePageProps {
   projectNumber: string;
@@ -66,24 +55,6 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
     const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
     const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
     const [isLogExpanded, setIsLogExpanded] = useState(false);
-    
-    // We override the parent scan to include Cloud Run logic here, 
-    // or we assume the parent onScan handles it.
-    // Given the previous design, the parent (App.tsx) handles the scan logic.
-    // However, since we are adding Cloud Run scanning here and don't want to modify App.tsx for logic,
-    // we should ideally move the scan logic here or extend it.
-    // But since the instructions say "Add scanning for CloudRun services" and App.tsx holds the state...
-    // WAIT: The user asked to add scanning. The App.tsx implementation was provided in the prompt.
-    // I should modify App.tsx to include Cloud Run scanning? NO, the prompt says "return xml ... ONLY return files ... that need to be updated".
-    // I can update `App.tsx` OR I can move the scan logic here.
-    // Looking at App.tsx provided in context, `handleArchitectureScan` IS defined in `App.tsx`.
-    // So I MUST update `App.tsx` to include Cloud Run scanning.
-    // BUT the prompt asked me to modify `pages/ArchitecturePage.tsx` in my thought process?
-    // Ah, I see `handleArchitectureScan` is passed as `onScan` prop.
-    // I will modify `App.tsx` to include Cloud Run scanning logic. 
-    // Wait, the prompt provided `App.tsx` content. I can update it.
-    
-    // HOWEVER, for `ArchitecturePage.tsx` specifically, I need to update the metrics display.
     
     // Track previous loading state to detect when loading finishes
     const isLoadingRef = useRef(isLoading);
@@ -218,22 +189,64 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
     }, []);
 
     const { edgesByTarget, edgesBySource } = useMemo(() => {
-        const byTarget = new Map<string, GraphEdge>();
+        // Changed to store arrays of edges to support multiple parents/children correctly
+        const byTarget = new Map<string, GraphEdge[]>();
         const bySource = new Map<string, GraphEdge[]>();
 
         edges.forEach(edge => {
-            byTarget.set(edge.target, edge);
-            if (!bySource.has(edge.source)) {
-                bySource.set(edge.source, []);
-            }
+            if (!byTarget.has(edge.target)) byTarget.set(edge.target, []);
+            byTarget.get(edge.target)!.push(edge);
+
+            if (!bySource.has(edge.source)) bySource.set(edge.source, []);
             bySource.get(edge.source)!.push(edge);
         });
 
         return { edgesByTarget: byTarget, edgesBySource: bySource };
     }, [edges]);
 
+    const visibleNodeIds = useMemo(() => {
+        if (!selectedNodeId) return null;
+
+        const visible = new Set<string>([selectedNodeId]);
+        
+        // Traverse Downstream (Children)
+        const queueDown = [selectedNodeId];
+        const visitedDown = new Set<string>([selectedNodeId]);
+        while(queueDown.length > 0) {
+            const curr = queueDown.shift()!;
+            const children = edgesBySource.get(curr) || [];
+            children.forEach(e => {
+                if (!visitedDown.has(e.target)) {
+                    visitedDown.add(e.target);
+                    visible.add(e.target);
+                    queueDown.push(e.target);
+                }
+            });
+        }
+
+        // Traverse Upstream (Parents & Ancestors)
+        const queueUp = [selectedNodeId];
+        const visitedUp = new Set<string>([selectedNodeId]);
+        while(queueUp.length > 0) {
+            const curr = queueUp.shift()!;
+            const parents = edgesByTarget.get(curr) || [];
+            parents.forEach(e => {
+                if (!visitedUp.has(e.source)) {
+                    visitedUp.add(e.source);
+                    visible.add(e.source);
+                    queueUp.push(e.source);
+                }
+            });
+        }
+        
+        return visible;
+    }, [selectedNodeId, edgesBySource, edgesByTarget]);
+
     const highlightedGraphElements = useMemo(() => {
-        const centralNodeId = selectedNodeId || hoveredNodeId;
+        // If we are filtering, we don't need highlighting logic on top.
+        if (selectedNodeId) return { nodeIds: null, edgeIds: null };
+
+        const centralNodeId = hoveredNodeId;
         if (!centralNodeId) {
             return { nodeIds: null, edgeIds: null };
         }
@@ -241,31 +254,36 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
         const nodeIdsToHighlight = new Set<string>([centralNodeId]);
         const edgeIdsToHighlight = new Set<string>();
 
-        let upstreamCursor: string | undefined = centralNodeId;
-        while (upstreamCursor) {
-            const parentEdge = edgesByTarget.get(upstreamCursor);
-            if (parentEdge) {
-                nodeIdsToHighlight.add(parentEdge.source);
-                edgeIdsToHighlight.add(parentEdge.id);
-                upstreamCursor = parentEdge.source;
-            } else {
-                upstreamCursor = undefined;
-            }
+        // Upstream Highlight
+        const queueUp = [centralNodeId];
+        const visitedUp = new Set<string>([centralNodeId]);
+        while (queueUp.length > 0) {
+            const curr = queueUp.shift()!;
+            const parents = edgesByTarget.get(curr) || [];
+            parents.forEach(e => {
+                edgeIdsToHighlight.add(e.id);
+                if (!visitedUp.has(e.source)) {
+                    visitedUp.add(e.source);
+                    nodeIdsToHighlight.add(e.source);
+                    queueUp.push(e.source);
+                }
+            });
         }
 
-        const queue: string[] = [centralNodeId];
-        const visited = new Set<string>([centralNodeId]);
-        while (queue.length > 0) {
-            const currentNodeId = queue.shift()!;
-            const childEdges = edgesBySource.get(currentNodeId) || [];
-            for (const edge of childEdges) {
-                edgeIdsToHighlight.add(edge.id);
-                if (!visited.has(edge.target)) {
-                    visited.add(edge.target);
-                    nodeIdsToHighlight.add(edge.target);
-                    queue.push(edge.target);
+        // Downstream Highlight
+        const queueDown = [centralNodeId];
+        const visitedDown = new Set<string>([centralNodeId]);
+        while (queueDown.length > 0) {
+            const curr = queueDown.shift()!;
+            const children = edgesBySource.get(curr) || [];
+            children.forEach(e => {
+                edgeIdsToHighlight.add(e.id);
+                if (!visitedDown.has(e.target)) {
+                    visitedDown.add(e.target);
+                    nodeIdsToHighlight.add(e.target);
+                    queueDown.push(e.target);
                 }
-            }
+            });
         }
         
         return { nodeIds: nodeIdsToHighlight, edgeIds: edgeIdsToHighlight };
@@ -406,6 +424,7 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
                             highlightedNodeIds={highlightedGraphElements.nodeIds}
                             highlightedEdgeIds={highlightedGraphElements.edgeIds}
                             onNodeHover={setHoveredNodeId}
+                            visibleNodeIds={visibleNodeIds}
                         />
                     )}
                 </div>

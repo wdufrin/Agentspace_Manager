@@ -41,6 +41,16 @@ interface AgentAnalysis {
     model?: string;
 }
 
+interface AiAnalysisResult {
+    isAgent: boolean;
+    confidence: 'High' | 'Medium' | 'Low';
+    summary: string;
+    detectedFramework?: string;
+    detectedName?: string;
+    isA2a?: boolean;
+    timestamp: number;
+}
+
 const analyzeService = (service: CloudRunService): AgentAnalysis => {
     let score = 0;
     const reasons: string[] = [];
@@ -64,7 +74,7 @@ const analyzeService = (service: CloudRunService): AgentAnalysis => {
     if (agentName) { score += 3; reasons.push("Has AGENT_DISPLAY_NAME environment variable"); }
     if (agentUrl) { score += 2; reasons.push("Has AGENT_URL environment variable (Self-discovery)"); }
     if (agentDesc) { score += 1; reasons.push("Has AGENT_DESCRIPTION environment variable"); }
-    if (model) { score += 1; reasons.push(`Configures AI Model: ${model}`); }
+    if (model) { score += 1.5; reasons.push(`Configures AI Model: ${model}`); }
     if (vertexAi) { score += 1; reasons.push("Uses Vertex AI backend"); }
     
     if (labels['agent-type']) { score += 2; reasons.push(`Has label agent-type=${labels['agent-type']}`); }
@@ -116,15 +126,13 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
     const [serviceToDelete, setServiceToDelete] = useState<CloudRunService | null>(null);
 
     // AI Analysis State
-    const [aiAnalysis, setAiAnalysis] = useState<{
-        isAgent: boolean;
-        confidence: string;
-        summary: string;
-        detectedFramework?: string;
-        detectedName?: string;
-        isA2a?: boolean;
-    } | null>(null);
-    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [analysisCache, setAnalysisCache] = useState<Record<string, AiAnalysisResult>>(() => {
+        try {
+            const cached = sessionStorage.getItem('agentAnalysisCache');
+            return cached ? JSON.parse(cached) : {};
+        } catch { return {}; }
+    });
+    const [analyzingServices, setAnalyzingServices] = useState<Set<string>>(new Set());
     const [analysisError, setAnalysisError] = useState<string | null>(null);
 
     const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
@@ -135,46 +143,17 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
         assistantId: '',
     }), [projectNumber]);
 
-    // Fetch Services
-    const fetchServices = async () => {
-        if (!projectNumber) return;
-        setIsLoading(true);
-        setError(null);
-        setServices([]);
-        setSelectedService(null);
-        try {
-            const res = await api.listCloudRunServices(apiConfig, region);
-            setServices(res.services || []);
-            if (!res.services || res.services.length === 0) {
-                setError(`No services found in ${region}.`);
-            }
-        } catch (err: any) {
-            setError(err.message || 'Failed to list services.');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
+    // Persist cache
     useEffect(() => {
-        if (projectNumber) fetchServices();
-    }, [projectNumber, region]);
+        sessionStorage.setItem('agentAnalysisCache', JSON.stringify(analysisCache));
+    }, [analysisCache]);
 
-    // Run Gemini Analysis when service selected
-    useEffect(() => {
-        if (selectedService) {
-            runGeminiAnalysis(selectedService);
-        } else {
-            setAiAnalysis(null);
-            setAnalysisError(null);
-        }
-    }, [selectedService]);
-
-    const runGeminiAnalysis = async (service: CloudRunService) => {
+    const performAiAnalysis = async (service: CloudRunService) => {
         if (!projectNumber) return;
-        setIsAnalyzing(true);
-        setAiAnalysis(null);
-        setAnalysisError(null);
         
+        setAnalyzingServices(prev => new Set(prev).add(service.name));
+        setAnalysisError(null);
+
         try {
             const envVars = service.template?.containers?.[0]?.env || [];
             const envString = JSON.stringify(envVars.reduce((acc: any, curr) => {
@@ -189,7 +168,7 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
             Environment Variables: ${envString}
             Labels: ${JSON.stringify(service.labels || {})}
             
-            Criteria for AI Agent:
+            Criteria for AI Agent (If ANY of these are true, isAgent should be true):
             - Uses Large Language Models (LLMs) or Generative AI.
             - Uses frameworks like LangChain, Firebase Genkit, or Vertex AI.
             - Has environment variables indicating model configuration (e.g., MODEL, OPENAI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI).
@@ -206,33 +185,93 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
             }`;
 
             // Use Gemini 2.5 Flash for speed and reliability
-            const result = await api.generateVertexContent(apiConfig, prompt, 'gemini-2.5-flash');
+            const resultText = await api.generateVertexContent(apiConfig, prompt, 'gemini-2.5-flash');
             
-            // Robust JSON parsing to handle potential markdown code blocks or extra text
-            const jsonStart = result.indexOf('{');
-            const jsonEnd = result.lastIndexOf('}');
+            // Robust JSON parsing
+            const jsonStart = resultText.indexOf('{');
+            const jsonEnd = resultText.lastIndexOf('}');
             if (jsonStart === -1 || jsonEnd === -1) {
                  throw new Error("Response did not contain a valid JSON object.");
             }
-            const jsonStr = result.substring(jsonStart, jsonEnd + 1);
-            
-            const analysis = JSON.parse(jsonStr);
-            setAiAnalysis(analysis);
+            const jsonStr = resultText.substring(jsonStart, jsonEnd + 1);
+            const result: AiAnalysisResult = JSON.parse(jsonStr);
+            result.timestamp = Date.now();
+
+            setAnalysisCache(prev => ({ ...prev, [service.name]: result }));
         } catch (err: any) {
-            console.error("Gemini Analysis Failed:", err);
-            setAnalysisError(`Gemini Analysis Failed: ${err.message}`);
+            console.error(`Analysis failed for ${service.name}:`, err);
+            // Don't set global error to avoid blocking UI, just log or maybe set local error state if needed
         } finally {
-            setIsAnalyzing(false);
+            setAnalyzingServices(prev => {
+                const next = new Set(prev);
+                next.delete(service.name);
+                return next;
+            });
         }
     };
 
-    // Filter Logic (Heuristic for list speed)
+    const assessAllServices = async (servicesToScan: CloudRunService[]) => {
+        // We only scan in batches to avoid rate limits
+        const BATCH_SIZE = 5;
+        // Reset cache for found services implies we want fresh data
+        // For simplicity, we just overwrite as we go.
+        
+        for (let i = 0; i < servicesToScan.length; i += BATCH_SIZE) {
+            const batch = servicesToScan.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(s => performAiAnalysis(s)));
+        }
+    };
+
+    // Fetch Services
+    const fetchServices = async (runAiAnalysis: boolean = false) => {
+        if (!projectNumber) return;
+        setIsLoading(true);
+        setError(null);
+        setServices([]);
+        setSelectedService(null);
+        
+        if (runAiAnalysis) {
+            // Clear cache on full scan to ensure freshness as requested
+            setAnalysisCache({}); 
+        }
+        
+        try {
+            const res = await api.listCloudRunServices(apiConfig, region);
+            const fetchedServices = res.services || [];
+            setServices(fetchedServices);
+            
+            if (!fetchedServices || fetchedServices.length === 0) {
+                setError(`No services found in ${region}.`);
+            } else {
+                if (runAiAnalysis) {
+                    // Trigger AI Assessment only if requested
+                    assessAllServices(fetchedServices);
+                }
+            }
+        } catch (err: any) {
+            setError(err.message || 'Failed to list services.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (projectNumber) fetchServices(false);
+    }, [projectNumber, region]);
+
+
+    // Filter Logic
     const displayedServices = useMemo(() => {
         if (!filterAgentsOnly) return services;
-        return services.filter(s => analyzeService(s).isAgent);
-    }, [services, filterAgentsOnly]);
+        return services.filter(s => {
+            const cached = analysisCache[s.name];
+            if (cached) return cached.isAgent;
+            return analyzeService(s).isAgent;
+        });
+    }, [services, filterAgentsOnly, analysisCache]);
 
-    // Heuristic analysis for fallback/comparison
+    // Current Analysis for Details View
+    const currentAnalysis = selectedService ? analysisCache[selectedService.name] : null;
     const heuristicAnalysis = selectedService ? analyzeService(selectedService) : null;
 
     // Handle Sending Request
@@ -248,36 +287,25 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
             let payload: any = { prompt: prompt };
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
-            if (heuristicAnalysis?.isA2a) {
-                // A2A agents expect JSON-RPC at /invoke
-                // Remove trailing slash if present and append /invoke
+            // Prefer AI analysis if available, else heuristic
+            const isA2a = currentAnalysis ? currentAnalysis.isA2a : heuristicAnalysis?.isA2a;
+
+            if (isA2a) {
                 url = `${selectedService.uri.replace(/\/$/, '')}/invoke`;
-                
-                // Construct JSON-RPC 2.0 Payload
                 payload = {
                     jsonrpc: "2.0",
                     method: "chat",
-                    params: {
-                        message: {
-                            role: "user",
-                            parts: [
-                                { text: prompt }
-                            ]
-                        }
-                    },
-                    id: crypto.randomUUID() // Standard UUID for request ID
+                    params: { message: { role: "user", parts: [{ text: prompt }] } },
+                    id: crypto.randomUUID()
                 };
             }
             
-            // Note: This request is sent directly from the browser to the Cloud Run service.
-            // If the service does not implement CORS (Access-Control-Allow-Origin), this fetch will fail.
             const res = await fetch(url, {
                 method: 'POST',
                 headers: headers,
                 body: JSON.stringify(payload)
             });
 
-            // Detect IAP redirect (opaque response) or 401/403
             if (res.redirected || res.status === 401 || res.status === 403) {
                  throw new Error(`Auth Error (IAP/IAM): Service returned status ${res.status}. If this service is protected by IAP or requires IAM authentication, browser requests will fail.`);
             }
@@ -289,20 +317,11 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
 
             const data = await res.json();
 
-            // Handle A2A Response Format logic for cleaner UI
-            if (heuristicAnalysis?.isA2a) {
-                if (data.error) {
-                    throw new Error(`A2A Error: ${data.error.message || JSON.stringify(data.error)}`);
-                }
-                // Attempt to extract the text from the A2A JSON-RPC response
+            if (isA2a) {
+                if (data.error) throw new Error(`A2A Error: ${data.error.message || JSON.stringify(data.error)}`);
                 const text = data.result?.message?.parts?.[0]?.text;
-                if (text) {
-                    setResponse({ response: text, raw: data });
-                } else {
-                    setResponse(data);
-                }
+                setResponse(text ? { response: text, raw: data } : data);
             } else {
-                // Standard Flask Agent response (assumes { response: "..." } or similar)
                 setResponse(data);
             }
 
@@ -320,25 +339,17 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
     const getCurlCommand = () => {
         if (!selectedService) return '';
         const cleanPrompt = prompt.replace(/'/g, "'\\''");
-        // Use Identity Token for Cloud Run authentication
         const baseAuth = '-H "Authorization: Bearer $(gcloud auth print-identity-token)"';
+        const isA2a = currentAnalysis ? currentAnalysis.isA2a : heuristicAnalysis?.isA2a;
         
-        if (heuristicAnalysis?.isA2a) {
+        if (isA2a) {
             const url = `${selectedService.uri.replace(/\/$/, '')}/invoke`;
             const jsonRpc = JSON.stringify({
                 jsonrpc: "2.0",
                 method: "chat",
-                params: {
-                    message: {
-                        role: "user",
-                        parts: [
-                            { text: prompt } // This will still contain unescaped quotes if prompt has them, fine for visual preview
-                        ]
-                    }
-                },
+                params: { message: { role: "user", parts: [{ text: prompt }] } },
                 id: "1"
-            }, null, 0); // Compact JSON
-             // Escape single quotes for the shell command
+            }, null, 0);
              const escapedJson = jsonRpc.replace(/'/g, "'\\''");
              return `curl -X POST ${baseAuth} -H "Content-Type: application/json" -d '${escapedJson}' "${url}"`;
         }
@@ -362,18 +373,15 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
 
     const handleDeleteService = async () => {
         if (!serviceToDelete) return;
-        
         setIsDeleting(true);
         setError(null);
         try {
             await api.deleteCloudRunService(serviceToDelete.name, apiConfig);
-            // Close modal and clear selection
             setIsDeleteModalOpen(false);
             setServiceToDelete(null);
             setSelectedService(null);
-            
-            // Refresh list
-            await fetchServices();
+            // Refresh list without full analysis
+            fetchServices(false);
         } catch (err: any) {
             setError(`Failed to delete service: ${err.message}`);
         } finally {
@@ -406,7 +414,7 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                     </div>
                     <div className="flex gap-2">
                         <button 
-                            onClick={fetchServices} 
+                            onClick={() => fetchServices(true)} 
                             disabled={isLoading || !projectNumber}
                             className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 h-[42px]"
                         >
@@ -432,13 +440,20 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                                 onChange={(e) => setFilterAgentsOnly(e.target.checked)} 
                                 className="mr-2 h-3.5 w-3.5 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
                             />
-                            Show Potential Agents Only
+                            Agents Only
                         </label>
                     </div>
                     <div className="flex-1 overflow-y-auto p-2 space-y-2">
                         {displayedServices.length === 0 && !isLoading && <p className="text-sm text-gray-500 text-center mt-4">No services found.</p>}
                         {displayedServices.map(service => {
-                            const analysis = analyzeService(service);
+                            const cached = analysisCache[service.name];
+                            const isAnalyzing = analyzingServices.has(service.name);
+                            const heuristic = analyzeService(service);
+                            
+                            const isAgent = cached ? cached.isAgent : heuristic.isAgent;
+                            const isA2a = cached ? cached.isA2a : heuristic.isA2a;
+                            const confidence = cached ? cached.confidence : heuristic.confidence;
+
                             return (
                                 <div 
                                     key={service.name}
@@ -446,12 +461,15 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                                     className={`p-3 rounded-md cursor-pointer border transition-colors ${selectedService?.name === service.name ? 'bg-blue-900/40 border-blue-500' : 'bg-gray-700/30 border-transparent hover:bg-gray-700'}`}
                                 >
                                     <div className="flex justify-between items-start mb-1">
-                                        <p className="text-sm font-bold text-white truncate">{service.name.split('/').pop()}</p>
-                                        {analysis.isAgent && (
-                                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${analysis.confidence === 'High' ? 'bg-green-900 text-green-300 border border-green-700' : 'bg-blue-900 text-blue-300 border border-blue-700'}`}>
-                                                AGENT
-                                            </span>
-                                        )}
+                                        <p className="text-sm font-bold text-white truncate max-w-[70%]">{service.name.split('/').pop()}</p>
+                                        <div className="flex items-center gap-1">
+                                            {isAnalyzing && <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-blue-400"></div>}
+                                            {isAgent && (
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${confidence === 'High' ? 'bg-green-900 text-green-300 border border-green-700' : 'bg-blue-900 text-blue-300 border border-blue-700'}`}>
+                                                    {isA2a ? 'A2A' : 'AGENT'}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                     <p className="text-xs text-gray-400 truncate">{service.uri}</p>
                                 </div>
@@ -495,7 +513,7 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                                 </div>
                             </div>
 
-                            {/* Agent Analysis Card - Replaced with Gemini Analysis */}
+                            {/* Gemini Analysis Card */}
                             <div className="px-6 pt-4">
                                 <div className="bg-gradient-to-r from-gray-800 to-gray-900 border border-teal-900/50 p-4 rounded-lg shadow-inner min-h-[100px] flex flex-col justify-center">
                                     <div className="flex items-center mb-2 justify-between">
@@ -505,52 +523,58 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                                             </svg>
                                             <h4 className="text-sm font-bold text-teal-400 uppercase tracking-wider">Agent Intelligence (Gemini AI)</h4>
                                         </div>
-                                        {aiAnalysis && (
-                                            <span className={`text-xs px-2 py-0.5 rounded font-mono border ${aiAnalysis.isA2a ? 'bg-purple-900/50 text-purple-300 border-purple-700' : 'bg-blue-900/50 text-blue-300 border-blue-700'}`}>
-                                                {aiAnalysis.isA2a ? 'A2A Protocol' : 'Standard/Flask'}
-                                            </span>
-                                        )}
+                                        <div className="flex gap-2 items-center">
+                                            <span className="text-[10px] text-gray-500">{currentAnalysis ? "Verdict: " : ""}</span>
+                                            {currentAnalysis && (
+                                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${currentAnalysis.isAgent ? 'bg-green-900 text-green-300 border-green-700' : 'bg-gray-800 text-gray-400 border-gray-600'}`}>
+                                                    {currentAnalysis.isAgent ? 'Likely Agent' : 'Not an Agent'}
+                                                </span>
+                                            )}
+                                            {currentAnalysis && (
+                                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${currentAnalysis.confidence === 'High' ? 'bg-green-900 text-green-300' : currentAnalysis.confidence === 'Medium' ? 'bg-yellow-900 text-yellow-300' : 'bg-gray-700 text-gray-300'}`}>
+                                                    {currentAnalysis.confidence} Confidence
+                                                </span>
+                                            )}
+                                            <button 
+                                                onClick={() => performAiAnalysis(selectedService)}
+                                                disabled={analyzingServices.has(selectedService.name)}
+                                                className="ml-2 text-xs text-blue-400 hover:text-blue-300 disabled:text-gray-600"
+                                            >
+                                                {analyzingServices.has(selectedService.name) ? 'Analyzing...' : 'Re-assess'}
+                                            </button>
+                                        </div>
                                     </div>
 
-                                    {isAnalyzing ? (
+                                    {analyzingServices.has(selectedService.name) ? (
                                         <div className="flex items-center text-sm text-gray-400">
                                             <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-teal-400 mr-3"></div>
                                             Analyzing configuration with Gemini AI...
                                         </div>
-                                    ) : analysisError ? (
-                                        <div className="text-sm text-red-400 bg-red-900/20 p-2 rounded border border-red-800">
-                                            <span className="font-bold">Analysis Error:</span> {analysisError}
-                                        </div>
-                                    ) : aiAnalysis ? (
+                                    ) : currentAnalysis ? (
                                         <>
                                             <div className="grid grid-cols-2 gap-4 text-sm">
-                                                {aiAnalysis.detectedName && (
+                                                {currentAnalysis.detectedName && (
                                                     <div>
                                                         <span className="text-gray-500 block text-xs">Detected Name</span>
-                                                        <span className="text-white font-medium">{aiAnalysis.detectedName}</span>
+                                                        <span className="text-white font-medium">{currentAnalysis.detectedName}</span>
                                                     </div>
                                                 )}
-                                                {aiAnalysis.detectedFramework && (
+                                                {currentAnalysis.detectedFramework && (
                                                     <div>
                                                         <span className="text-gray-500 block text-xs">Framework</span>
-                                                        <span className="text-white font-medium">{aiAnalysis.detectedFramework}</span>
+                                                        <span className="text-white font-medium">{currentAnalysis.detectedFramework}</span>
                                                     </div>
                                                 )}
                                             </div>
                                             <div className="mt-2">
                                                 <span className="text-gray-500 block text-xs">Analysis Summary</span>
-                                                <p className="text-gray-300 text-xs mt-0.5">{aiAnalysis.summary}</p>
-                                            </div>
-                                            <div className="mt-3 pt-3 border-t border-gray-800 flex justify-between items-center">
-                                                <span className="text-xs text-gray-500">Confidence Score</span>
-                                                <span className={`text-xs font-bold px-2 py-0.5 rounded ${aiAnalysis.confidence === 'High' ? 'bg-green-900 text-green-300' : aiAnalysis.confidence === 'Medium' ? 'bg-yellow-900 text-yellow-300' : 'bg-gray-700 text-gray-300'}`}>
-                                                    {aiAnalysis.confidence}
-                                                </span>
+                                                <p className="text-gray-300 text-xs mt-0.5">{currentAnalysis.summary}</p>
                                             </div>
                                         </>
                                     ) : (
-                                        <p className="text-xs text-gray-500 italic">Select a service to analyze.</p>
+                                        <p className="text-xs text-gray-500 italic">Analysis pending or not run. Click Re-assess to force run.</p>
                                     )}
+                                    {analysisError && <div className="text-xs text-red-400 mt-2">Error: {analysisError}</div>}
                                 </div>
                             </div>
 

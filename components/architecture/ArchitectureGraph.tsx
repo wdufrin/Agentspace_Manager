@@ -1,6 +1,21 @@
-import React, { useMemo } from 'react';
+
+import React, { useMemo, useCallback } from 'react';
+import ReactFlow, { 
+    Background, 
+    Controls, 
+    MiniMap, 
+    Node as FlowNode, 
+    Edge as FlowEdge,
+    MarkerType,
+    useNodesState,
+    useEdgesState,
+    ConnectionLineType,
+    BackgroundVariant,
+    ReactFlowProvider
+} from 'reactflow';
+// import 'reactflow/dist/style.css'; // Removed: Loaded via CDN in index.html
+import CustomNode from './Node';
 import { GraphNode, GraphEdge, NodeType } from '../../types';
-import Node from './Node';
 
 interface ArchitectureGraphProps {
   nodes: GraphNode[];
@@ -10,80 +25,155 @@ interface ArchitectureGraphProps {
   highlightedNodeIds: Set<string> | null;
   highlightedEdgeIds: Set<string> | null;
   onNodeHover: (nodeId: string | null) => void;
+  visibleNodeIds?: Set<string> | null;
 }
 
+// Order defines the Y-axis layers
 const NODE_TYPE_ORDER: NodeType[] = [
-    'Project', 'Location', 'Collection', 'Engine', 'Assistant', 'Agent', 
-    'ReasoningEngine', 'DataStore', 'Authorization', 'CloudRunService'
+    'Project', 
+    'Location', 
+    'Collection', 
+    'Engine', 
+    'Assistant', 
+    'Agent', 
+    'ReasoningEngine', 
+    'CloudRunService',
+    'DataStore', 
+    'Authorization'
 ];
 
-const ArchitectureGraph: React.FC<ArchitectureGraphProps> = ({
+// Register custom node type
+const nodeTypes = {
+    custom: CustomNode,
+};
+
+const ArchitectureGraphContent: React.FC<ArchitectureGraphProps> = ({
   nodes,
+  edges,
   onNodeClick,
   selectedNodeId,
-  highlightedNodeIds,
   onNodeHover,
+  visibleNodeIds
 }) => {
-  const nodesByType = useMemo(() => {
-    const grouped = new Map<NodeType, GraphNode[]>();
-    nodes.forEach(node => {
-      if (!grouped.has(node.type)) {
-        grouped.set(node.type, []);
-      }
-      grouped.get(node.type)!.push(node);
-    });
-    return grouped;
-  }, [nodes]);
+    // Process layout and convert to React Flow format
+    const { flowNodes, flowEdges } = useMemo(() => {
+        // Filter nodes and edges if visibility set is provided
+        let displayNodes = nodes;
+        let displayEdges = edges;
 
-  return (
-    <div className="w-full h-full overflow-auto p-4 relative">
-        <div className="relative w-full">
-            {/* The SVG overlay for drawing lines has been removed for a cleaner look. */}
-            <div className="space-y-8">
-              {NODE_TYPE_ORDER.map(nodeType => {
-                const groupNodes = nodesByType.get(nodeType);
-                if (!groupNodes || groupNodes.length === 0) return null;
-                
-                // If a node is selected, only render the nodes that are part of the highlighted path.
-                // Otherwise (just hovering or nothing), render all nodes, and the `isDimmed` prop will handle hover highlighting.
-                const nodesToRender = selectedNodeId
-                    ? groupNodes.filter(node => highlightedNodeIds?.has(node.id))
-                    : groupNodes;
+        if (visibleNodeIds) {
+            displayNodes = nodes.filter(n => visibleNodeIds.has(n.id));
+            displayEdges = edges.filter(e => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target));
+        }
 
-                if (nodesToRender.length === 0) return null;
+        if (displayNodes.length === 0) return { flowNodes: [], flowEdges: [] };
+
+        // 1. Group by Type for Grid Layout
+        const nodesByType = new Map<NodeType, GraphNode[]>();
+        displayNodes.forEach(node => {
+            if (!nodesByType.has(node.type)) {
+                nodesByType.set(node.type, []);
+            }
+            nodesByType.get(node.type)!.push(node);
+        });
+
+        // 2. Calculate Positions
+        const X_START = 50;
+        const Y_START = 50;
+        const X_GAP = 300;
+        const Y_GAP = 150;
+
+        const calculatedNodes: FlowNode[] = [];
+
+        NODE_TYPE_ORDER.forEach((type, rowIndex) => {
+            const rowNodes = nodesByType.get(type) || [];
+            rowNodes.forEach((node, colIndex) => {
+                const x = X_START + (colIndex * X_GAP);
+                const y = Y_START + (rowIndex * Y_GAP);
                 
-                return (
-                  <div key={nodeType} className="relative flex items-start min-h-[80px]">
-                    <div className="sticky left-0 top-4 w-32 shrink-0 self-center pr-4 z-10">
-                      <h3 className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wider border-r-2 border-gray-600 pr-4 py-1">
-                        {nodeType.replace(/([A-Z])/g, ' $1').trim()}s
-                      </h3>
-                    </div>
-                    <div className="flex-1 flex flex-wrap gap-4 pl-4">
-                      {nodesToRender.map(node => {
-                        // When a node is selected, `isDimmed` will be false because we filtered already.
-                        // When no node is selected, this correctly dims nodes not on the hover path.
-                        const isDimmed = !!highlightedNodeIds && !highlightedNodeIds.has(node.id);
-                        return (
-                          <Node
-                            key={node.id}
-                            node={node}
-                            isSelected={selectedNodeId === node.id}
-                            isDimmed={isDimmed}
-                            onClick={() => onNodeClick(node.id)}
-                            onMouseEnter={() => onNodeHover(node.id)}
-                            onMouseLeave={() => onNodeHover(null)}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                calculatedNodes.push({
+                    id: node.id,
+                    type: 'custom',
+                    position: { x, y },
+                    data: { 
+                        label: node.label, 
+                        type: node.type, 
+                        fullId: node.id,
+                        isDimmed: false // Dimming handled by visibility filtering now
+                    },
+                    selected: node.id === selectedNodeId,
+                });
+            });
+        });
+
+        // 3. Create Edges
+        const calculatedEdges: FlowEdge[] = displayEdges.map(edge => ({
+            id: edge.id,
+            source: edge.source,
+            target: edge.target,
+            type: 'smoothstep',
+            animated: true,
+            style: { stroke: '#4b5563', strokeWidth: 2 },
+            markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: '#4b5563',
+            },
+        }));
+
+        return { flowNodes: calculatedNodes, flowEdges: calculatedEdges };
+    }, [nodes, edges, selectedNodeId, visibleNodeIds]);
+
+    // Use internal state for interactivity
+    const [rfNodes, setNodes, onNodesChange] = useNodesState(flowNodes);
+    const [rfEdges, setEdges, onEdgesChange] = useEdgesState(flowEdges);
+
+    // Sync props with state when they change
+    React.useEffect(() => {
+        setNodes(flowNodes);
+        setEdges(flowEdges);
+    }, [flowNodes, flowEdges, setNodes, setEdges]);
+
+    const handleNodeClick = useCallback((_: React.MouseEvent, node: FlowNode) => {
+        onNodeClick(node.id);
+    }, [onNodeClick]);
+
+    return (
+        <div className="w-full h-full bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
+            <ReactFlow
+                nodes={rfNodes}
+                edges={rfEdges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onNodeClick={handleNodeClick}
+                onNodeMouseEnter={(_, node) => onNodeHover(node.id)}
+                onNodeMouseLeave={() => onNodeHover(null)}
+                nodeTypes={nodeTypes}
+                connectionLineType={ConnectionLineType.SmoothStep}
+                fitView
+                minZoom={0.1}
+            >
+                <Background color="#374151" gap={20} variant={BackgroundVariant.Dots} />
+                <Controls className="!bg-gray-800 !border-gray-700 !fill-gray-300" />
+                <MiniMap 
+                    nodeColor={(n) => {
+                        const type = n.data.type as NodeType;
+                        switch(type) {
+                            case 'Project': return '#3b82f6';
+                            case 'Agent': return '#ec4899';
+                            default: return '#4b5563';
+                        }
+                    }} 
+                    className="!bg-gray-800 !border-gray-700" 
+                />
+            </ReactFlow>
         </div>
-    </div>
-  );
+    );
 };
+
+const ArchitectureGraph: React.FC<ArchitectureGraphProps> = (props) => (
+    <ReactFlowProvider>
+        <ArchitectureGraphContent {...props} />
+    </ReactFlowProvider>
+);
 
 export default ArchitectureGraph;

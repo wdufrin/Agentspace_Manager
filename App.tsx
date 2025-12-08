@@ -464,16 +464,31 @@ const App: React.FC = () => {
                             addLog(`    - NOTE: Could not get full details for engine '${engine.displayName}' to find linked data stores: ${e.message}`);
                         }
 
-                        const assistantConfig = { ...locationConfig, appId: engine.name.split('/').pop()!, assistantId: 'default_assistant' };
-                        const assistantsResponse = await api.listResources('assistants', assistantConfig);
-                        const assistants = assistantsResponse.assistants || [];
+                        // Robustly list assistants
+                        let assistants: any[] = [];
+                        try {
+                            const assistantConfig = { ...locationConfig, appId: engine.name.split('/').pop()! };
+                            const assistantsResponse = await api.listResources('assistants', assistantConfig);
+                            assistants = assistantsResponse.assistants || [];
+                        } catch (assistantListErr: any) {
+                            addLog(`    - WARNING: Could not list assistants for engine '${engine.displayName}': ${assistantListErr.message}`);
+                            continue; // Skip to next engine
+                        }
 
                         for (const assistant of assistants) {
                             addNode({ id: assistant.name, type: 'Assistant', label: assistant.displayName, data: assistant });
                             addEdge(engine.name, assistant.name);
 
-                            const agentsResponse = await api.listResources('agents', assistantConfig);
-                            const agents = agentsResponse.agents || [];
+                            // Robustly list agents
+                            let agents: any[] = [];
+                            try {
+                                const assistantConfig = { ...locationConfig, appId: engine.name.split('/').pop()!, assistantId: assistant.name.split('/').pop()! };
+                                const agentsResponse = await api.listResources('agents', assistantConfig);
+                                agents = agentsResponse.agents || [];
+                            } catch (agentListErr: any) {
+                                addLog(`      - WARNING: Could not list agents for assistant '${assistant.displayName}': ${agentListErr.message}`);
+                                continue; // Skip to next assistant
+                            }
                             
                             for (const agent of agents) {
                                 addNode({ id: agent.name, type: 'Agent', label: agent.displayName, data: agent });
@@ -485,6 +500,7 @@ const App: React.FC = () => {
                                 (agent.authorizations || []).forEach(authName => addEdge(agent.name, authName));
 
                                 try {
+                                    const assistantConfig = { ...locationConfig, appId: engine.name.split('/').pop()!, assistantId: assistant.name.split('/').pop()! };
                                     const agentView = await api.getAgentView(agent.name, assistantConfig);
                                     const findDataStoreIds = (obj: any): string[] => {
                                         if (!obj || typeof obj !== 'object') return [];
@@ -508,6 +524,7 @@ const App: React.FC = () => {
                                         addEdge(agent.name, dsId);
                                     }
                                 } catch (viewError: any) {
+                                    // 403 Errors are expected here if the user lacks granular permissions
                                     addLog(`NOTE: Could not get agent view for ${agent.displayName} to find data stores: ${viewError.message}`);
                                 }
                             }

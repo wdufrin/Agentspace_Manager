@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Agent, AppEngine, Assistant, Config } from '../types';
 import * as api from '../services/apiService';
@@ -5,6 +6,8 @@ import ProjectInput from '../components/ProjectInput';
 import Spinner from '../components/Spinner';
 import AssistantDetailsForm from '../components/assistants/AssistantDetailsForm';
 import AgentListForAssistant from '../components/assistants/AgentListForAssistant';
+import ExportMetricsModal from '../components/assistants/ExportMetricsModal';
+import AnalyticsMetricsViewer from '../components/assistants/AnalyticsMetricsViewer';
 
 interface AssistantPageProps {
   projectNumber: string;
@@ -28,6 +31,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
   const [agents, setAgents] = useState<Agent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   useEffect(() => {
     sessionStorage.setItem('assistantPageConfig', JSON.stringify(config));
@@ -140,6 +144,11 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
 
   return (
     <div className="space-y-6">
+      <ExportMetricsModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        config={apiConfig}
+      />
       <div className="bg-gray-800 p-4 rounded-lg shadow-md">
         <h2 className="text-lg font-semibold text-white mb-3">Assistant Configuration</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -166,13 +175,22 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
             </select>
           </div>
         </div>
-        <button 
-            onClick={fetchData} 
-            disabled={isLoading || !config.appId}
-            className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500"
-        >
-            {isLoading ? 'Loading...' : 'Load Assistant & Agents'}
-        </button>
+        <div className="flex gap-4 mt-4">
+            <button 
+                onClick={fetchData} 
+                disabled={isLoading || !config.appId}
+                className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500"
+            >
+                {isLoading ? 'Loading...' : 'Load Assistant & Agents'}
+            </button>
+            <button
+                onClick={() => setIsExportModalOpen(true)}
+                disabled={!config.appId}
+                className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-500"
+            >
+                Backup Metrics
+            </button>
+        </div>
       </div>
 
       {error && <div className="text-center text-red-400 p-4 bg-red-900/20 rounded-lg">{error}</div>}
@@ -180,14 +198,17 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
       {isLoading && <Spinner />}
 
       {!isLoading && assistant && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <AssistantDetailsForm 
-                assistant={assistant}
-                config={apiConfig}
-                onUpdateSuccess={handleUpdateSuccess}
-            />
-            <AgentListForAssistant agents={agents} />
-        </div>
+        <>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <AssistantDetailsForm 
+                    assistant={assistant}
+                    config={apiConfig}
+                    onUpdateSuccess={handleUpdateSuccess}
+                />
+                <AgentListForAssistant agents={agents} />
+            </div>
+            <AnalyticsMetricsViewer config={apiConfig} />
+        </>
       )}
     </div>
   );

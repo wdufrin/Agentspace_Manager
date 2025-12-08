@@ -1,5 +1,14 @@
-import React from 'react';
-import { GraphNode, NodeType } from '../../types';
+
+import React, { memo } from 'react';
+import { Handle, Position, NodeProps as ReactFlowNodeProps } from 'reactflow';
+import { NodeType } from '../../types';
+
+interface NodeData {
+    label: string;
+    type: NodeType;
+    fullId: string;
+    isDimmed?: boolean;
+}
 
 interface NodeStyle {
     bg: string;
@@ -34,40 +43,31 @@ const NODE_STYLES: Record<NodeType, NodeStyle> = {
     CloudRunService: { bg: 'bg-teal-900/50', border: 'border-teal-500', text: 'text-teal-200', icon: ICONS.CloudRunService },
 };
 
-
-interface NodeProps {
-    node: GraphNode;
-    isSelected: boolean;
-    isDimmed: boolean;
-    onClick: () => void;
-    onMouseEnter: () => void;
-    onMouseLeave: () => void;
-}
-
-const Node: React.FC<NodeProps> = ({ node, isSelected, isDimmed, onClick, onMouseEnter, onMouseLeave }) => {
-    const style = NODE_STYLES[node.type] || NODE_STYLES.Project;
-
+const CustomNode: React.FC<ReactFlowNodeProps<NodeData>> = ({ data, selected }) => {
+    const style = NODE_STYLES[data.type] || NODE_STYLES.Project;
+    
     return (
         <div
-            onClick={onClick}
-            onMouseEnter={onMouseEnter}
-            onMouseLeave={onMouseLeave}
             className={`
-                w-52 p-2 rounded-lg border-2 shadow-lg cursor-pointer transition-all duration-200
+                w-52 p-2 rounded-lg border-2 shadow-lg transition-all duration-200
                 flex flex-col justify-center
                 ${style.bg} ${style.border}
-                ${isDimmed ? 'opacity-20' : 'opacity-100'}
-                ${isSelected ? 'ring-4 ring-yellow-400' : ''}
+                ${data.isDimmed ? 'opacity-20' : 'opacity-100'}
+                ${selected ? 'ring-4 ring-yellow-400' : ''}
             `}
-            title={node.id}
+            title={data.fullId}
         >
+            <Handle type="target" position={Position.Top} className="!bg-gray-400 !w-3 !h-3" />
             <div className={`flex items-center gap-2 ${style.text}`}>
                 <div className="shrink-0">{style.icon}</div>
-                <p className="text-sm font-semibold truncate" title={node.label}>{node.label}</p>
+                <p className="text-sm font-semibold truncate" title={data.label}>{data.label}</p>
             </div>
-            <p className="text-xs text-gray-400 font-mono truncate mt-1" title={node.id.split('/').pop()!}>{node.id.split('/').pop()!}</p>
+            <p className="text-xs text-gray-400 font-mono truncate mt-1" title={data.fullId.split('/').pop()!}>
+                {data.fullId.split('/').pop()!}
+            </p>
+            <Handle type="source" position={Position.Bottom} className="!bg-gray-400 !w-3 !h-3" />
         </div>
     );
 };
 
-export default Node;
+export default memo(CustomNode);
