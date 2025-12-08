@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { CloudRunService, Config, EnvVar } from '../types';
 import * as api from '../services/apiService';
@@ -465,7 +466,7 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
                         <>
                             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
                                 <h3 className="text-md font-semibold text-white">
-                                    Service: <span className="text-blue-400">{selectedService.name.split('/').pop()}</p>
+                                    Service: <span className="text-blue-400">{selectedService.name.split('/').pop()}</span>
                                 </h3>
                                 <div className="flex items-center gap-2">
                                     <div className="flex space-x-1 bg-gray-900 p-1 rounded-lg">
