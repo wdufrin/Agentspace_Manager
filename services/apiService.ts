@@ -459,10 +459,20 @@ export const getCloudBuild = async (projectId: string, buildId: string) => {
 };
 
 export const fetchBuildLogs = async (projectId: string, buildId: string): Promise<string[]> => {
-    // This is a simplification. Logs are usually in GCS or Logging. 
-    // The API might return a logUrl. Fetching raw text content via client API is tricky.
-    // We'll return a placeholder or try to fetch if build object has a direct log link accessible.
-    return ["Logs display not fully implemented in this demo adapter."];
+    // Fetch logs from Cloud Logging using the build_id
+    const body = {
+        resourceNames: [`projects/${projectId}`],
+        filter: `resource.type="build" AND resource.labels.build_id="${buildId}"`,
+        orderBy: "timestamp asc",
+        pageSize: 1000
+    };
+    try {
+        const response = await gapiRequest<{ entries: LogEntry[] }>(`https://logging.googleapis.com/v2/entries:list`, 'POST', projectId, undefined, body);
+        return (response.entries || []).map(entry => entry.textPayload || '');
+    } catch (e: any) {
+        console.warn("Failed to fetch build logs", e);
+        return [`[Log Error] ${e.message || 'Unknown error fetching logs'}`];
+    }
 };
 
 // --- GCS ---
