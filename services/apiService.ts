@@ -255,13 +255,13 @@ export const updateAgent = async (agent: Agent, payload: any, config: Config) =>
 
 export const disableAgent = async (name: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-    await gapiRequest(`${baseUrl}/${DISCOVERY_API_VERSION}/${name}:disable`, 'POST', config.projectId);
+    await gapiRequest(`${baseUrl}/${DISCOVERY_API_VERSION}/${name}:disableAgent`, 'POST', config.projectId);
     return getAgent(name, config);
 };
 
 export const enableAgent = async (name: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-    await gapiRequest(`${baseUrl}/${DISCOVERY_API_VERSION}/${name}:enable`, 'POST', config.projectId);
+    await gapiRequest(`${baseUrl}/${DISCOVERY_API_VERSION}/${name}:enableAgent`, 'POST', config.projectId);
     return getAgent(name, config);
 };
 

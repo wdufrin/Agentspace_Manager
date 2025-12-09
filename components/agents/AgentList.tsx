@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Agent, SortableAgentKey, SortConfig } from '../../types';
 
@@ -74,15 +75,39 @@ const AgentList: React.FC<AgentListProps> = ({ agents, onSelectAgent, onEditAgen
                         const agentId = agent.name.split('/').pop() || '';
                         const isToggling = togglingAgentId === agentId;
                         const isDeleting = deletingAgentId === agentId;
-                        const statusColorClass = agent.state === 'ENABLED' ? 'bg-green-500' : agent.state === 'DISABLED' ? 'bg-red-500' : 'bg-yellow-500';
+                        const stateUpper = agent.state?.toUpperCase();
+                        
+                        // Status Indicator Color on Name
+                        let statusColorClass = 'bg-gray-500';
+                        if (stateUpper === 'ENABLED') statusColorClass = 'bg-green-500';
+                        else if (stateUpper === 'DISABLED') statusColorClass = 'bg-red-500';
+                        else if (stateUpper === 'PRIVATE') statusColorClass = 'bg-yellow-500';
 
                         let statusButton = null;
-                        if (agent.state === 'ENABLED' || agent.state === 'DISABLED') {
-                            const isEnabled = agent.state === 'ENABLED';
-                            const statusProps = {
-                                text: isEnabled ? 'Enabled' : 'Disabled',
-                                colorClasses: isEnabled ? 'bg-green-500 text-white hover:bg-green-600' : 'bg-red-500 text-white hover:bg-red-600',
-                            };
+                        if (stateUpper) {
+                            const isEnabled = stateUpper === 'ENABLED';
+                            const isDisabled = stateUpper === 'DISABLED';
+                            const isPrivate = stateUpper === 'PRIVATE';
+                            
+                            let btnText = stateUpper;
+                            let btnColor = 'bg-gray-500 text-white hover:bg-gray-600';
+                            let title = 'Click to toggle status';
+
+                            if (isEnabled) {
+                                btnText = 'Enabled';
+                                btnColor = 'bg-green-500 text-white hover:bg-green-600';
+                                title = 'Click to Disable';
+                            } else if (isDisabled) {
+                                btnText = 'Disabled';
+                                btnColor = 'bg-red-500 text-white hover:bg-red-600';
+                                title = 'Click to Enable';
+                            } else if (isPrivate) {
+                                // Private agents can usually be enabled/published
+                                btnText = 'Private';
+                                btnColor = 'bg-yellow-600 text-white hover:bg-yellow-700';
+                                title = 'Click to Enable (Publish)';
+                            }
+                            
                             statusButton = (
                                 isToggling ? (
                                     <div className="flex items-center space-x-2">
@@ -92,15 +117,16 @@ const AgentList: React.FC<AgentListProps> = ({ agents, onSelectAgent, onEditAgen
                                 ) : (
                                     <button
                                         onClick={() => onToggleAgentStatus(agent)}
-                                        className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors ${statusProps.colorClasses}`}
+                                        className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors ${btnColor}`}
                                         disabled={isToggling || isDeleting}
+                                        title={title}
                                     >
-                                        {statusProps.text}
+                                        {btnText}
                                     </button>
                                 )
                             );
                         } else {
-                            statusButton = <span className="px-3 py-1 text-xs font-semibold rounded-full bg-yellow-500 text-black">Private</span>
+                            statusButton = <span className="px-3 py-1 text-xs font-semibold rounded-full bg-gray-600 text-gray-300">Unknown</span>
                         }
 
                         return (
@@ -125,7 +151,7 @@ const AgentList: React.FC<AgentListProps> = ({ agents, onSelectAgent, onEditAgen
                                             <button onClick={() => onSelectAgent(agent)} disabled={isToggling} className="font-semibold text-blue-400 hover:text-blue-300 disabled:text-gray-500">
                                                 View
                                             </button>
-                                            {(agent.state === 'ENABLED' || agent.state === 'DISABLED') && (
+                                            {agent.state && (
                                                 <button 
                                                     onClick={() => onEditAgent(agent)} 
                                                     disabled={isToggling} 
