@@ -443,23 +443,41 @@ export const streamQueryReasoningEngine = async (
 
     while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
         
-        buffer += decoder.decode(value, { stream: true });
+        if (value) {
+            buffer += decoder.decode(value, { stream: true });
+        }
+
         const lines = buffer.split('\n');
-        // Process all complete lines
-        buffer = lines.pop() || ''; 
+        // If done, process all lines including the last one. If not done, keep the last fragment.
+        buffer = done ? '' : (lines.pop() || '');
 
         for (const line of lines) {
             const trimmed = line.trim();
+            if (!trimmed) continue;
+
             if (trimmed.startsWith('data: ')) {
                 try {
                     const jsonStr = trimmed.substring(6);
                     const chunk = JSON.parse(jsonStr);
                     onChunk(chunk);
-                } catch (e) { console.warn("Failed to parse chunk", e); }
+                } catch (e) { console.warn("Failed to parse SSE chunk", e); }
+            } else {
+                // Handle raw JSON response (not SSE)
+                try {
+                    const chunk = JSON.parse(trimmed);
+                    onChunk(chunk);
+                } catch (e) { 
+                    // This might happen if a JSON object is split across chunks and we blindly split by newline
+                    // inside a pretty-printed JSON. However, Reasoning Engine streaming usually outputs
+                    // newline-delimited JSON or single JSON objects.
+                    // If parsing fails here, we might need more complex logic, but for now we warn.
+                    console.warn("Failed to parse non-SSE line", e); 
+                }
             }
         }
+        
+        if (done) break;
     }
 };
 
@@ -639,23 +657,34 @@ export const streamChat = async (
 
     while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
         
-        buffer += decoder.decode(value, { stream: true });
+        if (value) {
+            buffer += decoder.decode(value, { stream: true });
+        }
+
         const lines = buffer.split('\n');
-        // Process all complete lines
-        buffer = lines.pop() || ''; 
+        buffer = done ? '' : (lines.pop() || ''); 
 
         for (const line of lines) {
             const trimmed = line.trim();
+            if (!trimmed) continue;
+
             if (trimmed.startsWith('data: ')) {
                 try {
                     const jsonStr = trimmed.substring(6);
                     const chunk = JSON.parse(jsonStr);
                     onChunk(chunk);
                 } catch (e) { console.warn("Failed to parse chunk", e); }
+            } else {
+                // Try parsing standard JSON in case stream format is different
+                try {
+                    const chunk = JSON.parse(trimmed);
+                    onChunk(chunk);
+                } catch (e) { /* ignore */ }
             }
         }
+        
+        if (done) break;
     }
 };
 
