@@ -36,7 +36,8 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
     const [region, setRegion] = useState('us-central1');
     const [tools, setTools] = useState<string[]>([]);
     const [readmeContent, setReadmeContent] = useState<string>('');
-    const [leftTab, setLeftTab] = useState<'architecture' | 'docs'>('architecture');
+    const [leftTab, setLeftTab] = useState<'architecture' | 'docs' | 'manual'>('architecture');
+    const [manualSubTab, setManualSubTab] = useState<'gcloud' | 'terraform' | 'api' | 'cloudbuild'>('gcloud');
     const [isPermissionsExpanded, setIsPermissionsExpanded] = useState(false);
     const [isRePermissionsExpanded, setIsRePermissionsExpanded] = useState(false);
     
@@ -58,6 +59,7 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
     const [buildId, setBuildId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [logs, setLogs] = useState<string[]>([]);
+    const [copySuccess, setCopySuccess] = useState('');
 
     useEffect(() => {
         if (!isOpen) return;
@@ -72,6 +74,7 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
         setProjectId(projectNumber); // Default to number
         setReadmeContent('');
         setLeftTab('architecture');
+        setManualSubTab('gcloud');
         setIsPermissionsExpanded(false);
         setIsRePermissionsExpanded(false);
         setBuckets([]);
@@ -296,6 +299,187 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
     };
 
     const addLog = (msg: string) => setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+
+    const handleCopyManual = (content: string) => {
+        navigator.clipboard.writeText(content).then(() => {
+            setCopySuccess('Copied!');
+            setTimeout(() => setCopySuccess(''), 2000);
+        });
+    };
+
+    const renderManualDeployment = () => {
+        const serviceName = agentName.toLowerCase().replace(/[^a-z0-9-]/g, '');
+        const imageName = `gcr.io/${projectId}/${serviceName}`;
+        const envString = envVars.map(v => `${v.key}=${v.value || 'VALUE'}`).join(',');
+        const envStringTerraform = envVars.map(v => `        {
+          name  = "${v.key}"
+          value = "${v.value || 'VALUE'}"
+        }`).join('\n');
+
+        let content = '';
+
+        if (manualSubTab === 'gcloud') {
+            if (target === 'cloud_run') {
+                content = `# 1. Build Container Image
+gcloud builds submit --tag ${imageName} .
+
+# 2. Deploy to Cloud Run
+gcloud run deploy ${serviceName} \\
+  --image ${imageName} \\
+  --region ${region} \\
+  --project ${projectId} \\
+  --allow-unauthenticated \\
+  --set-env-vars "${envString}"`;
+            } else {
+                content = `# Reasoning Engines are typically deployed via the Python SDK.
+# However, you can use gcloud to interact with them once created.
+
+# 1. Install dependencies locally
+pip install -r requirements.txt
+pip install "google-cloud-aiplatform[adk,agent_engines]>=1.111"
+
+# 2. Authenticate
+gcloud auth application-default login
+
+# 3. Run the deployment script (generated in the code view)
+# Ensure GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are set.
+export GOOGLE_CLOUD_PROJECT=${projectId}
+export GOOGLE_CLOUD_LOCATION=${region}
+export STAGING_BUCKET=${selectedBucket || 'gs://YOUR_BUCKET'}
+
+python deploy_re.py`;
+            }
+        } else if (manualSubTab === 'terraform') {
+            if (target === 'cloud_run') {
+                content = `resource "google_cloud_run_v2_service" "default" {
+  name     = "${serviceName}"
+  location = "${region}"
+  project  = "${projectId}"
+
+  template {
+    containers {
+      image = "${imageName}" # Ensure image is pushed to Artifact Registry first
+      env {
+${envStringTerraform}
+      }
+    }
+  }
+}
+
+resource "google_cloud_run_v2_service_iam_member" "noauth" {
+  location = google_cloud_run_v2_service.default.location
+  name     = google_cloud_run_v2_service.default.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}`;
+            } else {
+                content = `# Currently, Reasoning Engines are best managed via the Vertex AI Python SDK.
+# Terraform support for Reasoning Engines is limited or requires custom providers.
+# Please refer to the Python SDK deployment method.`;
+            }
+        } else if (manualSubTab === 'api') {
+            if (target === 'cloud_run') {
+                content = `# Deploying Cloud Run via REST API requires a JSON payload defining the service.
+# First, get an access token:
+# TOKEN=$(gcloud auth print-access-token)
+
+curl -X POST \\
+  -H "Authorization: Bearer $TOKEN" \\
+  -H "Content-Type: application/json" \\
+  "https://${region}-run.googleapis.com/v2/projects/${projectId}/locations/${region}/services?serviceId=${serviceName}" \\
+  -d '{
+    "template": {
+      "containers": [{
+        "image": "${imageName}",
+        "env": [
+          ${envVars.map(v => `{ "name": "${v.key}", "value": "${v.value || 'VALUE'}" }`).join(',\n          ')}
+        ]
+      }]
+    }
+  }'`;
+            } else {
+                content = `# Create Reasoning Engine via REST API
+# Note: This requires the agent to be pickled and uploaded to GCS first.
+
+curl -X POST \\
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
+  -H "Content-Type: application/json" \\
+  "https://${region}-aiplatform.googleapis.com/v1beta1/projects/${projectId}/locations/${region}/reasoningEngines" \\
+  -d '{
+    "display_name": "${agentName}",
+    "spec": {
+      "package_spec": {
+        "pickle_object_gcs_uri": "gs://${selectedBucket || 'YOUR_BUCKET'}/agent.pkl",
+        "requirements_gcs_uri": "gs://${selectedBucket || 'YOUR_BUCKET'}/requirements.txt"
+      }
+    }
+  }'`;
+            }
+        } else if (manualSubTab === 'cloudbuild') {
+            if (target === 'cloud_run') {
+                content = `# cloudbuild.yaml
+steps:
+  # 1. Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', '${imageName}', '.']
+  
+  # 2. Push the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${imageName}']
+  
+  # 3. Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${serviceName}'
+      - '--image'
+      - '${imageName}'
+      - '--region'
+      - '${region}'
+      - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - '${envString}'
+images:
+  - '${imageName}'`;
+            } else {
+                const cloudBuildEnv = envVars.map(v => `      - '${v.key}=${v.value || 'VALUE'}'`).join('\n');
+                content = `# cloudbuild.yaml
+steps:
+  - name: 'python:3.10'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install "google-cloud-aiplatform[adk,agent_engines]>=1.111"
+        python deploy_re.py
+    env:
+      - 'GOOGLE_CLOUD_PROJECT=${projectId}'
+      - 'GOOGLE_CLOUD_LOCATION=${region}'
+      - 'STAGING_BUCKET=${selectedBucket || 'gs://YOUR_BUCKET'}'
+${cloudBuildEnv}`;
+            }
+        }
+
+        return (
+            <div className="flex flex-col h-full bg-gray-900 rounded-lg border border-gray-700">
+                <div className="flex bg-gray-800 border-b border-gray-700">
+                    <button onClick={() => setManualSubTab('gcloud')} className={`px-4 py-2 text-xs font-medium ${manualSubTab === 'gcloud' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>gcloud CLI</button>
+                    <button onClick={() => setManualSubTab('terraform')} className={`px-4 py-2 text-xs font-medium ${manualSubTab === 'terraform' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>Terraform</button>
+                    <button onClick={() => setManualSubTab('api')} className={`px-4 py-2 text-xs font-medium ${manualSubTab === 'api' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>REST API</button>
+                    <button onClick={() => setManualSubTab('cloudbuild')} className={`px-4 py-2 text-xs font-medium ${manualSubTab === 'cloudbuild' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>Cloud Build</button>
+                    <div className="flex-1"></div>
+                    <button onClick={() => handleCopyManual(content)} className="px-3 text-xs text-blue-400 hover:text-white">{copySuccess || 'Copy'}</button>
+                </div>
+                <pre className="flex-1 p-4 text-xs text-gray-300 font-mono whitespace-pre-wrap overflow-auto">
+                    {content}
+                </pre>
+            </div>
+        );
+    };
 
     const handleDeploy = async () => {
         setIsDeploying(true);
@@ -669,6 +853,12 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                             >
                                 Architecture
                             </button>
+                            <button 
+                                onClick={() => setLeftTab('manual')} 
+                                className={`flex-1 py-3 text-sm font-medium ${leftTab === 'manual' ? 'text-white border-b-2 border-blue-500 bg-gray-700/50' : 'text-gray-400 hover:text-white'}`}
+                            >
+                                Manual Deployment
+                            </button>
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-6">
@@ -684,6 +874,8 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                                         <p>No README.md found in this agent package.</p>
                                     </div>
                                 )
+                            ) : leftTab === 'manual' ? (
+                                renderManualDeployment()
                             ) : (
                                 <div className="flex flex-col items-center space-y-6">
                                     {/* Agent Node */}

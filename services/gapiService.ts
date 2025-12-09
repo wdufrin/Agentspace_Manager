@@ -1,3 +1,4 @@
+
 // This service manages the loading and initialization of the Google API Client (gapi).
 
 declare global {
@@ -20,6 +21,7 @@ const DISCOVERY_DOCS = [
     'https://run.googleapis.com/$discovery/rest?version=v2',
     'https://www.googleapis.com/discovery/v1/apis/storage/v1/rest',
     'https://serviceusage.googleapis.com/$discovery/rest?version=v1',
+    'https://monitoring.googleapis.com/$discovery/rest?version=v3',
 ];
 
 /**

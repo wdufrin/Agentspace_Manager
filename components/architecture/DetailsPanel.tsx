@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { GraphNode, Page, ReasoningEngine, CloudRunService } from '../../types';
 
@@ -7,6 +8,7 @@ interface DetailsPanelProps {
     onClose: () => void;
     onNavigate: (page: Page, context?: any) => void;
     onDirectQuery: (engine: ReasoningEngine) => void;
+    variant?: 'sidebar' | 'floating';
 }
 
 const getGcpConsoleUrl = (node: GraphNode, projectNumber: string): string | null => {
@@ -67,8 +69,9 @@ const ActionButton: React.FC<React.PropsWithChildren<{ onClick: () => void }>> =
     </button>
 );
 
-const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClose, onNavigate, onDirectQuery }) => {
+const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClose, onNavigate, onDirectQuery, variant = 'sidebar' }) => {
     if (!node) {
+        if (variant === 'floating') return null; // Don't show empty state in floating mode
         return (
             <div className="w-96 border-l border-gray-700 bg-gray-800 flex items-center justify-center p-4">
                  <div className="text-center text-gray-500">
@@ -139,14 +142,22 @@ const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClos
         }
     }
 
+    const containerClasses = variant === 'floating'
+        ? "absolute right-4 top-16 w-96 bg-gray-800/95 backdrop-blur-md rounded-xl shadow-2xl border border-gray-600 flex flex-col shrink-0 max-h-[calc(100%-5rem)] z-50 animate-in fade-in slide-in-from-right-4 duration-200"
+        : "w-96 border-l border-gray-700 bg-gray-800/50 flex flex-col shrink-0";
+
+    const headerClasses = variant === 'floating'
+        ? "p-4 border-b border-gray-700 flex justify-between items-start bg-gray-800/50 rounded-t-xl"
+        : "p-4 border-b border-gray-700 flex justify-between items-start";
+
     return (
-        <div className="w-96 border-l border-gray-700 bg-gray-800/50 flex flex-col shrink-0">
-            <header className="p-4 border-b border-gray-700 flex justify-between items-start">
+        <div className={containerClasses}>
+            <header className={headerClasses}>
                 <div>
                     <p className="text-xs font-semibold text-gray-400 uppercase">{node.type}</p>
                     <h2 className="text-lg font-bold text-white break-all">{node.label}</h2>
                 </div>
-                <button onClick={onClose} className="text-gray-400 hover:text-white" title="Clear Selection">&times;</button>
+                <button onClick={onClose} className="text-gray-400 hover:text-white" title="Close Panel">&times;</button>
             </header>
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 <section>
