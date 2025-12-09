@@ -44,6 +44,7 @@ export interface Config {
   assistantId: string;
   dataStoreId?: string;
   reasoningEngineLocation?: string;
+  reasoningEngineId?: string;
 }
 
 export interface StarterPrompt {

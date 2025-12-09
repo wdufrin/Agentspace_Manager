@@ -369,6 +369,18 @@ export const getReasoningEngine = async (name: string, config: Config) => {
     return gapiRequest<ReasoningEngine>(url, 'GET', config.projectId);
 };
 
+export const createReasoningEngine = async (payload: any, config: Config) => {
+    const { projectId, reasoningEngineLocation } = config;
+    const url = `https://${reasoningEngineLocation}-aiplatform.googleapis.com/v1beta1/projects/${projectId}/locations/${reasoningEngineLocation}/reasoningEngines`;
+    return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
+};
+
+export const getAiPlatformOperation = async (name: string, config: Config) => {
+    const location = name.split('/')[3]; // projects/.../locations/LOC/...
+    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${name}`;
+    return gapiRequest<any>(url, 'GET', config.projectId);
+};
+
 export const deleteReasoningEngine = async (name: string, config: Config) => {
     const location = name.split('/')[3];
     const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${name}`;
@@ -377,12 +389,6 @@ export const deleteReasoningEngine = async (name: string, config: Config) => {
 
 export const listReasoningEngineSessions = async (name: string, config: Config) => {
     const location = name.split('/')[3];
-    // This is not a standard list method, it might be :listSessions or similar if available, 
-    // or standard REST pattern if sessions are sub-resources. Assuming standard pattern:
-    // projects/.../reasoningEngines/.../sessions (This is hypothetical as public API might differ)
-    // Adjusting to a known pattern if available or returning empty if not supported yet.
-    // For now, assuming a made-up endpoint based on resource hierarchy logic.
-    // NOTE: Replace with actual endpoint if known. Assuming standard sub-resource list.
     const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${name}/sessions`;
     return gapiRequest<{ sessions: any[] }>(url, 'GET', config.projectId).catch(() => ({ sessions: [] }));
 };
