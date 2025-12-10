@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Agent, AppEngine, Assistant, Authorization, Collection, Config, DataStore } from '../types';
+import { Agent, AppEngine, Assistant, Authorization, Collection, Config, DataStore, ReasoningEngine } from '../types';
 import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
 import RestoreSelectionModal from '../components/backup/RestoreSelectionModal';
@@ -127,6 +128,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     appLocation: 'global',
     appId: '',
     reasoningEngineLocation: 'us-central1',
+    reasoningEngineId: '', // Added Reasoning Engine selection
     collectionId: 'default_collection',
     assistantId: 'default_assistant',
   });
@@ -152,6 +154,9 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   // State for dropdown options
   const [apps, setApps] = useState<AppEngine[]>([]);
   const [isLoadingApps, setIsLoadingApps] = useState(false);
+  
+  const [reasoningEngines, setReasoningEngines] = useState<ReasoningEngine[]>([]);
+  const [isLoadingReasoningEngines, setIsLoadingReasoningEngines] = useState(false);
 
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
@@ -170,8 +175,10 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     setConfig(prev => ({
         ...prev,
         appId: '',
+        reasoningEngineId: '',
     }));
     setApps([]);
+    setReasoningEngines([]);
   };
   
   const handleFileChange = (section: string, file: File | null) => {
@@ -209,6 +216,30 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     };
     fetchApps();
   }, [apiConfig.projectId, apiConfig.appLocation, apiConfig.collectionId]);
+
+  // Fetch Reasoning Engines
+  useEffect(() => {
+    if(!apiConfig.projectId || !apiConfig.reasoningEngineLocation) return;
+    const fetchREs = async () => {
+        setIsLoadingReasoningEngines(true);
+        setReasoningEngines([]);
+        try {
+            const res = await api.listReasoningEngines(apiConfig);
+            const engines = res.reasoningEngines || [];
+            setReasoningEngines(engines);
+            // Auto select if only one
+             if (engines.length === 1) {
+                 const id = engines[0].name.split('/').pop() || '';
+                 setConfig(p => ({...p, reasoningEngineId: id}));
+             }
+        } catch(e) { 
+            console.error("Failed to fetch reasoning engines:", e); 
+        } finally { 
+            setIsLoadingReasoningEngines(false); 
+        }
+    }
+    fetchREs();
+  }, [apiConfig.projectId, apiConfig.reasoningEngineLocation]);
 
 
   const downloadJson = (data: object, filenamePrefix: string) => {
@@ -290,21 +321,18 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     addLog(`Backup complete! Found and backed up 'default_collection'.`);
   });
   
-  const handleBackupAppEngine = async () => executeOperation('BackupAppEngine', async () => {
-    if (!apiConfig.appId) {
-      throw new Error("Gemini Enterprise ID must be set in the configuration to back up a single engine.");
+  const handleBackupReasoningEngine = async () => executeOperation('BackupReasoningEngine', async () => {
+    if (!apiConfig.reasoningEngineId) {
+        throw new Error("Target Reasoning Engine ID must be selected.");
     }
-    addLog(`Starting backup for App/Engine: ${apiConfig.appId}...`);
-    const engineName = `projects/${apiConfig.projectId}/locations/${apiConfig.appLocation}/collections/${apiConfig.collectionId}/engines/${apiConfig.appId}`;
+    const engineName = `projects/${apiConfig.projectId}/locations/${apiConfig.reasoningEngineLocation}/reasoningEngines/${apiConfig.reasoningEngineId}`;
+    addLog(`Starting backup for Reasoning Engine: ${engineName}...`);
     
-    const engine = await api.getEngine(engineName, apiConfig);
+    const engine = await api.getReasoningEngine(engineName, apiConfig);
     
-    const assistantsResponse = await api.listResources('assistants', { ...apiConfig, appId: apiConfig.appId });
-    engine.assistants = (assistantsResponse.assistants || []).filter(a => a.name.endsWith('/default_assistant'));
-
-    const backupData = { type: 'AppEngine', createdAt: new Date().toISOString(), sourceConfig: apiConfig, engine };
-    downloadJson(backupData, `agentspace-app-engine-${apiConfig.appId}-backup`);
-    addLog(`Backup complete! App/Engine '${engine.displayName}' and its default_assistant saved.`);
+    const backupData = { type: 'ReasoningEngine', createdAt: new Date().toISOString(), sourceConfig: apiConfig, engine };
+    downloadJson(backupData, `agentspace-reasoning-engine-${apiConfig.reasoningEngineId}-backup`);
+    addLog(`Backup complete! Reasoning Engine '${engine.displayName}' saved.`);
   });
 
   const handleBackupAssistant = async () => executeOperation('BackupAssistant', async () => {
@@ -401,8 +429,9 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
           case 'DiscoveryResources':
               dataToRestore.collections = originalData.collections.filter((c: Collection) => items.some(item => item.name === c.name));
               break;
-          case 'AppEngine':
-              dataToRestore.engine.assistants = originalData.engine.assistants.filter((a: Assistant) => items.some(item => item.name === a.name));
+          case 'ReasoningEngine':
+              // It's a single item select for now
+              dataToRestore.engine = items.length > 0 ? items[0] : null; 
               break;
           case 'Assistant':
               dataToRestore.assistant.agents = originalData.assistant.agents.filter((a: Agent) => items.some(item => item.name === a.name));
@@ -589,51 +618,59 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     });
   };
 
-  const processRestoreAppEngine = async (backupData: any) => {
+  const processRestoreReasoningEngine = async (backupData: any) => {
     const { engine } = backupData;
     if (!engine) {
-      addLog("No App/Engine data found in backup file.");
+      addLog("No Reasoning Engine data found in backup file.");
       return;
     }
      setModalData({
-      section: 'AppEngine',
-      title: 'Select Assistants to Restore',
-      items: engine.assistants || [],
+      section: 'ReasoningEngine',
+      title: 'Confirm Restore Reasoning Engine',
+      items: [engine],
       originalData: backupData,
       processor: async (data) => {
         const engineToRestore = data.engine;
-        const engineId = engineToRestore.name.split('/').pop()!;
-        const collectionId = apiConfig.collectionId;
-        addLog(`Restoring App/Engine '${engineToRestore.displayName}' (${engineId}) into collection '${collectionId}'...`);
-        const restoreConfig = { ...apiConfig, collectionId, appId: engineId };
+        if (!engineToRestore) return; // Should not happen
+
+        addLog(`Restoring Reasoning Engine '${engineToRestore.displayName}' to ${apiConfig.reasoningEngineLocation}...`);
         
         try {
-            const enginePayload: any = {
+            const payload: any = {
                 displayName: engineToRestore.displayName,
-                solutionType: engineToRestore.solutionType || 'SOLUTION_TYPE_SEARCH',
-                dataStoreIds: engineToRestore.dataStoreIds,
-                ...(engineToRestore.searchEngineConfig && { searchEngineConfig: engineToRestore.searchEngineConfig }),
-                ...(engineToRestore.industryVertical && { industryVertical: engineToRestore.industryVertical }),
-                ...(engineToRestore.appType && { appType: engineToRestore.appType }),
+                description: engineToRestore.description,
+                spec: engineToRestore.spec, // Contains GCS URIs
             };
-            const engineOperation = await api.createEngine(engineId, enginePayload, restoreConfig);
-            await pollOperation(engineOperation, restoreConfig, `App/Engine '${engineId}'`, 'v1alpha');
-            addLog(`  - CREATED: App/Engine '${engineId}' with linked data store.`);
+            
+            const operation = await api.createReasoningEngine(apiConfig, payload);
+            addLog(`  - Operation started: ${operation.name}`);
+            
+            // Poll for completion
+            let currentOp = operation;
+            while (!currentOp.done) {
+                await delay(10000); // Poll every 10 seconds (deployment takes time)
+                try {
+                    currentOp = await api.getVertexAiOperation(operation.name, apiConfig);
+                    addLog(`    - Polling status: ${currentOp.done ? 'DONE' : 'IN_PROGRESS'}`);
+                } catch (pollErr: any) {
+                    console.warn("Polling error", pollErr);
+                    addLog(`    - WARNING: Error polling operation: ${pollErr.message}. Retrying...`);
+                }
+            }
+
+            if (currentOp.error) {
+                 addLog(`  - ERROR: Restore failed: ${currentOp.error.message}`);
+                 throw new Error(currentOp.error.message);
+            } else {
+                 addLog(`  - SUCCESS: Reasoning Engine '${engineToRestore.displayName}' restored successfully.`);
+                 // Optionally try to fetch the new resource to confirm
+                 if (currentOp.response && currentOp.response.name) {
+                     addLog(`  - Resource Name: ${currentOp.response.name}`);
+                 }
+            }
             
         } catch (err: any) {
-             if (err.message && err.message.includes("ALREADY_EXISTS")) {
-                addLog(`  - INFO: App/Engine '${engineId}' already exists. Proceeding to restore assistants into it.`);
-            } else {
-                addLog(`  - ERROR: Failed to create App/Engine '${engineId}': ${err.message}`);
-                throw err; // Stop if engine creation fails
-            }
-        }
-
-        if (engineToRestore.assistants && engineToRestore.assistants.length > 0) {
-          addLog(`  - Restoring ${engineToRestore.assistants.length} assistant(s)...`);
-          for (const assistant of engineToRestore.assistants) {
-              await processRestoreAssistant({ assistant }, false); // Call sub-processor directly
-          }
+             addLog(`  - ERROR: Failed to create Reasoning Engine: ${err.message}`);
         }
       }
     });
@@ -850,7 +887,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
   const cardConfigs = [
     { section: 'DiscoveryResources', title: 'All Discovery Resources', backupHandler: handleBackupDiscovery, restoreProcessor: processRestoreDiscovery },
-    { section: 'AppEngine', title: 'Single App / Engine', backupHandler: handleBackupAppEngine, restoreProcessor: processRestoreAppEngine },
+    { section: 'ReasoningEngine', title: 'Single Reasoning Engine', backupHandler: handleBackupReasoningEngine, restoreProcessor: processRestoreReasoningEngine },
     { section: 'Assistant', title: 'Single Assistant', backupHandler: handleBackupAssistant, restoreProcessor: processRestoreAssistant },
     { section: 'Agents', title: 'Agents', backupHandler: handleBackupAgents, restoreProcessor: processRestoreAgents },
     { section: 'DataStores', title: 'Data Stores', backupHandler: handleBackupDataStores, restoreProcessor: processRestoreDataStores },
@@ -890,7 +927,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
             <ProjectInput value={projectNumber} onChange={handleProjectNumberChange} />
           </div>
           <div>
-            <label htmlFor="appLocation" className="block text-sm font-medium text-gray-400 mb-1">Target Location</label>
+            <label htmlFor="appLocation" className="block text-sm font-medium text-gray-400 mb-1">Target Location (Discovery)</label>
             <select name="appLocation" value={config.appLocation} onChange={handleConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px]">
               <option value="global">global</option>
               <option value="us">us</option>
@@ -904,6 +941,25 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
               {apps.map(a => {
                   const id = a.name.split('/').pop() || '';
                   return <option key={a.name} value={id}>{a.displayName || id}</option>
+              })}
+            </select>
+          </div>
+          
+          <div>
+            <label htmlFor="reasoningEngineLocation" className="block text-sm font-medium text-gray-400 mb-1">Reasoning Engine Location</label>
+            <select name="reasoningEngineLocation" value={config.reasoningEngineLocation} onChange={handleConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px]">
+                <option value="us-central1">us-central1</option>
+                <option value="europe-west1">europe-west1</option>
+                <option value="asia-east1">asia-east1</option>
+            </select>
+          </div>
+          <div>
+            <label htmlFor="reasoningEngineId" className="block text-sm font-medium text-gray-400 mb-1">Target Reasoning Engine</label>
+             <select name="reasoningEngineId" value={config.reasoningEngineId} onChange={handleConfigChange} disabled={isLoadingReasoningEngines || reasoningEngines.length === 0} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 w-full h-[42px] disabled:bg-gray-700/50">
+              <option value="">{isLoadingReasoningEngines ? 'Loading...' : '-- Select Engine --'}</option>
+              {reasoningEngines.map(re => {
+                  const id = re.name.split('/').pop() || '';
+                  return <option key={re.name} value={id}>{re.displayName} ({id})</option>
               })}
             </select>
           </div>

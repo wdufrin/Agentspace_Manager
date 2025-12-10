@@ -18,7 +18,6 @@ import ProjectInput from './components/ProjectInput';
 import { initGapiClient, getGapiClient } from './services/gapiService';
 import * as api from './services/apiService';
 import ChatPage from './pages/ChatPage';
-import AgentRegistrationPage from './pages/AgentRegistrationPage';
 import ArchitecturePage from './pages/ArchitecturePage';
 import CurlInfoModal from './components/CurlInfoModal';
 import DirectQueryChatWindow from './components/agent-engines/DirectQueryChatWindow';
@@ -570,8 +569,6 @@ const App: React.FC = () => {
         return <AuthorizationsPage {...commonProps} />;
       case Page.AGENT_ENGINES:
         return <AgentEnginesPage {...commonProps} accessToken={accessToken} onDirectQuery={handleDirectQuery} />;
-      case Page.AGENT_REGISTRATION:
-        return <AgentRegistrationPage {...projectProps} />;
       case Page.A2A_TESTER:
         return <A2aTesterPage {...projectProps} onNavigate={handleNavigation} accessToken={accessToken} />;
       case Page.AGENT_BUILDER:
@@ -591,7 +588,7 @@ const App: React.FC = () => {
       case Page.BACKUP_RECOVERY:
         return <BackupPage {...projectProps} accessToken={accessToken} />;
       case Page.LICENSE:
-        return <LicensePage {...projectProps} />;
+        return <LicensePage {...projectProps} onBuildTriggered={handleBuildTriggered} />;
       case Page.ARCHITECTURE:
         return <ArchitecturePage 
                     {...projectProps} 

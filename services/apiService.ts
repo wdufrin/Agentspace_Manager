@@ -13,7 +13,15 @@ const getDiscoveryEngineUrl = (location: string) => {
 };
 
 // Generic gapi request wrapper
-const gapiRequest = async <T>(path: string, method: string = 'GET', projectId?: string, params?: any, body?: any, headers?: any): Promise<T> => {
+const gapiRequest = async <T>(
+    path: string, 
+    method: string = 'GET', 
+    projectId?: string, 
+    params?: any, 
+    body?: any, 
+    headers?: any,
+    suppressErrorLog: boolean = false
+): Promise<T> => {
   const client = await getGapiClient();
   const requestOptions: any = {
     path,
@@ -31,8 +39,30 @@ const gapiRequest = async <T>(path: string, method: string = 'GET', projectId?: 
     const response = await client.request(requestOptions);
     return response.result;
   } catch (error: any) {
-    console.error("API Request Failed", error);
-    throw new Error(error.result?.error?.message || error.message || "Unknown API Error");
+    if (!suppressErrorLog) {
+        console.error("API Request Failed", error);
+    }
+    
+    // Robust error message extraction to avoid [object Object]
+    let errorMessage = "Unknown API Error";
+    
+    if (error?.result?.error?.message) {
+        errorMessage = error.result.error.message;
+    } else if (error?.result?.error?.code) {
+        errorMessage = `API Error ${error.result.error.code}: ${JSON.stringify(error.result.error)}`;
+    } else if (error?.message) {
+        errorMessage = error.message;
+    } else {
+        try {
+            // Try to stringify if it's a non-empty object
+            const json = JSON.stringify(error);
+            if (json !== '{}') errorMessage = json;
+        } catch (e) {
+            // Fallback
+        }
+    }
+    
+    throw new Error(errorMessage);
   }
 };
 
@@ -136,6 +166,17 @@ export const getDiscoveryOperation = async (name: string, config: Config, apiVer
     return gapiRequest<any>(`${baseUrl}/${apiVersion}/${name}`, 'GET', config.projectId);
 };
 
+export const getVertexAiOperation = async (name: string, config: Config) => {
+    // name is like projects/{project}/locations/{location}/operations/{opId}
+    // OR projects/{project}/locations/{location}/reasoningEngines/{reId}/operations/{opId}
+    const parts = name.split('/');
+    const locIndex = parts.indexOf('locations');
+    const location = (locIndex !== -1 && parts.length > locIndex + 1) ? parts[locIndex + 1] : (config.reasoningEngineLocation || 'us-central1');
+    
+    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${name}`;
+    return gapiRequest<any>(url, 'GET', config.projectId);
+};
+
 // Collections
 export const createCollection = async (collectionId: string, payload: any, config: Config) => {
     const { projectId, appLocation } = config;
@@ -160,7 +201,15 @@ export const createEngine = async (engineId: string, payload: any, config: Confi
 // Assistants
 export const getAssistant = async (name: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-    return gapiRequest<Assistant>(`${baseUrl}/${DISCOVERY_API_VERSION}/${name}`, 'GET', config.projectId);
+    return gapiRequest<Assistant>(
+        `${baseUrl}/${DISCOVERY_API_VERSION}/${name}`, 
+        'GET', 
+        config.projectId,
+        undefined,
+        undefined,
+        undefined,
+        config.suppressErrorLog // Pass through suppression flag
+    );
 };
 
 export const updateAssistant = async (name: string, payload: any, updateMask: string[], config: Config) => {
@@ -326,6 +375,12 @@ export const getReasoningEngine = async (name: string, config: Config) => {
     const location = name.split('/')[3];
     const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${name}`;
     return gapiRequest<ReasoningEngine>(url, 'GET', config.projectId);
+};
+
+export const createReasoningEngine = async (config: Config, payload: any) => {
+    const { projectId, reasoningEngineLocation } = config;
+    const url = `https://${reasoningEngineLocation}-aiplatform.googleapis.com/v1beta1/projects/${projectId}/locations/${reasoningEngineLocation}/reasoningEngines`;
+    return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
 };
 
 export const deleteReasoningEngine = async (name: string, config: Config) => {

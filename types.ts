@@ -1,12 +1,10 @@
 
-
 // FIX: Replaced incorrect component code with proper type definitions.
 export enum Page {
   AGENTS = 'Agents Manager',
   ASSISTANT = 'Assistant',
   AUTHORIZATIONS = 'Authorizations',
   AGENT_ENGINES = 'Available Agents',
-  AGENT_REGISTRATION = 'Agent Registration',
   A2A_TESTER = 'A2A Tester',
   AGENT_BUILDER = 'Agent Builder',
   AGENT_CATALOG = 'Agent Catalog',
@@ -42,6 +40,8 @@ export interface Config {
   assistantId: string;
   dataStoreId?: string;
   reasoningEngineLocation?: string;
+  reasoningEngineId?: string;
+  suppressErrorLog?: boolean;
 }
 
 export interface StarterPrompt {

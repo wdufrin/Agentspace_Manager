@@ -12,12 +12,13 @@ import PrunerDeploymentModal from '../components/license/PrunerDeploymentModal';
 interface LicensePageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
+  onBuildTriggered?: (buildId: string) => void;
 }
 
 type SortKey = 'userPrincipal' | 'licenseAssignmentState' | 'licenseConfig' | 'lastLoginTime';
 type SortDirection = 'asc' | 'desc';
 
-const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumber }) => {
+const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumber, onBuildTriggered }) => {
   // --- Cloud License API State ---
   const [apiConfig, setApiConfig] = useState({
       appLocation: 'global',
@@ -296,6 +297,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
             onClose={() => setIsDeploymentModalOpen(false)}
             projectNumber={projectNumber}
             currentConfig={apiConfig}
+            onBuildTriggered={onBuildTriggered}
           />
       )}
       
