@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Agent, Config, SortableAgentKey, SortDirection, Assistant } from '../types';
 import * as api from '../services/apiService';
@@ -222,17 +221,13 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     setTogglingAgentId(agentId);
     setError(null);
     try {
-      const isEnabled = agent.state?.toUpperCase() === 'ENABLED';
-      // If enabled, disable. Otherwise (Disabled, Private, etc.), enable.
-      const updatedAgent = isEnabled
+      const updatedAgent = agent.state === 'ENABLED'
         ? await api.disableAgent(agent.name, apiConfig)
         : await api.enableAgent(agent.name, apiConfig);
 
-      // Preserve existing enriched properties (like agentType) when merging
-      setAgents(prev => prev.map(a => a.name === updatedAgent.name ? { ...a, ...updatedAgent } : a));
-      
+      setAgents(prev => prev.map(a => a.name === updatedAgent.name ? updatedAgent : a));
       if (selectedAgent?.name === updatedAgent.name) {
-          setSelectedAgent(prev => prev ? { ...prev, ...updatedAgent } : updatedAgent);
+          setSelectedAgent(updatedAgent);
       }
     } catch (err: any) {
       setError(err.message || `Failed to toggle status for agent ${agentId}.`);
@@ -289,9 +284,9 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
   const sortedAgents = useMemo(() => {
     if (!agents) return [];
     return [...agents].sort((a, b) => {
-      // Handle potentially undefined properties
-      const aVal = a[sortConfig.key] || '';
-      const bVal = b[sortConfig.key] || '';
+      // Handle potentially undefined state property for private agents
+      const aVal = a.state ? (a[sortConfig.key] || '') : (sortConfig.key === 'state' ? 'private' : a[sortConfig.key] || '');
+      const bVal = b.state ? (b[sortConfig.key] || '') : (sortConfig.key === 'state' ? 'private' : b[sortConfig.key] || '');
       
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;

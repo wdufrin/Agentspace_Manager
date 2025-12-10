@@ -1,4 +1,8 @@
 
+
+
+
+
 # Gemini Enterprise Manager
 
 A web interface to manage Google Cloud Gemini Enterprise resources, including agents, authorizations, and reasoning engines. This UI provides a user-friendly way to perform operations similar to the `gcloud` CLI tool for Gemini Enterprise. It includes a guided setup process to validate and enable necessary Google Cloud APIs, making project configuration straightforward.
@@ -21,24 +25,25 @@ This application is built using React and communicates with Google Cloud APIs vi
 
 -   **Manage Agents**: List, create, update, delete, enable/disable, and chat with agents.
 -   **Manage Authorizations**: List, create, update, and delete OAuth client authorizations.
--   **Manage Reasoning Engines**: List engines, view agent dependencies, terminate sessions, and delete unused engines.
--   **Architecture Visualizer**: Scans your project to discover all Gemini Enterprise resources and renders an interactive, top-down graph of their relationships and dependencies.
--   **Agent Builder**: A powerful UI to construct agents. Supports creating both **Vertex AI Agent Engine (ADK)** agents and **Cloud Run (A2A)** functions. It automatically generates Python code (`agent.py` / `main.py`), environment files, and deployment scripts.
--   **Agent Catalog**: Browse sample agents from GitHub repositories and deploy them directly to your project using Cloud Build.
+-   **Manage Reasoning Engines**: List engines, view agent dependencies, and delete unused engines.
+-   **Agent Builder**: A powerful UI to construct ADK-based agents from scratch. It automatically generates the necessary Python code (`agent.py`), environment (`.env`), and dependency (`requirements.txt`) files.
+-   **Agent Catalog**: Browse sample agents from GitHub repositories and deploy them directly to your project.
 -   **Explore Data Stores**: List data stores within a collection, view their details, and inspect individual documents and their content.
 -   **Manage Licenses**: View assigned user licenses, resolve license configuration names, and revoke specific licenses.
-    -   **Auto-Pruner Generator**: Includes a built-in wizard to generate and deploy a serverless Cloud Run function that automatically prunes inactive user licenses based on a configurable schedule.
+    -   **Auto-Pruner Generator**: Includes a built-in wizard to generate and deploy a serverless Cloud Run function that automatically prunes inactive user licenses based on a configurable schedule (e.g., users who haven't logged in for 30 days). The pruner uses the efficient `batchUpdateUserLicenses` API.
 -   **Model Armor Log Viewer**: Fetch and inspect safety policy violation logs from Cloud Logging.
 -   **Comprehensive Backup & Restore**: Backup and restore agents, assistants, data stores, authorizations, and entire Discovery Engine configurations.
 -   **Guided Setup & API Validation**: An initial setup screen that validates if all required GCP APIs are enabled for your project and provides a one-click solution to enable any that are missing.
 
 ### Beta Features
 
--   **Project Cost Estimator**: Scans for active resources (Reasoning Engines, Vertex AI Search Apps, Cloud Run services) and queries the **Cloud Monitoring API** to fetch real-time usage metrics (e.g., request counts, node hours) to help estimate costs.
--   **Test Agent (Chat)**: A dedicated, full-page interface for chatting with a Gemini Enterprise engine/assistant to test the overall conversational experience.
+-   **Test Assistant**: A dedicated, full-page interface for chatting with a Gemini Enterprise assistant to test the overall conversational experience.
 -   **Manage Assistant**: View and edit the settings of the default assistant for a Gemini Enterprise Engine, including system instructions, grounding settings, and enabled tools.
--   **Cloud Run Agents**: Scan for and inspect Cloud Run services to identify deployed agents (A2A or standard).
--   **Explore MCP Servers**: Scan for Cloud Run services in a specified region and identify potential Model Context Protocol (MCP) servers.
+-   **Architecture Visualizer**: Scans your project to discover all Gemini Enterprise resources and renders an interactive, top-down graph of their relationships and dependencies.
+-   **A2A Function Builder**: A tool to generate the source code (`main.py`, `Dockerfile`, `requirements.txt`) for a secure, serverless A2A (Agent-to-Agent) function on Cloud Run.
+-   **Agent Registration**: A guided UI to register a deployed A2A function with a Gemini Enterprise Engine, making it discoverable as a tool.
+-   **A2A Tester**: A simple utility to test the discovery endpoint (`agent.json`) of a deployed A2A function.
+-   **Explore MCP Servers**: Scan for Cloud Run services in a specified region. Identifies potential MCP servers if a service's labels contain "MCP". Provides a detailed view of each service's configuration.
 
 ## Prerequisites
 
@@ -53,7 +58,6 @@ Before using this application, ensure you have the following:
     -   Cloud Run Admin API
     -   Cloud Storage API
     -   Service Usage API
-    -   Cloud Monitoring API (for Cost Assessment)
 
 ## Configuration & Setup
 
@@ -172,11 +176,22 @@ curl -X GET \
   "https://discoveryengine.googleapis.com/v1alpha/projects/[PROJECT]/locations/global/collections/default_collection/engines/[APP_ID]/assistants/default_assistant/agents"
 ```
 
-### Cost Usage (Cloud Monitoring)
+### Licenses (Pruning & Revocation)
+The application uses the `batchUpdateUserLicenses` method for both bulk pruning and singleuser revocation. This method allows updating the state of the user store in a single operation.
+
 ```sh
-curl -X GET \
+# Batch update to set the state of licenses (effectively deleting unlisted ones)
+curl -X POST \
   -H "Authorization: Bearer [TOKEN]" \
-  "https://monitoring.googleapis.com/v3/projects/[PROJECT]/timeSeries?filter=metric.type%3D%22run.googleapis.com%2Frequest_count%22&interval.startTime=...&interval.endTime=..."
+  -H "Content-Type: application/json" \
+  -d '{
+        "inlineSource": {
+          "userLicenses": [ { "userPrincipal": "active-user@example.com" } ],
+          "updateMask": { "paths": ["userPrincipal", "licenseConfig"] }
+        },
+        "deleteUnassignedUserLicenses": true
+      }' \
+  "https://discoveryengine.googleapis.com/v1/projects/[PROJECT]/locations/global/userStores/default_user_store:batchUpdateUserLicenses"
 ```
 
 ### A2A Agent Discovery

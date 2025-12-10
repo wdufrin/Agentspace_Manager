@@ -1,6 +1,5 @@
 
 
-
 // FIX: Replaced incorrect component code with proper type definitions.
 export enum Page {
   AGENTS = 'Agents Manager',
@@ -19,7 +18,6 @@ export enum Page {
   BACKUP_RECOVERY = 'Backup & Recovery',
   ARCHITECTURE = 'Architecture',
   LICENSE = 'Licenses',
-  COST_ASSESSMENT = 'Cost Assessment',
 }
 
 export type SortableAgentKey = 'displayName' | 'state' | 'name' | 'updateTime' | 'agentType';
@@ -44,7 +42,6 @@ export interface Config {
   assistantId: string;
   dataStoreId?: string;
   reasoningEngineLocation?: string;
-  reasoningEngineId?: string;
 }
 
 export interface StarterPrompt {

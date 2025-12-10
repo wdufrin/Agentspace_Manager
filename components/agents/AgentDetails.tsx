@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Agent, Config, DataStore } from '../../types';
 import * as api from '../../services/apiService';
@@ -46,13 +45,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
 
     const agentId = agent.name.split('/').pop() || '';
     const isToggling = togglingAgentId === agentId;
-    const stateUpper = agent.state?.toUpperCase();
-    
-    // Status Indicator Color
-    let statusColorClass = 'bg-gray-500';
-    if (stateUpper === 'ENABLED') statusColorClass = 'bg-green-500';
-    else if (stateUpper === 'DISABLED') statusColorClass = 'bg-red-500';
-    else if (stateUpper === 'PRIVATE') statusColorClass = 'bg-yellow-500';
+    const statusColorClass = agent.state === 'ENABLED' ? 'bg-green-500' : agent.state === 'DISABLED' ? 'bg-red-500' : 'bg-yellow-500';
 
     const handleDelete = async () => {
         setIsDeleting(true);
@@ -158,29 +151,12 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
     const toolDescription = agent.adkAgentDefinition?.toolSettings?.toolDescription;
     
     let statusElement = null;
-    if (stateUpper) {
-        const isEnabled = stateUpper === 'ENABLED';
-        const isDisabled = stateUpper === 'DISABLED';
-        const isPrivate = stateUpper === 'PRIVATE';
-        
-        let btnText = stateUpper;
-        let btnColor = 'bg-gray-500 text-white hover:bg-gray-600';
-        let title = 'Click to toggle status';
-
-        if (isEnabled) {
-            btnText = 'Enabled';
-            btnColor = 'bg-green-500 text-white hover:bg-green-600';
-            title = 'Click to Disable';
-        } else if (isDisabled) {
-            btnText = 'Disabled';
-            btnColor = 'bg-red-500 text-white hover:bg-red-600';
-            title = 'Click to Enable';
-        } else if (isPrivate) {
-            btnText = 'Private';
-            btnColor = 'bg-yellow-600 text-white hover:bg-yellow-700';
-            title = 'Click to Enable (Publish)';
-        }
-        
+    if (agent.state === 'ENABLED' || agent.state === 'DISABLED') {
+        const isEnabled = agent.state === 'ENABLED';
+        const statusProps = {
+            text: isEnabled ? 'Enabled' : 'Disabled',
+            colorClasses: isEnabled ? 'bg-green-500 text-white hover:bg-green-600' : 'bg-red-500 text-white hover:bg-red-600',
+        };
         statusElement = (
             <div className="py-2">
                 <dt className="text-sm font-medium text-gray-400">Status</dt>
@@ -193,11 +169,10 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                     ) : (
                          <button
                             onClick={() => onToggleStatus(agent)}
-                            className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors ${btnColor}`}
+                            className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors ${statusProps.colorClasses}`}
                             disabled={isToggling}
-                            title={title}
                         >
-                            {btnText}
+                            {statusProps.text}
                         </button>
                     )}
                 </dd>
@@ -208,7 +183,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
             <div className="py-2">
                 <dt className="text-sm font-medium text-gray-400">Status</dt>
                 <dd className="mt-1 text-sm">
-                     <span className="px-3 py-1 text-xs font-semibold rounded-full bg-gray-600 text-gray-300">Unknown</span>
+                     <span className="px-3 py-1 text-xs font-semibold rounded-full bg-yellow-500 text-black">Private</span>
                 </dd>
             </div>
         );
@@ -265,7 +240,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                             <h4 className="font-semibold text-white">Primary Actions</h4>
                             <p className="text-xs text-gray-400 mb-2">Modify this agent.</p>
                             <div className="flex flex-wrap gap-4">
-                                {agent.state && (
+                                {(agent.state === 'ENABLED' || agent.state === 'DISABLED') && (
                                      <button 
                                         onClick={onEdit} 
                                         title="Update agent's display name, description, tools, etc."
@@ -324,7 +299,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                 <div className="mt-6 border-t border-gray-700 pt-6">
                     <div className="flex items-center justify-between">
                         <h3 className="text-lg font-semibold text-white">IAM Policy</h3>
-                         {agent.state && (
+                         {(agent.state === 'ENABLED' || agent.state === 'DISABLED') && (
                             <button 
                                 onClick={() => setIsSetPolicyModalOpen(true)} 
                                 disabled={!iamPolicy || isFetchingPolicy} 

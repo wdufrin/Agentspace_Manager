@@ -25,7 +25,6 @@ import DirectQueryChatWindow from './components/agent-engines/DirectQueryChatWin
 import AssistantPage from './pages/AssistantPage';
 import LicensePage from './pages/LicensePage';
 import CloudBuildProgress from './components/agent-builder/CloudBuildProgress';
-import CostAssessmentPage from './pages/CostAssessmentPage';
 
 declare global {
     interface Window {
@@ -374,7 +373,7 @@ const App: React.FC = () => {
 
             const authorizations = authResponse.authorizations || [];
             authorizations.forEach(auth => addNode({ id: auth.name, type: 'Authorization', label: auth.name.split('/').pop()!, data: auth }));
-            allReasoningEngines.forEach(re => addNode({ id: re.name, type: 'ReasoningEngine', label: re.displayName || re.name.split('/').pop()!, data: re }));
+            allReasoningEngines.forEach(re => addNode({ id: re.name, type: 'ReasoningEngine', label: re.displayName, data: re }));
             addLog(`Found ${authorizations.length} authorizations and ${allReasoningEngines.length} reasoning engines across all locations.`);
 
             // Scan Cloud Run Services
@@ -422,7 +421,7 @@ const App: React.FC = () => {
                         addLog(`  Found ${dataStores.length} Data Store(s) in ${location}.`);
                         for (const dataStore of dataStores) {
                             if (!foundNodeIds.has(dataStore.name)) {
-                                addNode({ id: dataStore.name, type: 'DataStore', label: dataStore.displayName || dataStore.name.split('/').pop()!, data: dataStore });
+                                addNode({ id: dataStore.name, type: 'DataStore', label: dataStore.displayName, data: dataStore });
                             }
                             addEdge(collectionNodeId, dataStore.name);
                         }
@@ -438,7 +437,7 @@ const App: React.FC = () => {
 
                     addLog(`  Found ${engines.length} App/Engine(s) in ${location}.`);
                     for (const engine of engines) {
-                        addNode({ id: engine.name, type: 'Engine', label: engine.displayName || engine.name.split('/').pop()!, data: engine });
+                        addNode({ id: engine.name, type: 'Engine', label: engine.displayName, data: engine });
                         addEdge(collectionNodeId, engine.name);
 
                         // Fetch full engine details to find direct data store links
@@ -477,7 +476,7 @@ const App: React.FC = () => {
                         }
 
                         for (const assistant of assistants) {
-                            addNode({ id: assistant.name, type: 'Assistant', label: assistant.displayName || assistant.name.split('/').pop()!, data: assistant });
+                            addNode({ id: assistant.name, type: 'Assistant', label: assistant.displayName, data: assistant });
                             addEdge(engine.name, assistant.name);
 
                             // Robustly list agents
@@ -492,7 +491,7 @@ const App: React.FC = () => {
                             }
                             
                             for (const agent of agents) {
-                                addNode({ id: agent.name, type: 'Agent', label: agent.displayName || agent.name.split('/').pop()!, data: agent });
+                                addNode({ id: agent.name, type: 'Agent', label: agent.displayName, data: agent });
                                 addEdge(assistant.name, agent.name);
 
                                 const reName = agent.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine;
@@ -516,7 +515,7 @@ const App: React.FC = () => {
                                         if (!foundNodeIds.has(dsId)) {
                                             try {
                                                 const dataStore = await api.getDataStore(dsId, assistantConfig);
-                                                addNode({ id: dsId, type: 'DataStore', label: dataStore.displayName || dsId.split('/').pop()!, data: dataStore });
+                                                addNode({ id: dsId, type: 'DataStore', label: dataStore.displayName, data: dataStore });
                                             } catch (dsError: any) {
                                                 addLog(`WARNING: Could not fetch details for DataStore ${dsId}: ${dsError.message}`);
                                                 addNode({ id: dsId, type: 'DataStore', label: dsId.split('/').pop()!, data: { name: dsId, error: 'Could not fetch details' } });
@@ -593,8 +592,6 @@ const App: React.FC = () => {
         return <BackupPage {...projectProps} accessToken={accessToken} />;
       case Page.LICENSE:
         return <LicensePage {...projectProps} />;
-      case Page.COST_ASSESSMENT:
-        return <CostAssessmentPage {...projectProps} />;
       case Page.ARCHITECTURE:
         return <ArchitecturePage 
                     {...projectProps} 

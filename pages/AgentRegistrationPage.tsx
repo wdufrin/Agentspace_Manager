@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Config, AppEngine, CloudRunService, Agent } from '../types';
 import * as api from '../services/apiService';
@@ -212,7 +210,7 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
         Rewritten Description:`;
 
         try {
-            const text = await api.generateVertexContent(apiConfig, prompt);
+            const text = await api.generateVertexContent(apiConfig, prompt, 'gemini-2.5-flash');
             const rewrittenText = text.trim().replace(/^["']|["']$/g, '').replace(/^```\w*\n?|\n?```$/g, '').trim();
             setAgentDetails(prev => ({ ...prev, agentDescription: rewrittenText }));
         } catch (err: any) {

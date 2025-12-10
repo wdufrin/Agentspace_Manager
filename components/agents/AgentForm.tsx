@@ -1,7 +1,4 @@
 
-
-
-
 import React, { useState, useEffect } from 'react';
 import { Agent, ReasoningEngine, Config, Authorization, CloudRunService } from '../../types';
 import * as api from '../../services/apiService';
@@ -316,7 +313,7 @@ Rewritten agent description:`;
     }
 
     try {
-        const text = await api.generateVertexContent(config, prompt);
+        const text = await api.generateVertexContent(config, prompt, 'gemini-2.5-flash');
         const rewrittenText = text.trim();
         // Clean up if the model returns markdown or quotes
         const cleanedText = rewrittenText.replace(/^["']|["']$/g, '').replace(/^```\w*\n?|\n?```$/g, '').trim();

@@ -59,8 +59,7 @@ export const validateEnabledApis = async (projectId: string): Promise<{ enabled:
         'logging.googleapis.com',
         'cloudresourcemanager.googleapis.com',
         'iam.googleapis.com',
-        'serviceusage.googleapis.com',
-        'monitoring.googleapis.com'
+        'serviceusage.googleapis.com'
     ];
     
     // List enabled services (pagination omitted for brevity, usually fit in 200)
@@ -103,46 +102,6 @@ export const checkServiceAccountPermissions = async (projectId: string, saEmail:
     const granted = new Set(response.permissions || []);
     const missing = permissions.filter(p => !granted.has(p));
     return { hasAll: missing.length === 0, missing };
-};
-
-// --- Monitoring (Metrics) ---
-
-export const fetchMetric = async (
-    projectId: string, 
-    filter: string, 
-    startTime: Date, 
-    endTime: Date,
-    reducer: 'REDUCE_SUM' | 'REDUCE_COUNT' | 'REDUCE_MEAN' = 'REDUCE_SUM'
-): Promise<number> => {
-    // Flatten parameters for GET request to avoid "Cannot bind query parameter" errors
-    // The Monitoring API expects dot notation for nested fields in query parameters.
-    const params = {
-        filter,
-        'interval.startTime': startTime.toISOString(),
-        'interval.endTime': endTime.toISOString(),
-        'aggregation.alignmentPeriod': `${Math.floor((endTime.getTime() - startTime.getTime()) / 1000)}s`,
-        'aggregation.perSeriesAligner': 'ALIGN_SUM',
-        'aggregation.crossSeriesReducer': reducer
-    };
-    
-    try {
-        const response = await gapiRequest<any>(
-            `https://monitoring.googleapis.com/v3/projects/${projectId}/timeSeries`, 
-            'GET', 
-            projectId, 
-            params
-        );
-        
-        // The API returns points.value.doubleValue or int64Value
-        if (response.timeSeries && response.timeSeries[0] && response.timeSeries[0].points) {
-            const point = response.timeSeries[0].points[0].value;
-            return Number(point.doubleValue || point.int64Value || 0);
-        }
-        return 0;
-    } catch (e: any) {
-        console.warn("Metric fetch failed", e);
-        return 0;
-    }
 };
 
 // --- Discovery Engine Resources ---
@@ -369,18 +328,6 @@ export const getReasoningEngine = async (name: string, config: Config) => {
     return gapiRequest<ReasoningEngine>(url, 'GET', config.projectId);
 };
 
-export const createReasoningEngine = async (payload: any, config: Config) => {
-    const { projectId, reasoningEngineLocation } = config;
-    const url = `https://${reasoningEngineLocation}-aiplatform.googleapis.com/v1beta1/projects/${projectId}/locations/${reasoningEngineLocation}/reasoningEngines`;
-    return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
-};
-
-export const getAiPlatformOperation = async (name: string, config: Config) => {
-    const location = name.split('/')[3]; // projects/.../locations/LOC/...
-    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${name}`;
-    return gapiRequest<any>(url, 'GET', config.projectId);
-};
-
 export const deleteReasoningEngine = async (name: string, config: Config) => {
     const location = name.split('/')[3];
     const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${name}`;
@@ -389,6 +336,12 @@ export const deleteReasoningEngine = async (name: string, config: Config) => {
 
 export const listReasoningEngineSessions = async (name: string, config: Config) => {
     const location = name.split('/')[3];
+    // This is not a standard list method, it might be :listSessions or similar if available, 
+    // or standard REST pattern if sessions are sub-resources. Assuming standard pattern:
+    // projects/.../reasoningEngines/.../sessions (This is hypothetical as public API might differ)
+    // Adjusting to a known pattern if available or returning empty if not supported yet.
+    // For now, assuming a made-up endpoint based on resource hierarchy logic.
+    // NOTE: Replace with actual endpoint if known. Assuming standard sub-resource list.
     const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${name}/sessions`;
     return gapiRequest<{ sessions: any[] }>(url, 'GET', config.projectId).catch(() => ({ sessions: [] }));
 };
@@ -443,41 +396,31 @@ export const streamQueryReasoningEngine = async (
 
     while (true) {
         const { done, value } = await reader.read();
+        if (done) break;
         
-        if (value) {
-            buffer += decoder.decode(value, { stream: true });
-        }
-
+        buffer += decoder.decode(value, { stream: true });
+        
         const lines = buffer.split('\n');
-        // If done, process all lines including the last one. If not done, keep the last fragment.
-        buffer = done ? '' : (lines.pop() || '');
+        // Keep the last line in buffer as it might be incomplete
+        buffer = lines.pop() || ''; 
 
         for (const line of lines) {
             const trimmed = line.trim();
             if (!trimmed) continue;
-
+            
+            let jsonStr = trimmed;
+            // Handle SSE format if present
             if (trimmed.startsWith('data: ')) {
-                try {
-                    const jsonStr = trimmed.substring(6);
-                    const chunk = JSON.parse(jsonStr);
-                    onChunk(chunk);
-                } catch (e) { console.warn("Failed to parse SSE chunk", e); }
-            } else {
-                // Handle raw JSON response (not SSE)
-                try {
-                    const chunk = JSON.parse(trimmed);
-                    onChunk(chunk);
-                } catch (e) { 
-                    // This might happen if a JSON object is split across chunks and we blindly split by newline
-                    // inside a pretty-printed JSON. However, Reasoning Engine streaming usually outputs
-                    // newline-delimited JSON or single JSON objects.
-                    // If parsing fails here, we might need more complex logic, but for now we warn.
-                    console.warn("Failed to parse non-SSE line", e); 
-                }
+                jsonStr = trimmed.substring(6);
+            }
+            
+            try {
+                const chunk = JSON.parse(jsonStr);
+                onChunk(chunk);
+            } catch (e) { 
+                console.warn("Failed to parse chunk", e); 
             }
         }
-        
-        if (done) break;
     }
 };
 
@@ -627,6 +570,10 @@ export const streamChat = async (
     const { projectId, appLocation, collectionId, appId, assistantId } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
     
+    // Construct URL for streamAssist. If agentName is null, we talk to the assistant directly.
+    // If agentName is provided, we might need a different endpoint (sessions:streamQuery),
+    // but the UI typically uses the assistant's streamAssist to route to agents.
+    
     // Standard path for Assistant streaming
     const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}:streamAssist`;
     
@@ -657,34 +604,41 @@ export const streamChat = async (
 
     while (true) {
         const { done, value } = await reader.read();
+        if (done) break;
         
-        if (value) {
-            buffer += decoder.decode(value, { stream: true });
-        }
-
-        const lines = buffer.split('\n');
-        buffer = done ? '' : (lines.pop() || ''); 
-
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-
-            if (trimmed.startsWith('data: ')) {
+        buffer += decoder.decode(value, { stream: true });
+        // The API returns a stream of JSON objects, potentially separated by newlines or just concatenated
+        // We'll need to parse valid JSON objects from the buffer.
+        // A simple approach assuming line-delimited JSON or similar structure:
+        
+        // Fix for potential array of objects or rapid stream
+        // Discovery Engine streaming usually returns JSON objects.
+        // Let's try to split by some delimiter if standard JSON stream format is used.
+        // Or assume the buffer contains complete JSONs if slow enough.
+        
+        // Robust strategy: Find matching braces
+        let braceCount = 0;
+        let jsonStartIndex = 0;
+        
+        for (let i = 0; i < buffer.length; i++) {
+            if (buffer[i] === '{') braceCount++;
+            else if (buffer[i] === '}') braceCount--;
+            
+            if (braceCount === 0 && i > jsonStartIndex) {
+                const potentialJson = buffer.substring(jsonStartIndex, i + 1);
                 try {
-                    const jsonStr = trimmed.substring(6);
-                    const chunk = JSON.parse(jsonStr);
+                    const chunk = JSON.parse(potentialJson);
                     onChunk(chunk);
-                } catch (e) { console.warn("Failed to parse chunk", e); }
-            } else {
-                // Try parsing standard JSON in case stream format is different
-                try {
-                    const chunk = JSON.parse(trimmed);
-                    onChunk(chunk);
-                } catch (e) { /* ignore */ }
+                    jsonStartIndex = i + 1;
+                } catch (e) {
+                    // Not a valid JSON yet, keep buffering
+                }
             }
         }
         
-        if (done) break;
+        if (jsonStartIndex > 0) {
+            buffer = buffer.substring(jsonStartIndex);
+        }
     }
 };
 
@@ -783,11 +737,16 @@ export const revokeUserLicenses = async (config: Config, userStoreId: string, us
     const parent = `projects/${projectId}/locations/${appLocation}/userStores/${userStoreId}`;
     const url = `${baseUrl}/v1/${parent}:batchUpdateUserLicenses`;
     
+    // To revoke, we update the license to have NO license config, effectively removing it?
+    // Or check if there is a delete method. Usually batchUpdate with empty config works for unassignment.
+    // Based on API docs, setting licenseConfig to empty string or null unassigns it if paths include it.
+    
     const inlineSource = {
         userLicenses: userPrincipals.map(p => ({ userPrincipal: p })),
         updateMask: { paths: ['userPrincipal', 'licenseConfig'] } // Update config to empty/default
     };
     
+    // Need to check if deleteUnassignedUserLicenses param is available or implied
     const body = {
         inlineSource,
         deleteUnassignedUserLicenses: true // This helps cleanup

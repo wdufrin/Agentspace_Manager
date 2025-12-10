@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Config, DataStore, CloudRunService, GcsBucket } from '../types';
 import * as api from '../services/apiService';
@@ -941,7 +939,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         Rewritten Instruction:`;
 
         try {
-            const text = await api.generateVertexContent(apiConfig, prompt);
+            const text = await api.generateVertexContent(apiConfig, prompt, 'gemini-2.5-flash');
             const rewrittenText = text.trim().replace(/^["']|["']$/g, '').replace(/^```\w*\n?|\n?```$/g, '').trim();
             if (builderTab === 'a2a') {
                 setA2aConfig(prev => ({ ...prev, instruction: rewrittenText }));
