@@ -1,5 +1,8 @@
+
 import React from 'react';
 import { DataStore } from '../../types';
+
+type SortKey = 'displayName' | 'name' | 'solutionTypes';
 
 interface DataStoreListProps {
   dataStores: DataStore[];
@@ -12,7 +15,19 @@ interface DataStoreListProps {
   onToggleSelectAll: () => void;
   onDeleteSelected: () => void;
   onCreateNew: () => void;
+  onSort: (key: SortKey) => void;
+  sortConfig: { key: SortKey; direction: 'asc' | 'desc' };
 }
+
+const SortIcon: React.FC<{ direction: 'asc' | 'desc' }> = ({ direction }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+        {direction === 'asc' ? (
+            <path fillRule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clipRule="evenodd" />
+        ) : (
+            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+        )}
+    </svg>
+);
 
 const DataStoreList: React.FC<DataStoreListProps> = ({ 
   dataStores, 
@@ -24,10 +39,27 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
   onToggleSelect,
   onToggleSelectAll,
   onDeleteSelected,
-  onCreateNew
+  onCreateNew,
+  onSort,
+  sortConfig
 }) => {
   const isAllSelected = dataStores.length > 0 && selectedDataStores.size === dataStores.length;
   
+  const SortableHeader: React.FC<{ label: string; sortKey: SortKey; className?: string }> = ({ label, sortKey, className }) => (
+        <th 
+            scope="col" 
+            className={`px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer group hover:bg-gray-700/50 ${className}`}
+            onClick={() => onSort(sortKey)}
+        >
+            <div className="flex items-center gap-1">
+                {label}
+                <span className={`text-gray-400 ${sortConfig.key === sortKey ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'}`}>
+                    <SortIcon direction={sortConfig.key === sortKey ? sortConfig.direction : 'asc'} />
+                </span>
+            </div>
+        </th>
+    );
+
   return (
     <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">
       <div className="p-4 border-b border-gray-700 flex justify-between items-center">
@@ -53,13 +85,13 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
         </div>
       </div>
       {dataStores.length === 0 ? (
-        <p className="text-gray-400 p-6 text-center">No data stores found for the provided configuration. Click "Fetch Data Stores" to load them.</p>
+        <p className="text-gray-400 p-6 text-center">No data stores found for the provided configuration.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-700">
             <thead className="bg-gray-700/50">
               <tr>
-                <th scope="col" className="px-6 py-3">
+                <th scope="col" className="px-6 py-3 w-10">
                   <input
                       type="checkbox"
                       checked={isAllSelected}
@@ -68,8 +100,9 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
                       className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600"
                   />
                 </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Display Name</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Solution Types</th>
+                <SortableHeader label="Display Name" sortKey="displayName" />
+                <SortableHeader label="Data Store ID" sortKey="name" />
+                <SortableHeader label="Solution Types" sortKey="solutionTypes" />
                 <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -77,6 +110,7 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
               {dataStores.map((store) => {
                 const isDeleting = deletingDataStoreIds.has(store.name);
                 const isSelected = selectedDataStores.has(store.name);
+                const storeId = store.name.split('/').pop() || '';
 
                 return (
                   <tr key={store.name} className={`${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'} transition-colors`}>
@@ -90,6 +124,7 @@ const DataStoreList: React.FC<DataStoreListProps> = ({
                         />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{store.displayName}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">{storeId}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{store.solutionTypes?.join(', ')}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
                         <button

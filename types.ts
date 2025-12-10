@@ -114,6 +114,17 @@ export interface ReasoningEngine {
   updateTime?: string;
 }
 
+export interface DialogflowAgent {
+  name: string;
+  displayName: string;
+  description?: string;
+  avatarUri?: string;
+  timeZone?: string;
+  defaultLanguageCode?: string;
+  createTime?: string;
+  updateTime?: string;
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;

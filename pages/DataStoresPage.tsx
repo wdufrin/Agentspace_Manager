@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Collection, Config, DataStore } from '../types';
 import * as api from '../services/apiService';
@@ -306,12 +307,18 @@ const getInitialConfig = () => {
   };
 };
 
+type SortKey = 'displayName' | 'name' | 'solutionTypes';
+type SortDirection = 'asc' | 'desc';
+
 const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
   const [dataStores, setDataStores] = useState<DataStore[]>([]);
   const [selectedDataStore, setSelectedDataStore] = useState<DataStore | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
+
+  // Sorting State
+  const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection }>({ key: 'displayName', direction: 'asc' });
 
   // State for deletion
   const [selectedDataStores, setSelectedDataStores] = useState<Set<string>>(new Set());
@@ -371,11 +378,15 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
     }
   }, [apiConfig, projectNumber, config.collectionId]);
   
+  // Auto-fetch data stores on mount or config change
   useEffect(() => {
-    // Clear data stores if config changes and no auto-fetch is implemented
-    setDataStores([]);
+    if (projectNumber && config.collectionId) {
+        fetchDataStores();
+    } else {
+        setDataStores([]);
+    }
     setSelectedDataStores(new Set());
-  }, [config.appLocation, projectNumber]);
+  }, [fetchDataStores]);
 
   const pollDiscoveryOperation = async (operation: any) => {
     let currentOperation = operation;
@@ -492,6 +503,40 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
     }
   };
 
+  // Sorting Logic
+  const handleSort = (key: SortKey) => {
+      setSortConfig(prev => ({
+          key,
+          direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
+      }));
+  };
+
+  const sortedDataStores = useMemo(() => {
+      return [...dataStores].sort((a, b) => {
+          let aVal = '';
+          let bVal = '';
+
+          switch(sortConfig.key) {
+              case 'displayName':
+                  aVal = a.displayName || '';
+                  bVal = b.displayName || '';
+                  break;
+              case 'name':
+                  aVal = a.name.split('/').pop() || '';
+                  bVal = b.name.split('/').pop() || '';
+                  break;
+              case 'solutionTypes':
+                  aVal = (a.solutionTypes || []).join(', ');
+                  bVal = (b.solutionTypes || []).join(', ');
+                  break;
+          }
+
+          if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+          if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+          return 0;
+      });
+  }, [dataStores, sortConfig]);
+
   const renderContent = () => {
     if (isLoading) { return <Spinner />; }
 
@@ -512,7 +557,7 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
       <>
         {error && <div className="text-center text-red-400 p-4 mb-4 bg-red-900/20 rounded-lg whitespace-pre-wrap">{error}</div>}
         <DataStoreList
-            dataStores={dataStores}
+            dataStores={sortedDataStores}
             onSelectDataStore={handleSelectDataStore}
             onDeleteDataStore={handleRequestDelete}
             onEditDataStore={handleRequestEdit}
@@ -522,6 +567,8 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
             onToggleSelectAll={handleToggleSelectAll}
             onDeleteSelected={() => handleRequestDelete()}
             onCreateNew={() => setIsCreateModalOpen(true)}
+            onSort={handleSort}
+            sortConfig={sortConfig}
         />
       </>
     );

@@ -20,6 +20,14 @@ interface AssistantRowData {
     error?: string;
 }
 
+type SortKey = 'engineId' | 'webGrounding' | 'instructions' | 'policy' | 'vertexAgents' | 'tools' | 'actions';
+type SortDirection = 'asc' | 'desc';
+
+interface SortConfig {
+    key: SortKey;
+    direction: SortDirection;
+}
+
 const getInitialConfig = () => {
   try {
     const savedConfig = sessionStorage.getItem('assistantPageConfig');
@@ -40,6 +48,17 @@ const CountBadge: React.FC<{ count: number }> = ({ count }) => (
     </span>
 );
 
+const SortIcon: React.FC<{ direction: SortDirection }> = ({ direction }) => {
+    const path = direction === 'asc'
+      ? "M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z"
+      : "M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z";
+    return (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d={path} clipRule="evenodd" />
+      </svg>
+    );
+};
+
 const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProjectNumber }) => {
   const [config, setConfig] = useState(getInitialConfig);
   
@@ -47,6 +66,9 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
   const [rows, setRows] = useState<AssistantRowData[]>([]);
   const [isListLoading, setIsListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  
+  // Sorting State
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'engineId', direction: 'asc' });
 
   // Detail View State
   const [selectedRow, setSelectedRow] = useState<AssistantRowData | null>(null);
@@ -72,6 +94,56 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
     setRows([]); // Clear list on location change
     setSelectedRow(null);
   };
+
+  const handleSort = (key: SortKey) => {
+      setSortConfig(current => ({
+          key,
+          direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+      }));
+  };
+
+  const getSortValue = (row: AssistantRowData, key: SortKey): string | number | boolean => {
+      if (!row.assistant) return ''; // Should not happen for visible rows
+      
+      switch (key) {
+          case 'engineId':
+              return row.engine.name.split('/').pop() || '';
+          case 'webGrounding':
+              return row.assistant.webGroundingType === 'WEB_GROUNDING_TYPE_GOOGLE_SEARCH';
+          case 'instructions':
+              return !!row.assistant.generationConfig?.systemInstruction?.additionalSystemInstruction;
+          case 'policy':
+              return !!(row.assistant.customerPolicy && Object.keys(row.assistant.customerPolicy).length > 0);
+          case 'vertexAgents':
+              return row.assistant.vertexAiAgentConfigs?.length || 0;
+          case 'tools':
+              return Object.keys(row.assistant.enabledTools || {}).length;
+          case 'actions':
+              return Object.keys(row.assistant.enabledActions || {}).length;
+          default:
+              return '';
+      }
+  };
+
+  const sortedRows = useMemo(() => {
+      return [...rows].sort((a, b) => {
+          const aVal = getSortValue(a, sortConfig.key);
+          const bVal = getSortValue(b, sortConfig.key);
+
+          if (aVal === bVal) return 0;
+          
+          if (typeof aVal === 'boolean' && typeof bVal === 'boolean') {
+              // False < True (0 < 1)
+              return sortConfig.direction === 'asc' 
+                  ? (aVal === bVal ? 0 : aVal ? 1 : -1) 
+                  : (aVal === bVal ? 0 : aVal ? -1 : 1);
+          }
+          
+          if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+          if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+          return 0;
+      });
+  }, [rows, sortConfig]);
 
   // Fetch All Engines and their Assistants
   const fetchList = useCallback(async () => {
@@ -182,6 +254,24 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
       }
   };
 
+  const SortHeader: React.FC<{ label: string; sortKey: SortKey; align?: 'left' | 'center' | 'right' }> = ({ label, sortKey, align = 'left' }) => {
+      const isSorted = sortConfig.key === sortKey;
+      return (
+          <th 
+            scope="col" 
+            className={`px-6 py-3 text-${align} text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer group hover:bg-gray-700/50 transition-colors`}
+            onClick={() => handleSort(sortKey)}
+          >
+              <div className={`flex items-center gap-1 ${align === 'center' ? 'justify-center' : align === 'right' ? 'justify-end' : 'justify-start'}`}>
+                  {label}
+                  <span className={`text-gray-400 ${isSorted ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'}`}>
+                      <SortIcon direction={isSorted ? sortConfig.direction : 'asc'} />
+                  </span>
+              </div>
+          </th>
+      );
+  };
+
   // --- Render List View ---
   const renderList = () => (
       <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden border border-gray-700">
@@ -202,25 +292,25 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
               <table className="min-w-full divide-y divide-gray-700">
                   <thead className="bg-gray-700/50">
                       <tr>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Engine ID</th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Web Grounding</th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">System Instructions</th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Customer Policy</th>
-                          <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">Vertex Agents</th>
-                          <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">Tools</th>
-                          <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
+                          <SortHeader label="Engine ID" sortKey="engineId" />
+                          <SortHeader label="Web Grounding" sortKey="webGrounding" />
+                          <SortHeader label="System Instructions" sortKey="instructions" />
+                          <SortHeader label="Customer Policy" sortKey="policy" />
+                          <SortHeader label="Vertex Agents" sortKey="vertexAgents" align="center" />
+                          <SortHeader label="Tools" sortKey="tools" align="center" />
+                          <SortHeader label="Actions" sortKey="actions" align="center" />
                           <th scope="col" className="relative px-6 py-3"><span className="sr-only">Edit</span></th>
                       </tr>
                   </thead>
                   <tbody className="bg-gray-800 divide-y divide-gray-700">
-                      {rows.length === 0 && !isListLoading && (
+                      {sortedRows.length === 0 && !isListLoading && (
                           <tr>
                               <td colSpan={8} className="px-6 py-8 text-center text-sm text-gray-500">
                                   No engines with default assistants found in this location.
                               </td>
                           </tr>
                       )}
-                      {rows.map((row) => {
+                      {sortedRows.map((row) => {
                           const engineId = row.engine.name.split('/').pop()!;
                           const assistant = row.assistant;
                           

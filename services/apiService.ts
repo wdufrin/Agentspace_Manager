@@ -1,5 +1,5 @@
 
-import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, LogEntry, ReasoningEngine, CloudRunService, GcsBucket, GcsObject } from '../types';
+import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, LogEntry, ReasoningEngine, CloudRunService, GcsBucket, GcsObject, DialogflowAgent } from '../types';
 import { getGapiClient } from './gapiService';
 
 const DISCOVERY_API_VERSION = 'v1alpha';
@@ -89,7 +89,8 @@ export const validateEnabledApis = async (projectId: string): Promise<{ enabled:
         'logging.googleapis.com',
         'cloudresourcemanager.googleapis.com',
         'iam.googleapis.com',
-        'serviceusage.googleapis.com'
+        'serviceusage.googleapis.com',
+        'dialogflow.googleapis.com'
     ];
     
     // List enabled services (pagination omitted for brevity, usually fit in 200)
@@ -477,6 +478,48 @@ export const streamQueryReasoningEngine = async (
             }
         }
     }
+};
+
+// --- Dialogflow CX ---
+
+export const listDialogflowAgents = async (config: Config) => {
+    const { projectId, reasoningEngineLocation } = config;
+    const url = `https://${reasoningEngineLocation}-dialogflow.googleapis.com/v3/projects/${projectId}/locations/${reasoningEngineLocation}/agents`;
+    return gapiRequest<{ agents: DialogflowAgent[] }>(url, 'GET', projectId);
+};
+
+export const deleteDialogflowAgent = async (name: string, config: Config) => {
+    const location = name.split('/')[3];
+    const url = `https://${location}-dialogflow.googleapis.com/v3/${name}`;
+    return gapiRequest(url, 'DELETE', config.projectId);
+};
+
+export const detectDialogflowIntent = async (agentName: string, text: string, sessionId: string, config: Config, accessToken: string) => {
+    const location = agentName.split('/')[3];
+    const url = `https://${location}-dialogflow.googleapis.com/v3/${agentName}/sessions/${sessionId}:detectIntent`;
+    const payload = {
+        queryInput: {
+            text: {
+                text: text
+            },
+            languageCode: "en" 
+        }
+    };
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Goog-User-Project': config.projectId
+        },
+        body: JSON.stringify(payload)
+    });
+    
+    if (!response.ok) {
+        throw new Error(`Dialogflow query failed: ${response.status} ${response.statusText}`);
+    }
+    
+    return response.json();
 };
 
 // --- Cloud Run ---

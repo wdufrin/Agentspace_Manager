@@ -14,7 +14,7 @@ import A2aTesterPage from './pages/A2aTesterPage';
 import McpServersPage from './pages/McpServersPage';
 import AgentCatalogPage from './pages/AgentCatalogPage';
 import CloudRunAgentsPage from './pages/CloudRunAgentsPage';
-import ProjectInput from './components/ProjectInput';
+import ProjectInput from '../components/ProjectInput';
 import { initGapiClient, getGapiClient } from './services/gapiService';
 import * as api from './services/apiService';
 import ChatPage from './pages/ChatPage';
@@ -156,7 +156,7 @@ const App: React.FC = () => {
       if (window.google && window.google.accounts && GOOGLE_CLIENT_ID) {
           tokenClient.current = window.google.accounts.oauth2.initTokenClient({
               client_id: GOOGLE_CLIENT_ID,
-              scope: 'https://www.googleapis.com/auth/cloud-platform',
+              scope: 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/dialogflow',
               callback: (tokenResponse: any) => {
                   if (tokenResponse && tokenResponse.access_token) {
                       handleSetAccessToken(tokenResponse.access_token);

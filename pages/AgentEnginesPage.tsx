@@ -1,14 +1,13 @@
 
-
-
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { ReasoningEngine, Config, Agent, CloudRunService } from '../types';
+import { ReasoningEngine, Config, Agent, CloudRunService, DialogflowAgent } from '../types';
 import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
 import ConfirmationModal from '../components/ConfirmationModal';
 import EngineDetails from '../components/agent-engines/EngineDetails';
 import McpServerDetails from '../components/mcp-servers/McpServerDetails';
 import CloudRunQueryModal from '../components/agent-engines/CloudRunQueryModal';
+import DialogflowQueryModal from '../components/agent-engines/DialogflowQueryModal';
 
 interface AgentEnginesPageProps {
   projectNumber: string;
@@ -16,7 +15,7 @@ interface AgentEnginesPageProps {
   onDirectQuery: (engine: ReasoningEngine) => void;
 }
 
-type ResourceType = 'Reasoning Engine' | 'Cloud Run (A2A)' | 'Cloud Run (Agent)' | 'Cloud Run Service';
+type ResourceType = 'Reasoning Engine' | 'Cloud Run (A2A)' | 'Cloud Run (Agent)' | 'Cloud Run Service' | 'Dialogflow CX Agent';
 
 interface UnifiedResource {
     id: string; // Full resource name
@@ -24,7 +23,7 @@ interface UnifiedResource {
     displayName: string;
     type: ResourceType;
     location: string;
-    data: ReasoningEngine | CloudRunService;
+    data: ReasoningEngine | CloudRunService | DialogflowAgent;
     sessionCount?: number; // Only for RE
     uri?: string; // Only for Cloud Run
 }
@@ -50,6 +49,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
   const [allAgents, setAllAgents] = useState<Agent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [permissionWarnings, setPermissionWarnings] = useState<string[]>([]);
   const [location, setLocation] = useState('us-central1');
   
   // State for view management
@@ -65,8 +65,9 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
   const [engineToClearSessions, setEngineToClearSessions] = useState<ReasoningEngine | null>(null);
   const [isClearingSessions, setIsClearingSessions] = useState(false);
 
-  // State for Cloud Run Query
+  // State for Queries
   const [cloudRunQueryService, setCloudRunQueryService] = useState<CloudRunService | null>(null);
+  const [dialogflowQueryAgent, setDialogflowQueryAgent] = useState<DialogflowAgent | null>(null);
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectNumber,
@@ -117,6 +118,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
     }
     setIsLoading(true);
     setError(null);
+    setPermissionWarnings([]);
     setResources([]);
     setAllAgents([]);
     setSelectedIds(new Set());
@@ -183,12 +185,35 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
             console.warn("Cloud Run fetch failed", e);
         }
 
+        // 3. Fetch Dialogflow CX Agents
+        try {
+            const dfResponse = await api.listDialogflowAgents(apiConfig);
+            const dfAgents = dfResponse.agents || [];
+            
+            dfAgents.forEach(agent => {
+                unifiedList.push({
+                    id: agent.name,
+                    shortId: agent.name.split('/').pop()!,
+                    displayName: agent.displayName,
+                    type: 'Dialogflow CX Agent',
+                    location: location,
+                    data: agent
+                });
+            });
+        } catch (e: any) {
+            // Check for permission specific errors
+            console.warn("Dialogflow fetch failed", e);
+            if (e.message?.includes('permission') || e.message?.includes('denied') || e.message?.includes('403')) {
+                setPermissionWarnings(prev => [...prev, "Dialogflow Access Denied: You may be missing the 'dialogflow.agents.list' permission or the 'https://www.googleapis.com/auth/dialogflow' scope. Please sign out and sign in again to refresh permissions."]);
+            }
+        }
+
         setResources(unifiedList);
         if (errors.length > 0) {
             setError(errors.join(' | '));
         }
 
-        // 3. Fetch Agents for Usage Mapping
+        // 4. Fetch Agents for Usage Mapping
         try {
             const agentsList: Agent[] = [];
             const discoveryLocations = ['global', 'us', 'eu'];
@@ -270,6 +295,8 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
         try {
             if (res.type === 'Reasoning Engine') {
                 await api.deleteReasoningEngine(res.id, apiConfig);
+            } else if (res.type === 'Dialogflow CX Agent') {
+                await api.deleteDialogflowAgent(res.id, apiConfig);
             } else {
                 await api.deleteCloudRunService(res.id, apiConfig);
             }
@@ -330,6 +357,20 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                     config={apiConfig}
                 />
             );
+        } else if (selectedResource.type === 'Dialogflow CX Agent') {
+             // Basic view for Dialogflow, could be expanded
+             const agent = selectedResource.data as DialogflowAgent;
+             return (
+                 <div className="bg-gray-800 shadow-xl rounded-lg p-6">
+                    <h2 className="text-xl font-bold text-white mb-4">{agent.displayName}</h2>
+                    <dl className="grid grid-cols-1 gap-4">
+                        <div><dt className="text-gray-400 text-sm">Resource Name</dt><dd className="text-white font-mono bg-gray-700 p-2 rounded">{agent.name}</dd></div>
+                        <div><dt className="text-gray-400 text-sm">Description</dt><dd className="text-white">{agent.description || 'N/A'}</dd></div>
+                        <div><dt className="text-gray-400 text-sm">Time Zone</dt><dd className="text-white">{agent.timeZone}</dd></div>
+                    </dl>
+                    <button onClick={() => { setViewMode('list'); setSelectedResource(null); }} className="mt-6 px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-500">Back</button>
+                 </div>
+             )
         } else {
             return (
                 <McpServerDetails 
@@ -360,9 +401,21 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                     </div>
                 )}
             </div>
-             {error && <div className="p-4 bg-red-900/20 text-red-300 text-sm rounded-b-lg whitespace-pre-wrap">{error}</div>}
+             {permissionWarnings.length > 0 && (
+                 <div className="p-4 bg-yellow-900/30 border-b border-yellow-800">
+                     {permissionWarnings.map((warn, i) => (
+                         <div key={i} className="text-yellow-200 text-sm flex items-start gap-2">
+                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                             </svg>
+                             <span>{warn}</span>
+                         </div>
+                     ))}
+                 </div>
+             )}
+             {error && <div className="p-4 bg-red-900/20 text-red-300 text-sm rounded-b-lg whitespace-pre-wrap border-b border-red-800">{error}</div>}
             {resources.length === 0 && !isLoading && !error && (
-                 <p className="text-gray-400 p-6 text-center">No available agent resources (A2A or Reasoning Engines) found in this location.</p>
+                 <p className="text-gray-400 p-6 text-center">No available agent resources found in this location.</p>
             )}
             {resources.length > 0 && (
                 <div className="overflow-x-auto">
@@ -384,6 +437,11 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                                 const isSelected = selectedIds.has(res.id);
                                 const usingAgents = agentsByResource[res.id] || [];
                                 const isRE = res.type === 'Reasoning Engine';
+                                const isDF = res.type === 'Dialogflow CX Agent';
+
+                                let badgeClass = 'bg-teal-900 text-teal-200';
+                                if (isRE) badgeClass = 'bg-purple-900 text-purple-200';
+                                if (isDF) badgeClass = 'bg-orange-900 text-orange-200';
 
                                 return (
                                     <tr key={res.id} className={`${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'} transition-colors`}>
@@ -392,7 +450,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{res.displayName}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                            <span className={`px-2 py-1 rounded text-xs font-semibold ${isRE ? 'bg-purple-900 text-purple-200' : 'bg-teal-900 text-teal-200'}`}>
+                                            <span className={`px-2 py-1 rounded text-xs font-semibold ${badgeClass}`}>
                                                 {res.type}
                                             </span>
                                         </td>
@@ -426,6 +484,8 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                                                         )}
                                                         <button onClick={() => onDirectQuery(res.data as ReasoningEngine)} className="font-semibold text-green-400 hover:text-green-300">Direct Query</button>
                                                     </div>
+                                                ) : isDF ? (
+                                                    <button onClick={() => setDialogflowQueryAgent(res.data as DialogflowAgent)} className="font-semibold text-green-400 hover:text-green-300">Direct Query</button>
                                                 ) : (
                                                     <button onClick={() => setCloudRunQueryService(res.data as CloudRunService)} className="font-semibold text-green-400 hover:text-green-300">Direct Query</button>
                                                 )}
@@ -530,6 +590,16 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
             isOpen={!!cloudRunQueryService} 
             onClose={() => setCloudRunQueryService(null)}
             service={cloudRunQueryService}
+            accessToken={accessToken}
+          />
+      )}
+      
+      {dialogflowQueryAgent && (
+          <DialogflowQueryModal
+            isOpen={!!dialogflowQueryAgent}
+            onClose={() => setDialogflowQueryAgent(null)}
+            agent={dialogflowQueryAgent}
+            config={apiConfig}
             accessToken={accessToken}
           />
       )}
