@@ -202,6 +202,24 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
             }
         ]
     },
+    [Page.MODEL_ARMOR]: {
+        description: "Model Armor logs are stored in Cloud Logging. You can query them using the `entries:list` endpoint with a specific resource type filter.",
+        commands: [
+            {
+                title: 'Fetch Violation Logs',
+                command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+        "resourceNames": ["projects/[YOUR_PROJECT_ID]"],
+        "filter": "resource.type=\\"modelarmor.googleapis.com/SanitizeOperation\\"",
+        "orderBy": "timestamp desc",
+        "pageSize": 50
+      }' \\
+  "https://logging.googleapis.com/v2/entries:list"`
+            }
+        ]
+    },
     'Backup:DiscoveryResources': {
         description: "A full discovery resource backup involves recursively listing all collections, engines, assistants, and agents. The primary starting point is listing collections.",
         commands: [{ title: 'List Collections (Primary Step)', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/collections"` }]

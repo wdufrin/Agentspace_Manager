@@ -646,9 +646,13 @@ export const streamChat = async (
 
 export const fetchViolationLogs = async (config: Config, filter: string) => {
     const { projectId } = config;
+    let logFilter = `resource.type="modelarmor.googleapis.com/SanitizeOperation"`;
+    if (filter && filter.trim()) {
+        logFilter += ` AND ${filter}`;
+    }
     const body = {
         resourceNames: [`projects/${projectId}`],
-        filter: `logName="projects/${projectId}/logs/modelarmor.googleapis.com%2Fsanitize_operations" AND ${filter}`,
+        filter: logFilter,
         orderBy: "timestamp desc",
         pageSize: 50
     };

@@ -153,9 +153,9 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
         if (searchQuery.trim()) {
             const lowerQuery = searchQuery.toLowerCase();
             const matchingNodes = nodes.filter(n => 
-                n.label.toLowerCase().includes(lowerQuery) || 
-                n.id.toLowerCase().includes(lowerQuery) ||
-                n.type.toLowerCase().includes(lowerQuery)
+                (n.label || '').toLowerCase().includes(lowerQuery) || 
+                (n.id || '').toLowerCase().includes(lowerQuery) ||
+                (n.type || '').toLowerCase().includes(lowerQuery)
             );
             return new Set(matchingNodes.map(n => n.id));
         }
@@ -347,6 +347,7 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
                             highlightedEdgeIds={highlightedGraphElements.edgeIds}
                             onNodeHover={setHoveredNodeId}
                             visibleNodeIds={visibleNodeIds}
+                            isFullScreen={isFullScreen}
                         />
                     )}
                 </div>

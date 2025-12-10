@@ -26,6 +26,7 @@ interface ArchitectureGraphProps {
   highlightedEdgeIds: Set<string> | null;
   onNodeHover: (nodeId: string | null) => void;
   visibleNodeIds?: Set<string> | null;
+  isFullScreen?: boolean;
 }
 
 // Order defines the Y-axis layers
@@ -55,7 +56,8 @@ const ArchitectureGraphContent: React.FC<ArchitectureGraphProps> = ({
   highlightedNodeIds,
   highlightedEdgeIds,
   onNodeHover,
-  visibleNodeIds
+  visibleNodeIds,
+  isFullScreen
 }) => {
     const { fitView } = useReactFlow();
 
@@ -152,14 +154,22 @@ const ArchitectureGraphContent: React.FC<ArchitectureGraphProps> = ({
         setEdges(flowEdges);
     }, [flowNodes, flowEdges, setNodes, setEdges]);
 
-    // Auto-Fit View when relevant data changes
+    // Create a stable identifier for the set of nodes currently displayed
+    const nodeSetIdentifier = useMemo(() => {
+        return flowNodes.map(n => n.id).sort().join(',');
+    }, [flowNodes]);
+
+    // Auto-Fit View when relevant data changes or view mode changes
     useEffect(() => {
-        // Small timeout ensures the nodes are rendered before fitting
+        // Use a timeout + RAF sequence to ensure the DOM has fully updated 
+        // and ReactFlow has processed the new nodes before attempting to fit view.
         const t = setTimeout(() => {
-            fitView({ padding: 0.2, duration: 800 });
-        }, 100);
+            window.requestAnimationFrame(() => {
+                fitView({ padding: 0.2, duration: 800 });
+            });
+        }, 200); 
         return () => clearTimeout(t);
-    }, [fitView, nodes.length, selectedNodeId, visibleNodeIds]); // Trigger on filtering or selection
+    }, [fitView, nodeSetIdentifier, selectedNodeId, isFullScreen]);
 
     const handleNodeClick = useCallback((_: React.MouseEvent, node: FlowNode) => {
         onNodeClick(node.id);
