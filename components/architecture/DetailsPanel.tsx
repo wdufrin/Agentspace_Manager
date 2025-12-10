@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { GraphNode, Page, ReasoningEngine, CloudRunService } from '../../types';
 
@@ -68,16 +69,7 @@ const ActionButton: React.FC<React.PropsWithChildren<{ onClick: () => void }>> =
 );
 
 const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClose, onNavigate, onDirectQuery }) => {
-    if (!node) {
-        return (
-            <div className="w-96 border-l border-gray-700 bg-gray-800 flex items-center justify-center p-4">
-                 <div className="text-center text-gray-500">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" /></svg>
-                    <p className="mt-4 text-sm">Click on a node in the graph to view its details and available actions.</p>
-                </div>
-            </div>
-        );
-    }
+    if (!node) return null;
     
     const consoleUrl = getGcpConsoleUrl(node, projectNumber);
 
@@ -140,17 +132,25 @@ const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClos
     }
 
     return (
-        <div className="w-96 border-l border-gray-700 bg-gray-800/50 flex flex-col shrink-0">
-            <header className="p-4 border-b border-gray-700 flex justify-between items-start">
+        <div className="absolute right-6 top-6 w-96 bg-gray-800 rounded-xl shadow-2xl border border-gray-700 flex flex-col z-20 max-h-[80vh] animate-fade-in-up">
+            <header className="p-4 border-b border-gray-700 flex justify-between items-start bg-gray-900/50 rounded-t-xl">
                 <div>
-                    <p className="text-xs font-semibold text-gray-400 uppercase">{node.type}</p>
-                    <h2 className="text-lg font-bold text-white break-all">{node.label}</h2>
+                    <p className="text-xs font-semibold text-blue-400 uppercase tracking-wide">{node.type}</p>
+                    <h2 className="text-lg font-bold text-white break-all leading-tight mt-1">{node.label}</h2>
                 </div>
-                <button onClick={onClose} className="text-gray-400 hover:text-white" title="Clear Selection">&times;</button>
+                <button 
+                    onClick={onClose} 
+                    className="text-gray-400 hover:text-white hover:bg-gray-700 rounded-full p-1 transition-colors" 
+                    title="Close"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                </button>
             </header>
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-5">
                 <section>
-                    <h3 className="text-md font-semibold text-gray-200 mb-2">Details</h3>
+                    <h3 className="text-sm font-semibold text-gray-400 mb-3 border-b border-gray-700 pb-1">Resource Details</h3>
                     <dl className="space-y-3">
                         <DetailItem label="Full Resource Name" value={node.id} />
                         <DetailItem label="Created" value={node.data.createTime ? new Date(node.data.createTime).toLocaleString() : 'N/A'} />
@@ -159,7 +159,7 @@ const DetailsPanel: React.FC<DetailsPanelProps> = ({ node, projectNumber, onClos
                     </dl>
                 </section>
                 <section>
-                    <h3 className="text-md font-semibold text-gray-200 mb-2">Actions</h3>
+                    <h3 className="text-sm font-semibold text-gray-400 mb-3 border-b border-gray-700 pb-1">Actions</h3>
                     <div className="space-y-2">
                         {consoleUrl && (
                             <a href={consoleUrl} target="_blank" rel="noopener noreferrer" className="w-full text-left px-3 py-2 text-sm font-medium text-blue-300 bg-gray-700/50 rounded-md hover:bg-blue-600 hover:text-white transition-colors flex items-center gap-3">

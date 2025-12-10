@@ -1,5 +1,5 @@
 
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useEffect } from 'react';
 import ReactFlow, { 
     Background, 
     Controls, 
@@ -11,9 +11,9 @@ import ReactFlow, {
     useEdgesState,
     ConnectionLineType,
     BackgroundVariant,
-    ReactFlowProvider
+    ReactFlowProvider,
+    useReactFlow
 } from 'reactflow';
-// import 'reactflow/dist/style.css'; // Removed: Loaded via CDN in index.html
 import CustomNode from './Node';
 import { GraphNode, GraphEdge, NodeType } from '../../types';
 
@@ -52,9 +52,13 @@ const ArchitectureGraphContent: React.FC<ArchitectureGraphProps> = ({
   edges,
   onNodeClick,
   selectedNodeId,
+  highlightedNodeIds,
+  highlightedEdgeIds,
   onNodeHover,
   visibleNodeIds
 }) => {
+    const { fitView } = useReactFlow();
+
     // Process layout and convert to React Flow format
     const { flowNodes, flowEdges } = useMemo(() => {
         // Filter nodes and edges if visibility set is provided
@@ -78,18 +82,29 @@ const ArchitectureGraphContent: React.FC<ArchitectureGraphProps> = ({
         });
 
         // 2. Calculate Positions
-        const X_START = 50;
-        const Y_START = 50;
-        const X_GAP = 300;
-        const Y_GAP = 150;
+        // We will center the grid based on the max width row to make it look nicer
+        const X_GAP = 320;
+        const Y_GAP = 200;
+        
+        let maxRowWidth = 0;
+        NODE_TYPE_ORDER.forEach(type => {
+            const count = nodesByType.get(type)?.length || 0;
+            maxRowWidth = Math.max(maxRowWidth, count);
+        });
 
         const calculatedNodes: FlowNode[] = [];
 
         NODE_TYPE_ORDER.forEach((type, rowIndex) => {
             const rowNodes = nodesByType.get(type) || [];
+            if (rowNodes.length === 0) return;
+
+            // Center this row relative to the max width
+            const rowWidth = rowNodes.length;
+            const startX = (maxRowWidth - rowWidth) * (X_GAP / 2);
+
             rowNodes.forEach((node, colIndex) => {
-                const x = X_START + (colIndex * X_GAP);
-                const y = Y_START + (rowIndex * Y_GAP);
+                const x = startX + (colIndex * X_GAP);
+                const y = rowIndex * Y_GAP;
                 
                 calculatedNodes.push({
                     id: node.id,
@@ -99,7 +114,7 @@ const ArchitectureGraphContent: React.FC<ArchitectureGraphProps> = ({
                         label: node.label, 
                         type: node.type, 
                         fullId: node.id,
-                        isDimmed: false // Dimming handled by visibility filtering now
+                        isDimmed: highlightedNodeIds ? !highlightedNodeIds.has(node.id) : false 
                     },
                     selected: node.id === selectedNodeId,
                 });
@@ -113,25 +128,38 @@ const ArchitectureGraphContent: React.FC<ArchitectureGraphProps> = ({
             target: edge.target,
             type: 'smoothstep',
             animated: true,
-            style: { stroke: '#4b5563', strokeWidth: 2 },
+            style: { 
+                stroke: highlightedEdgeIds && highlightedEdgeIds.has(edge.id) ? '#60a5fa' : '#4b5563', 
+                strokeWidth: highlightedEdgeIds && highlightedEdgeIds.has(edge.id) ? 3 : 2,
+                opacity: highlightedEdgeIds ? (highlightedEdgeIds.has(edge.id) ? 1 : 0.2) : 1
+            },
             markerEnd: {
                 type: MarkerType.ArrowClosed,
-                color: '#4b5563',
+                color: highlightedEdgeIds && highlightedEdgeIds.has(edge.id) ? '#60a5fa' : '#4b5563',
             },
         }));
 
         return { flowNodes: calculatedNodes, flowEdges: calculatedEdges };
-    }, [nodes, edges, selectedNodeId, visibleNodeIds]);
+    }, [nodes, edges, selectedNodeId, visibleNodeIds, highlightedNodeIds, highlightedEdgeIds]);
 
     // Use internal state for interactivity
     const [rfNodes, setNodes, onNodesChange] = useNodesState(flowNodes);
     const [rfEdges, setEdges, onEdgesChange] = useEdgesState(flowEdges);
 
     // Sync props with state when they change
-    React.useEffect(() => {
+    useEffect(() => {
         setNodes(flowNodes);
         setEdges(flowEdges);
     }, [flowNodes, flowEdges, setNodes, setEdges]);
+
+    // Auto-Fit View when relevant data changes
+    useEffect(() => {
+        // Small timeout ensures the nodes are rendered before fitting
+        const t = setTimeout(() => {
+            fitView({ padding: 0.2, duration: 800 });
+        }, 100);
+        return () => clearTimeout(t);
+    }, [fitView, nodes.length, selectedNodeId, visibleNodeIds]); // Trigger on filtering or selection
 
     const handleNodeClick = useCallback((_: React.MouseEvent, node: FlowNode) => {
         onNodeClick(node.id);
@@ -160,10 +188,12 @@ const ArchitectureGraphContent: React.FC<ArchitectureGraphProps> = ({
                         switch(type) {
                             case 'Project': return '#3b82f6';
                             case 'Agent': return '#ec4899';
+                            case 'ReasoningEngine': return '#ef4444';
+                            case 'DataStore': return '#06b6d4';
                             default: return '#4b5563';
                         }
                     }} 
-                    className="!bg-gray-800 !border-gray-700" 
+                    className="!bg-gray-800 !border-gray-700 !rounded-lg" 
                 />
             </ReactFlow>
         </div>
