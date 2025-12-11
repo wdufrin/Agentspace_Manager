@@ -15,7 +15,7 @@ import McpServersPage from './pages/McpServersPage';
 import AgentCatalogPage from './pages/AgentCatalogPage';
 import CloudRunAgentsPage from './pages/CloudRunAgentsPage';
 import DialogflowAgentsPage from './pages/DialogflowAgentsPage';
-import ProjectInput from '../components/ProjectInput';
+import ProjectInput from './components/ProjectInput';
 import { initGapiClient, getGapiClient } from './services/gapiService';
 import * as api from './services/apiService';
 import ChatPage from './pages/ChatPage';
