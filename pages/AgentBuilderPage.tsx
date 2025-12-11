@@ -21,7 +21,7 @@ interface A2aConfig {
     serviceName: string;
     displayName: string;
     providerOrganization: string;
-    model: 'gemini-2.5-flash' | 'gemini-2.5-pro';
+    model: string;
     region: string;
     memory: string;
     instruction: string;
@@ -752,6 +752,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     const [cloudRunServices, setCloudRunServices] = useState<CloudRunService[]>([]);
     const [isLoadingServices, setIsLoadingServices] = useState(false);
     const [selectedA2aService, setSelectedA2aService] = useState('');
+    const [a2aSearchTerm, setA2aSearchTerm] = useState('');
 
     const [isAdkDeployModalOpen, setIsAdkDeployModalOpen] = useState(false);
     const [rewritingField, setRewritingField] = useState<string | null>(null);
@@ -793,7 +794,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                 region: service.location || prev.region,
                 displayName: getEnv('AGENT_DISPLAY_NAME') || prev.displayName,
                 providerOrganization: getEnv('PROVIDER_ORGANIZATION') || prev.providerOrganization,
-                model: (getEnv('MODEL') as any) || prev.model,
+                model: getEnv('MODEL') || prev.model,
                 instruction: getEnv('AGENT_DESCRIPTION') || prev.instruction,
             }));
         }
@@ -896,7 +897,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         if (type === 'checkbox') {
              setA2aConfig(prev => ({...prev, [name]: (e.target as HTMLInputElement).checked }));
         } else if (name === 'serviceName') {
-            const sanitizedValue = value.toLowerCase().replace(/[^a-z0-9-]/g, '').substring(0, 63);
+            // Transform spaces to dashes, lowercase, remove invalid chars
+            const sanitizedValue = value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').substring(0, 63);
             setA2aConfig(prev => ({...prev, [name]: sanitizedValue }));
         } else {
             setA2aConfig(prev => ({...prev, [name]: value as any }));
@@ -907,6 +909,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         const { name, value, type } = e.target;
         if (type === 'checkbox') {
              setAdkConfig(prev => ({...prev, [name]: (e.target as HTMLInputElement).checked }));
+        } else if (name === 'name') {
+             // Transform spaces to underscores
+             const sanitizedValue = value.replace(/\s+/g, '_');
+             setAdkConfig(prev => ({...prev, [name]: sanitizedValue }));
         } else {
             setAdkConfig(prev => ({...prev, [name]: value as any }));
         }
@@ -932,7 +938,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         setRewritingField(field);
         
         const currentInstruction = builderTab === 'a2a' ? a2aConfig.instruction : adkConfig.instruction;
-        const prompt = `Rewrite the following agent system instruction to be more effective, concise, and professional for an AI agent.
+        const prompt = `You are an expert prompt engineer. Your task is to rewrite the following system instruction to be highly effective for a Large Language Model (LLM).
+        Structure the rewritten prompt clearly (e.g., using sections like Role, Objective, Context, Rules).
+        Add necessary context and details to make the agent robust and easier for the AI to consume, while strictly preserving the user's original intent.
+        Do not provide explanations or multiple options. Output ONLY the rewritten system instruction.
         
         Original Instruction: "${currentInstruction}"
         
@@ -1078,6 +1087,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                     <select name="model" value={adkConfig.model} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]">
                                         <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                                        <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
                                     </select>
                                 </div>
                                 <div>
@@ -1111,6 +1121,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                     <select name="model" value={a2aConfig.model} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]">
                                         <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                                        <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
                                     </select>
                                 </div>
                                 <div><label className="block text-sm font-medium text-gray-400 mb-1">Region</label><select name="region" value={a2aConfig.region} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"><option value="us-central1">us-central1</option><option value="europe-west1">europe-west1</option><option value="asia-east1">asia-east1</option></select></div>
@@ -1134,45 +1145,72 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                 {/* Data Store Tool */}
                                 <div>
                                     <label className="block text-xs font-medium text-gray-400 mb-1">Vertex AI Search Data Store</label>
-                                    <div className="flex gap-2">
-                                        <select 
-                                            value={toolBuilderConfig.dataStoreId} 
-                                            onChange={(e) => setToolBuilderConfig({...toolBuilderConfig, dataStoreId: e.target.value})}
-                                            className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full"
-                                            disabled={isLoadingDataStores}
-                                        >
-                                            <option value="">-- Select Data Store --</option>
-                                            {dataStores.map(ds => <option key={ds.name} value={ds.name}>{ds.displayName} ({ds.location})</option>)}
-                                        </select>
-                                        <button 
-                                            onClick={() => handleAddTool({ type: 'VertexAiSearchTool', dataStoreId: toolBuilderConfig.dataStoreId, variableName: `search_tool_${(builderTab === 'a2a' ? a2aConfig.tools : adkConfig.tools).length + 1}` })}
-                                            disabled={!toolBuilderConfig.dataStoreId}
-                                            className="px-2 py-1 bg-teal-600 text-white text-xs rounded hover:bg-teal-700 disabled:opacity-50"
-                                        >
-                                            Add
-                                        </button>
+                                    <div className="flex flex-col gap-2">
+                                        <input
+                                            type="text"
+                                            placeholder="Search data stores..."
+                                            value={dataStoreSearchTerm}
+                                            onChange={(e) => setDataStoreSearchTerm(e.target.value)}
+                                            className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full placeholder-gray-400 focus:outline-none focus:border-blue-500"
+                                        />
+                                        <div className="flex gap-2">
+                                            <select 
+                                                value={toolBuilderConfig.dataStoreId} 
+                                                onChange={(e) => setToolBuilderConfig({...toolBuilderConfig, dataStoreId: e.target.value})}
+                                                className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full"
+                                                disabled={isLoadingDataStores}
+                                            >
+                                                <option value="">-- Select Data Store --</option>
+                                                {dataStores
+                                                    .filter(ds => !dataStoreSearchTerm || ds.displayName.toLowerCase().includes(dataStoreSearchTerm.toLowerCase()) || ds.name.includes(dataStoreSearchTerm))
+                                                    .map(ds => {
+                                                        const dsId = ds.name.split('/').pop();
+                                                        return <option key={ds.name} value={ds.name}>{ds.displayName} ({dsId}) - {ds.location}</option>;
+                                                    })
+                                                }
+                                            </select>
+                                            <button 
+                                                onClick={() => handleAddTool({ type: 'VertexAiSearchTool', dataStoreId: toolBuilderConfig.dataStoreId, variableName: `search_tool_${(builderTab === 'a2a' ? a2aConfig.tools : adkConfig.tools).length + 1}` })}
+                                                disabled={!toolBuilderConfig.dataStoreId}
+                                                className="px-2 py-1 bg-teal-600 text-white text-xs rounded hover:bg-teal-700 disabled:opacity-50"
+                                            >
+                                                Add
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                                 {/* A2A Tool */}
                                 <div>
                                     <label className="block text-xs font-medium text-gray-400 mb-1">Call Other Agent (A2A)</label>
-                                    <div className="flex gap-2">
-                                        <select 
-                                            value={selectedA2aService} 
-                                            onChange={(e) => setSelectedA2aService(e.target.value)}
-                                            className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full"
-                                            disabled={isLoadingServices}
-                                        >
-                                            <option value="">-- Select A2A Service --</option>
-                                            {cloudRunServices.map(s => <option key={s.name} value={s.uri}>{s.name.split('/').pop()}</option>)}
-                                        </select>
-                                        <button 
-                                            onClick={() => handleAddTool({ type: 'A2AClientTool', url: selectedA2aService, variableName: `a2a_agent_${(builderTab === 'a2a' ? a2aConfig.tools : adkConfig.tools).length + 1}` })}
-                                            disabled={!selectedA2aService}
-                                            className="px-2 py-1 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 disabled:opacity-50"
-                                        >
-                                            Add
-                                        </button>
+                                    <div className="flex flex-col gap-2">
+                                        <input
+                                            type="text"
+                                            placeholder="Search A2A services..."
+                                            value={a2aSearchTerm}
+                                            onChange={(e) => setA2aSearchTerm(e.target.value)}
+                                            className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full placeholder-gray-400 focus:outline-none focus:border-blue-500"
+                                        />
+                                        <div className="flex gap-2">
+                                            <select 
+                                                value={selectedA2aService} 
+                                                onChange={(e) => setSelectedA2aService(e.target.value)}
+                                                className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full"
+                                                disabled={isLoadingServices}
+                                            >
+                                                <option value="">-- Select A2A Service --</option>
+                                                {cloudRunServices
+                                                    .filter(s => !a2aSearchTerm || s.name.toLowerCase().includes(a2aSearchTerm.toLowerCase()))
+                                                    .map(s => <option key={s.name} value={s.uri}>{s.name.split('/').pop()}</option>)
+                                                }
+                                            </select>
+                                            <button 
+                                                onClick={() => handleAddTool({ type: 'A2AClientTool', url: selectedA2aService, variableName: `a2a_agent_${(builderTab === 'a2a' ? a2aConfig.tools : adkConfig.tools).length + 1}` })}
+                                                disabled={!selectedA2aService}
+                                                className="px-2 py-1 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 disabled:opacity-50"
+                                            >
+                                                Add
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
