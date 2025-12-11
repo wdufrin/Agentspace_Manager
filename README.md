@@ -1,202 +1,105 @@
 
-
-
-
-
 # Gemini Enterprise Manager
 
-A web interface to manage Google Cloud Gemini Enterprise resources, including agents, authorizations, and reasoning engines. This UI provides a user-friendly way to perform operations similar to the `gcloud` CLI tool for Gemini Enterprise. It includes a guided setup process to validate and enable necessary Google Cloud APIs, making project configuration straightforward.
+A comprehensive web interface to manage Google Cloud Gemini Enterprise resources. This application provides a unified console to manage Agents, Reasoning Engines, Data Stores, Authorizations, and more, effectively acting as a GUI for the Discovery Engine and Vertex AI APIs.
 
-This application is built using React and communicates with Google Cloud APIs via the **Google API JavaScript Client (`gapi`)**.
+It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates directly with Google Cloud APIs using the **Google API JavaScript Client (`gapi`)**.
 
-## Screenshots
+## Features Overview
 
-> **Note:** Ensure you have a `screenshots/` folder in your repository root containing these images for them to appear.
+### 🤖 Agent Management
+*   **Agents Manager**: List, create, update, and delete agents. Supports toggling agent status (Enable/Disable).
+*   **Agent Registration**: A guided flow to register deployed **Agent-to-Agent (A2A)** services as discoverable tools within Gemini Enterprise.
+*   **Chat Testing**: Built-in chat interface to test agents and assistants with streaming responses, tool visualization, and grounding metadata inspection.
 
-| Agent Manager | Available Agents |
-|:---:|:---:|
-| ![Agent Manager](screenshots/agent_manager.png) | ![Available Agents](screenshots/agent_engine.png) |
+### 🏭 Agent Engines & Runtimes
+*   **Available Agents**: Discover and manage backend runtimes:
+    *   **Reasoning Engines (Vertex AI)**: View active sessions, terminate sessions, and perform direct queries.
+    *   **Cloud Run Services**: Identify services acting as A2A agents or MCP Servers.
+    *   **Direct Query**: Test runtimes directly without going through the high-level Agent API.
+*   **Cloud Run Agents**: AI-powered analysis of Cloud Run services to detect if they are running agentic frameworks (LangChain, Genkit, etc.).
+*   **Dialogflow CX**: List and test Dialogflow CX agents within the same console.
 
-| Assistant | Authorizations |
-|:---:|:---:|
-| ![Assistant](screenshots/assistant.png) | ![Authorizations](screenshots/authorizations.png) |
+### 🛠️ Builder & Catalog
+*   **Agent Builder**: A low-code tool to generate and deploy agents.
+    *   **ADK Agents**: Generates Python code (`agent.py`, `requirements.txt`) for Vertex AI Reasoning Engines.
+    *   **A2A Functions**: Generates Flask-based code for Cloud Run services implementing the A2A protocol.
+    *   **Cloud Build Integration**: One-click deployment to Google Cloud.
+*   **Agent Catalog**: Browse sample agents from GitHub repositories and deploy them directly to your project.
 
-## Key Features
+### 📚 Knowledge & Data
+*   **Data Stores**: Manage Vertex AI Search data stores.
+    *   Create and Edit data stores with advanced parsing configuration (Digital, OCR, Layout).
+    *   **Document Management**: List documents and import new files directly from your computer or Google Cloud Storage (GCS).
+*   **Assistant Configuration**: Manage the default assistant's system instructions, grounding settings (Google Search), and enabled tools/actions.
 
--   **Manage Agents**: List, create, update, delete, enable/disable, and chat with agents.
--   **Manage Authorizations**: List, create, update, and delete OAuth client authorizations.
--   **Manage Reasoning Engines**: List engines, view agent dependencies, and delete unused engines.
--   **Agent Builder**: A powerful UI to construct ADK-based agents from scratch. It automatically generates the necessary Python code (`agent.py`), environment (`.env`), and dependency (`requirements.txt`) files.
--   **Agent Catalog**: Browse sample agents from GitHub repositories and deploy them directly to your project.
--   **Explore Data Stores**: List data stores within a collection, view their details, and inspect individual documents and their content.
--   **Manage Licenses**: View assigned user licenses, resolve license configuration names, and revoke specific licenses.
-    -   **Auto-Pruner Generator**: Includes a built-in wizard to generate and deploy a serverless Cloud Run function that automatically prunes inactive user licenses based on a configurable schedule (e.g., users who haven't logged in for 30 days). The pruner uses the efficient `batchUpdateUserLicenses` API.
--   **Model Armor Log Viewer**: Fetch and inspect safety policy violation logs from Cloud Logging.
--   **Comprehensive Backup & Restore**: Backup and restore agents, assistants, data stores, authorizations, and entire Discovery Engine configurations.
--   **Guided Setup & API Validation**: An initial setup screen that validates if all required GCP APIs are enabled for your project and provides a one-click solution to enable any that are missing.
+### 🛡️ Security & Governance
+*   **Authorizations**: Manage OAuth2 configurations for agents.
+*   **Model Armor**:
+    *   **Log Viewer**: Inspect sanitization logs to see what content was blocked or modified.
+    *   **Policy Generator**: Create Model Armor templates to filter Hate Speech, PII, and Prompt Injection.
+*   **IAM Policies**: View and edit IAM policies for specific agents directly from the UI.
 
-### Beta Features
+### 🔧 Operations
+*   **Architecture Visualizer**: An interactive node-graph visualizing the relationships between your Project, Engines, Assistants, Agents, Data Stores, and Backends.
+*   **Backup & Recovery**:
+    *   Full backup of Discovery Engine resources (Collections, Engines, Agents) to GCS.
+    *   Granular backup/restore for specific Agents, Data Stores, or Reasoning Engines.
+*   **Licenses**: Monitor user license assignments and prune inactive users.
+    *   **Auto-Pruner**: Deploy a serverless job to automatically revoke licenses for users who haven't logged in for $N days.
 
--   **Test Assistant**: A dedicated, full-page interface for chatting with a Gemini Enterprise assistant to test the overall conversational experience.
--   **Manage Assistant**: View and edit the settings of the default assistant for a Gemini Enterprise Engine, including system instructions, grounding settings, and enabled tools.
--   **Architecture Visualizer**: Scans your project to discover all Gemini Enterprise resources and renders an interactive, top-down graph of their relationships and dependencies.
--   **A2A Function Builder**: A tool to generate the source code (`main.py`, `Dockerfile`, `requirements.txt`) for a secure, serverless A2A (Agent-to-Agent) function on Cloud Run.
--   **Agent Registration**: A guided UI to register a deployed A2A function with a Gemini Enterprise Engine, making it discoverable as a tool.
--   **A2A Tester**: A simple utility to test the discovery endpoint (`agent.json`) of a deployed A2A function.
--   **Explore MCP Servers**: Scan for Cloud Run services in a specified region. Identifies potential MCP servers if a service's labels contain "MCP". Provides a detailed view of each service's configuration.
+## Setup & Configuration
 
-## Prerequisites
+### Prerequisites
+*   A Google Cloud Project.
+*   The following APIs enabled:
+    *   `discoveryengine.googleapis.com`
+    *   `aiplatform.googleapis.com`
+    *   `run.googleapis.com`
+    *   `cloudbuild.googleapis.com`
+    *   `storage.googleapis.com`
+    *   `serviceusage.googleapis.com`
 
-Before using this application, ensure you have the following:
-
-1.  **A Google Cloud Project**: Your resources will be managed within a specific GCP project.
-2.  **Enabled APIs**: The app includes a validation tool, but generally requires:
-    -   Discovery Engine API
-    -   AI Platform (Vertex AI) API
-    -   Cloud Resource Manager API
-    -   Cloud Logging API
-    -   Cloud Run Admin API
-    -   Cloud Storage API
-    -   Service Usage API
-
-## Configuration & Setup
-
-### 1. Configure Google Sign-In (OAuth)
-
-To use the "Sign in with Google" feature, you must configure an OAuth Client ID in your Google Cloud Project.
-
+### 1. Configure OAuth Consent
+To use "Sign in with Google", configure an OAuth Client ID:
 1.  Go to **APIs & Services > Credentials** in the Google Cloud Console.
-2.  Click **Create Credentials** -> **OAuth client ID**.
-3.  Select **Web application** as the application type.
-4.  **Important:** Under **Authorized JavaScript origins**, you must add the URL where this app is running.
-    *   For local development: `http://localhost:3000` (or your specific port).
-    *   For Cloud Run deployment: `https://your-service-name-uc.a.run.app`.
-    *   *Note: If you do not add the correct origin, you will see an "idpiframe_initialization_failed" or "Cookies are not enabled" error.*
-5.  Copy the **Client ID** and update the `GOOGLE_CLIENT_ID` constant in `App.tsx` (or use an environment variable).
+2.  Create an **OAuth client ID** (Web application).
+3.  Add the URL where this app is running to **Authorized JavaScript origins** (e.g., `http://localhost:3000` or `https://your-app.run.app`).
+4.  Copy the **Client ID** and update `GOOGLE_CLIENT_ID` in `src/App.tsx`.
 
-### 2. Local Development
-
-1.  **Install Dependencies**:
-    ```sh
-    npm install
-    ```
-2.  **Start the Development Server**:
-    ```sh
-    npm run dev
-    ```
-    Open `http://localhost:3000` in your browser.
-
-## Deployment to Cloud Run
-
-You can deploy this frontend application to Google Cloud Run to make it accessible to your team.
-
-### Option 1: Continuous Deployment from Git (Recommended)
-
-This method sets up automatic deployments whenever you push to your git repository using Google Cloud Buildpacks.
-
-1.  **Push your code** to a git repository (GitHub, Bitbucket, or Cloud Source Repositories).
-2.  Go to **Cloud Run** in the Google Cloud Console and click **Create Service**.
-3.  Select **Continuously deploy new revisions from a source repository**.
-4.  Click **Set up with Cloud Build** and connect your repository.
-5.  **Build Configuration**:
-    *   **Build Type**: Select **Googla Cloud Buildpacks**.
-    *   **Build context directory**: `.` (or leave as default).
-    *   **Entrypoint**: Leave **Empty** (The buildpack automatically detects the `npm start` script).
-    *   **Function target**: Leave **Empty**.
-6.  **Authentication**: Select **Allow unauthenticated invocations** (The app handles authentication internally via Google Sign-In).
-7.  Click **Create**.
-
-Once deployed, remember to copy the **Service URL** and add it to your OAuth Client ID's **Authorized JavaScript origins** (see Configuration step above).
-
-### Option 2: Manual Deployment via CLI (Docker)
-
-If you prefer to build the container manually or use a custom Dockerfile.
-
-1.  **Create a Dockerfile**:
-    Create a file named `Dockerfile` in the root of the project with the following content:
-
-    ```dockerfile
-    # Build Stage
-    FROM node:20-slim AS build
-    WORKDIR /app
-    COPY package*.json ./
-    RUN npm install
-    COPY . .
-    # Build the Vite app (outputs to /dist)
-    RUN npm run build
-
-    # Serve Stage
-    FROM node:20-slim
-    WORKDIR /app
-    # Install a simple static file server
-    RUN npm install -g serve
-    # Copy built assets from the build stage
-    COPY --from=build /app/dist ./dist
-    # Expose port 8080 (Cloud Run default)
-    EXPOSE 8080
-    # Start the server
-    CMD ["serve", "-s", "dist", "-l", "8080"]
-    ```
-
-2.  **Build and Deploy**:
-    Run the following command using the Google Cloud CLI:
-
-    ```sh
-    gcloud run deploy gemini-manager \
-      --source . \
-      --project [YOUR_PROJECT_ID] \
-      --region us-central1 \
-      --allow-unauthenticated
-    ```
-
-## Setup Automated License Pruner
-
-This application includes a tool to automate the revocation of licenses for inactive users.
-
-1.  Navigate to the **Licenses** page in the app.
-2.  Click the **"Setup Auto-Pruner"** button.
-3.  Configure your settings (Prune threshold days, Region, etc.).
-4.  Click **Download Deployment Package**.
-5.  Unzip the package and run the included `deploy.sh` script in your terminal.
-
-This script will:
-*   Create a dedicated Service Account.
-*   Grant minimal necessary permissions (`discoveryengine.admin`, `serviceusage.serviceUsageConsumer`).
-*   Deploy a Python function to Cloud Run.
-*   Create a Cloud Scheduler job to invoke the function daily.
-
-## Underlying Google Cloud APIs
-
-The application uses the Google API JavaScript Client (`gapi`) for all interactions. Below are examples of the underlying REST calls.
-
-### Agents
+### 2. Run Locally
 ```sh
-curl -X GET \
-  -H "Authorization: Bearer [TOKEN]" \
-  "https://discoveryengine.googleapis.com/v1alpha/projects/[PROJECT]/locations/global/collections/default_collection/engines/[APP_ID]/assistants/default_assistant/agents"
+npm install
+npm run dev
 ```
 
-### Licenses (Pruning & Revocation)
-The application uses the `batchUpdateUserLicenses` method for both bulk pruning and singleuser revocation. This method allows updating the state of the user store in a single operation.
+### 3. Deploy to Cloud Run
+You can deploy this frontend as a static site container.
 
+**Using Google Cloud Buildpacks (Simplest):**
 ```sh
-# Batch update to set the state of licenses (effectively deleting unlisted ones)
-curl -X POST \
-  -H "Authorization: Bearer [TOKEN]" \
-  -H "Content-Type: application/json" \
-  -d '{
-        "inlineSource": {
-          "userLicenses": [ { "userPrincipal": "active-user@example.com" } ],
-          "updateMask": { "paths": ["userPrincipal", "licenseConfig"] }
-        },
-        "deleteUnassignedUserLicenses": true
-      }' \
-  "https://discoveryengine.googleapis.com/v1/projects/[PROJECT]/locations/global/userStores/default_user_store:batchUpdateUserLicenses"
+gcloud run deploy gemini-manager \
+  --source . \
+  --project [YOUR_PROJECT_ID] \
+  --region us-central1 \
+  --allow-unauthenticated
 ```
 
-### A2A Agent Discovery
-```sh
-curl -X GET \
-  -H "Authorization: Bearer [IDENTITY_TOKEN]" \
-  "https://[CLOUD_RUN_URL]/.well-known/agent.json"
-```
+**Using Docker:**
+1.  Build the image: `docker build -t gcr.io/[PROJECT_ID]/gemini-manager .`
+2.  Push: `docker push gcr.io/[PROJECT_ID]/gemini-manager`
+3.  Deploy: `gcloud run deploy gemini-manager --image gcr.io/[PROJECT_ID]/gemini-manager ...`
+
+## Usage Tips
+
+*   **API Validation**: On first load, the app checks if required APIs are enabled. Use the "Enable APIs" button to fix missing dependencies.
+*   **Access Token**: If you cannot use Google Sign-In (e.g., due to third-party cookie restrictions), you can manually paste a token generated via `gcloud auth print-access-token`.
+*   **Region Selection**: Ensure you select the correct location (Global, US, EU) in the configuration bar, as Discovery Engine resources are location-specific.
+
+## Technical Details
+
+*   **Framework**: React 18 + Vite
+*   **Styling**: Tailwind CSS
+*   **State Management**: React Hooks + Session Storage
+*   **Visualization**: React Flow (Architecture Graph)
+*   **API Client**: `window.gapi` (Google API Client Library for JavaScript)
