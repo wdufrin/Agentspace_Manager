@@ -25,6 +25,13 @@ const InfoIcon = () => (
     </svg>
 );
 
+const CopyIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+        <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+    </svg>
+);
+
 // --- Sub-Components ---
 
 const VerdictBadge: React.FC<{ verdict: string }> = ({ verdict }) => {
@@ -184,6 +191,187 @@ const LogEntryCard: React.FC<{ log: LogEntry }> = ({ log }) => {
     );
 };
 
+// --- Policy Generator Component ---
+
+const PolicyGenerator: React.FC<{ projectId: string }> = ({ projectId }) => {
+    const [policyName, setPolicyName] = useState('my-safety-policy');
+    const [config, setConfig] = useState({
+        pii: true,
+        hateSpeech: true,
+        harassment: true,
+        sexuallyExplicit: true,
+        dangerousContent: true,
+        jailbreak: true,
+        maliciousUris: false,
+    });
+    const [copySuccess, setCopySuccess] = useState('');
+
+    const toggle = (key: keyof typeof config) => setConfig(prev => ({ ...prev, [key]: !prev[key] }));
+
+    const generatedJson = useMemo(() => {
+        const filters: any[] = [];
+        
+        if (config.pii) {
+            filters.push({
+                "infoType": "PHONE_NUMBER",
+                "filterConfig": { "replaceWithInfoTypeConfig": {} }
+            });
+            filters.push({
+                "infoType": "EMAIL_ADDRESS",
+                "filterConfig": { "replaceWithInfoTypeConfig": {} }
+            });
+        }
+        
+        const raiFilters: any[] = [];
+        if (config.hateSpeech) raiFilters.push({ "type": "HATE_SPEECH", "confidence": "MEDIUM_AND_ABOVE" });
+        if (config.harassment) raiFilters.push({ "type": "HARASSMENT", "confidence": "MEDIUM_AND_ABOVE" });
+        if (config.sexuallyExplicit) raiFilters.push({ "type": "SEXUALLY_EXPLICIT", "confidence": "MEDIUM_AND_ABOVE" });
+        if (config.dangerousContent) raiFilters.push({ "type": "DANGEROUS_CONTENT", "confidence": "MEDIUM_AND_ABOVE" });
+
+        return {
+            "template": {
+                "filterConfig": {
+                    "raiSettings": {
+                        "raiFilters": raiFilters
+                    },
+                    "sdpSettings": {
+                        "sdpFilters": filters
+                    },
+                    "piAndJailbreakFilterSettings": {
+                        "filterConfig": {
+                            "active": config.jailbreak
+                        }
+                    },
+                    "maliciousUriFilterSettings": {
+                        "filterConfig": {
+                            "active": config.maliciousUris
+                        }
+                    }
+                }
+            }
+        };
+    }, [config]);
+
+    const generatedCommand = `curl -X POST \\
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
+  -H "Content-Type: application/json" \\
+  -d '${JSON.stringify(generatedJson)}' \\
+  "https://modelarmor.googleapis.com/v1/projects/${projectId}/locations/global/templates?templateId=${policyName}"`;
+
+    const handleCopy = () => {
+        navigator.clipboard.writeText(generatedCommand);
+        setCopySuccess('Copied!');
+        setTimeout(() => setCopySuccess(''), 2000);
+    };
+
+    return (
+        <div className="bg-gray-800 rounded-xl border border-gray-700 shadow-md overflow-hidden">
+            <div className="p-6 border-b border-gray-700">
+                <h3 className="text-lg font-bold text-white">Policy Template Generator</h3>
+                <p className="text-sm text-gray-400 mt-1">
+                    Design a Model Armor template to filter harmful content and redact sensitive data.
+                </p>
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2">
+                {/* Left: Configuration Form */}
+                <div className="p-6 space-y-6 bg-gray-800">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">Template ID</label>
+                        <input 
+                            type="text" 
+                            value={policyName} 
+                            onChange={(e) => setPolicyName(e.target.value)} 
+                            className="w-full bg-gray-900 border border-gray-600 rounded-md px-3 py-2 text-white text-sm focus:ring-blue-500"
+                        />
+                    </div>
+
+                    <div className="space-y-4">
+                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Responsible AI Filters</h4>
+                        <div className="grid grid-cols-2 gap-3">
+                            {['hateSpeech', 'harassment', 'sexuallyExplicit', 'dangerousContent'].map((key) => (
+                                <label key={key} className="flex items-center gap-2 cursor-pointer group">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={config[key as keyof typeof config]} 
+                                        onChange={() => toggle(key as keyof typeof config)}
+                                        className="w-4 h-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500"
+                                    />
+                                    <span className="text-sm text-gray-300 group-hover:text-white capitalize">
+                                        {key.replace(/([A-Z])/g, ' $1').trim()}
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="space-y-4 pt-4 border-t border-gray-700">
+                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Data Protection & Security</h4>
+                        <div className="space-y-3">
+                            <label className="flex items-center justify-between p-3 bg-gray-700/30 rounded-lg border border-gray-700 cursor-pointer hover:bg-gray-700/50">
+                                <div>
+                                    <span className="block text-sm font-medium text-white">Sensitive Data Protection (PII)</span>
+                                    <span className="text-xs text-gray-400">Redact Email & Phone numbers</span>
+                                </div>
+                                <input 
+                                    type="checkbox" 
+                                    checked={config.pii} 
+                                    onChange={() => toggle('pii')}
+                                    className="w-5 h-5 rounded bg-gray-800 border-gray-500 text-blue-500 focus:ring-blue-500"
+                                />
+                            </label>
+                            <label className="flex items-center justify-between p-3 bg-gray-700/30 rounded-lg border border-gray-700 cursor-pointer hover:bg-gray-700/50">
+                                <div>
+                                    <span className="block text-sm font-medium text-white">Prompt Injection Defense</span>
+                                    <span className="text-xs text-gray-400">Block jailbreak attempts and system prompt overrides</span>
+                                </div>
+                                <input 
+                                    type="checkbox" 
+                                    checked={config.jailbreak} 
+                                    onChange={() => toggle('jailbreak')}
+                                    className="w-5 h-5 rounded bg-gray-800 border-gray-500 text-blue-500 focus:ring-blue-500"
+                                />
+                            </label>
+                             <label className="flex items-center justify-between p-3 bg-gray-700/30 rounded-lg border border-gray-700 cursor-pointer hover:bg-gray-700/50">
+                                <div>
+                                    <span className="block text-sm font-medium text-white">Malicious URI Filter</span>
+                                    <span className="text-xs text-gray-400">Block known malicious URLs</span>
+                                </div>
+                                <input 
+                                    type="checkbox" 
+                                    checked={config.maliciousUris} 
+                                    onChange={() => toggle('maliciousUris')}
+                                    className="w-5 h-5 rounded bg-gray-800 border-gray-500 text-blue-500 focus:ring-blue-500"
+                                />
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Right: Code Preview */}
+                <div className="bg-black p-6 border-l border-gray-700 flex flex-col overflow-hidden">
+                    <div className="flex justify-between items-center mb-4">
+                        <h4 className="text-sm font-semibold text-gray-300">Generated Command</h4>
+                        <button 
+                            onClick={handleCopy}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-md transition-colors"
+                        >
+                            <CopyIcon />
+                            {copySuccess || 'Copy Command'}
+                        </button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto bg-gray-900/50 p-4 rounded-lg border border-gray-800 font-mono text-xs text-green-400 leading-relaxed whitespace-pre-wrap break-all">
+                        {generatedCommand}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-4">
+                        Run this command in your terminal to create the template. Once created, attach it to your Reasoning Engine or Chat App.
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 // --- Main Page Component ---
 
@@ -277,9 +465,9 @@ const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (proje
                 <div>
                     <h2 className="text-xl font-bold text-white flex items-center gap-2">
                         <ShieldIcon />
-                        Model Armor Logs
+                        Model Armor Manager
                     </h2>
-                    <p className="text-sm text-gray-400 mt-1">Inspect content safety violation events from Cloud Logging.</p>
+                    <p className="text-sm text-gray-400 mt-1">Monitor content safety violations and configure protection policies.</p>
                 </div>
                 <div className="w-full md:w-auto">
                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Target Project</label>
@@ -287,71 +475,7 @@ const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (proje
                 </div>
             </div>
 
-            {/* Filters Row */}
-            <div className="flex flex-col md:flex-row gap-4 items-end">
-                <div className="flex-1 w-full">
-                    <label className="block text-xs font-medium text-gray-400 mb-1">Search Filters</label>
-                    <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <SearchIcon />
-                        </div>
-                        <input
-                            type="text"
-                            value={filterText}
-                            onChange={(e) => setFilterText(e.target.value)}
-                            placeholder='e.g. jsonPayload.sanitizationResult.verdict="BLOCKED"'
-                            className="pl-10 block w-full bg-gray-900 border border-gray-600 rounded-md py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 h-[38px]"
-                        />
-                    </div>
-                </div>
-                
-                <div className="flex items-center gap-4 w-full md:w-auto">
-                     <div className="flex flex-col min-w-[140px]">
-                        <label className="block text-xs font-medium text-gray-400 mb-1">Time Range</label>
-                        <select
-                            value={daysFilter}
-                            onChange={(e) => setDaysFilter(Number(e.target.value))}
-                            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white focus:ring-blue-500 h-[38px]"
-                        >
-                            <option value={1}>Last 24 Hours</option>
-                            <option value={3}>Last 3 Days</option>
-                            <option value={7}>Last 7 Days</option>
-                            <option value={30}>Last 30 Days</option>
-                        </select>
-                    </div>
-
-                    <div className="flex items-center h-[38px] mt-auto">
-                         <label className="flex items-center cursor-pointer gap-2 px-3 py-2 bg-gray-700/50 rounded-md border border-gray-600 hover:bg-gray-700 transition-colors h-full">
-                            <input 
-                                type="checkbox" 
-                                checked={filterBlockedOnly} 
-                                onChange={() => setFilterBlockedOnly(!filterBlockedOnly)} 
-                                className="w-4 h-4 rounded border-gray-500 text-blue-600 focus:ring-blue-500 bg-gray-800"
-                            />
-                            <span className="text-sm text-gray-300 select-none">Blocked Only</span>
-                        </label>
-                    </div>
-
-                    <button 
-                        onClick={handleFetchLogs} 
-                        disabled={isLoading || !projectNumber}
-                        className="px-6 py-2 bg-blue-600 text-white text-sm font-bold rounded-md hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed shadow-lg transition-all h-[38px] flex items-center justify-center min-w-[100px]"
-                    >
-                        {isLoading ? (
-                            <div className="w-4 h-4 border-2 border-white/50 border-t-white rounded-full animate-spin" />
-                        ) : 'Fetch Logs'}
-                    </button>
-                </div>
-            </div>
-            
-            <div className="mt-4 pt-3 border-t border-gray-700/50 flex items-center gap-2 text-xs text-gray-500">
-                <InfoIcon />
-                <span>Querying: <code className="bg-gray-900 px-1 py-0.5 rounded text-gray-400 border border-gray-700">resource.type="modelarmor.googleapis.com/SanitizeOperation"</code></span>
-            </div>
-        </div>
-
-        {/* Content Area with Tabs */}
-        <div>
+            {/* Tabs */}
             <div className="flex border-b border-gray-700 mb-4">
                 <button 
                     onClick={() => setActiveTab('logs')}
@@ -360,17 +484,91 @@ const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (proje
                     Activity Logs
                 </button>
                 <button 
-                    disabled 
-                    className="px-4 py-2 text-sm font-medium text-gray-600 border-b-2 border-transparent cursor-not-allowed"
-                    title="Feature coming soon"
+                    onClick={() => setActiveTab('policies')}
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'policies' ? 'text-blue-400 border-blue-400' : 'text-gray-400 border-transparent hover:text-white hover:border-gray-600'}`}
                 >
-                    Policies (Coming Soon)
+                    Policy Configuration
                 </button>
             </div>
 
-            {error && <div className="text-center text-red-400 p-4 mb-4 bg-red-900/20 rounded-lg border border-red-800/50">{error}</div>}
+            {/* Filters Row (Only for Logs) */}
+            {activeTab === 'logs' && (
+                <>
+                    <div className="flex flex-col md:flex-row gap-4 items-end">
+                        <div className="flex-1 w-full">
+                            <label className="block text-xs font-medium text-gray-400 mb-1">Search Filters</label>
+                            <div className="relative">
+                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <SearchIcon />
+                                </div>
+                                <input
+                                    type="text"
+                                    value={filterText}
+                                    onChange={(e) => setFilterText(e.target.value)}
+                                    placeholder='e.g. jsonPayload.sanitizationResult.verdict="BLOCKED"'
+                                    className="pl-10 block w-full bg-gray-900 border border-gray-600 rounded-md py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 h-[38px]"
+                                />
+                            </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-4 w-full md:w-auto">
+                             <div className="flex flex-col min-w-[140px]">
+                                <label className="block text-xs font-medium text-gray-400 mb-1">Time Range</label>
+                                <select
+                                    value={daysFilter}
+                                    onChange={(e) => setDaysFilter(Number(e.target.value))}
+                                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white focus:ring-blue-500 h-[38px]"
+                                >
+                                    <option value={1}>Last 24 Hours</option>
+                                    <option value={3}>Last 3 Days</option>
+                                    <option value={7}>Last 7 Days</option>
+                                    <option value={30}>Last 30 Days</option>
+                                </select>
+                            </div>
+
+                            <div className="flex items-center h-[38px] mt-auto">
+                                 <label className="flex items-center cursor-pointer gap-2 px-3 py-2 bg-gray-700/50 rounded-md border border-gray-600 hover:bg-gray-700 transition-colors h-full">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={filterBlockedOnly} 
+                                        onChange={() => setFilterBlockedOnly(!filterBlockedOnly)} 
+                                        className="w-4 h-4 rounded border-gray-500 text-blue-600 focus:ring-blue-500 bg-gray-800"
+                                    />
+                                    <span className="text-sm text-gray-300 select-none">Blocked Only</span>
+                                </label>
+                            </div>
+
+                            <button 
+                                onClick={handleFetchLogs} 
+                                disabled={isLoading || !projectNumber}
+                                className="px-6 py-2 bg-blue-600 text-white text-sm font-bold rounded-md hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed shadow-lg transition-all h-[38px] flex items-center justify-center min-w-[100px]"
+                            >
+                                {isLoading ? (
+                                    <div className="w-4 h-4 border-2 border-white/50 border-t-white rounded-full animate-spin" />
+                                ) : 'Fetch Logs'}
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div className="mt-4 pt-3 border-t border-gray-700/50 flex items-center gap-2 text-xs text-gray-500">
+                        <InfoIcon />
+                        <span>Querying: <code className="bg-gray-900 px-1 py-0.5 rounded text-gray-400 border border-gray-700">resource.type="modelarmor.googleapis.com/SanitizeOperation"</code></span>
+                    </div>
+                </>
+            )}
+        </div>
+
+        {/* Content Area */}
+        <div>
+            {error && activeTab === 'logs' && <div className="text-center text-red-400 p-4 mb-4 bg-red-900/20 rounded-lg border border-red-800/50">{error}</div>}
             
             {activeTab === 'logs' && renderContent()}
+            
+            {activeTab === 'policies' && (
+                <div className="animate-fade-in-up">
+                    <PolicyGenerator projectId={projectNumber || '[YOUR_PROJECT_ID]'} />
+                </div>
+            )}
         </div>
     </div>
   );

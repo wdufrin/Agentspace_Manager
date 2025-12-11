@@ -358,17 +358,59 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                 />
             );
         } else if (selectedResource.type === 'Dialogflow CX Agent') {
-             // Basic view for Dialogflow, could be expanded
              const agent = selectedResource.data as DialogflowAgent;
+             const engineLink = agent.genAppBuilderSettings?.engine;
+             const shortEngine = engineLink ? engineLink.split('/').pop() : null;
+
              return (
                  <div className="bg-gray-800 shadow-xl rounded-lg p-6">
-                    <h2 className="text-xl font-bold text-white mb-4">{agent.displayName}</h2>
-                    <dl className="grid grid-cols-1 gap-4">
-                        <div><dt className="text-gray-400 text-sm">Resource Name</dt><dd className="text-white font-mono bg-gray-700 p-2 rounded">{agent.name}</dd></div>
-                        <div><dt className="text-gray-400 text-sm">Description</dt><dd className="text-white">{agent.description || 'N/A'}</dd></div>
-                        <div><dt className="text-gray-400 text-sm">Time Zone</dt><dd className="text-white">{agent.timeZone}</dd></div>
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <h2 className="text-2xl font-bold text-white mb-1">{agent.displayName}</h2>
+                            <p className="text-gray-400 font-mono text-xs">{agent.name}</p>
+                        </div>
+                        <button onClick={() => { setViewMode('list'); setSelectedResource(null); }} className="text-gray-400 hover:text-white">&larr; Back</button>
+                    </div>
+
+                    <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                        <div className="bg-gray-900/50 p-3 rounded border border-gray-700">
+                            <dt className="text-gray-400 text-xs uppercase font-bold">Default Language</dt>
+                            <dd className="text-white mt-1">{agent.defaultLanguageCode || 'en'}</dd>
+                        </div>
+                        <div className="bg-gray-900/50 p-3 rounded border border-gray-700">
+                            <dt className="text-gray-400 text-xs uppercase font-bold">Time Zone</dt>
+                            <dd className="text-white mt-1">{agent.timeZone || 'UTC'}</dd>
+                        </div>
+                        {shortEngine && (
+                            <div className="bg-blue-900/20 p-3 rounded border border-blue-800 md:col-span-2">
+                                <dt className="text-blue-400 text-xs uppercase font-bold">Linked Vertex AI Engine</dt>
+                                <dd className="text-white mt-1 font-mono text-sm break-all">{shortEngine}</dd>
+                                <p className="text-xs text-gray-500 mt-1 truncate">{engineLink}</p>
+                            </div>
+                        )}
+                        {agent.description && (
+                            <div className="bg-gray-900/50 p-3 rounded border border-gray-700 md:col-span-2">
+                                <dt className="text-gray-400 text-xs uppercase font-bold">Description</dt>
+                                <dd className="text-white mt-1">{agent.description}</dd>
+                            </div>
+                        )}
+                        {agent.startFlow && (
+                            <div className="bg-gray-900/50 p-3 rounded border border-gray-700 md:col-span-2">
+                                <dt className="text-gray-400 text-xs uppercase font-bold">Start Flow</dt>
+                                <dd className="text-white mt-1 text-xs font-mono break-all">{agent.startFlow}</dd>
+                            </div>
+                        )}
                     </dl>
-                    <button onClick={() => { setViewMode('list'); setSelectedResource(null); }} className="mt-6 px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-500">Back</button>
+                    
+                    {/* Raw JSON View */}
+                    <div className="mt-6 pt-4 border-t border-gray-700">
+                        <details>
+                            <summary className="text-gray-400 text-sm cursor-pointer hover:text-white">View Raw JSON</summary>
+                            <pre className="mt-2 bg-black p-4 rounded text-xs text-green-400 overflow-x-auto">
+                                {JSON.stringify(agent, null, 2)}
+                            </pre>
+                        </details>
+                    </div>
                  </div>
              )
         } else {

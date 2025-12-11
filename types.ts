@@ -123,6 +123,19 @@ export interface DialogflowAgent {
   defaultLanguageCode?: string;
   createTime?: string;
   updateTime?: string;
+  startFlow?: string;
+  startPlaybook?: string;
+  genAppBuilderSettings?: {
+      engine?: string;
+  };
+  speechToTextSettings?: {
+      enableSpeechAdaptation?: boolean;
+  };
+  advancedSettings?: {
+      loggingSettings?: any;
+      speechSettings?: any;
+      audioExportGcsDestination?: any;
+  };
 }
 
 export interface ChatMessage {
@@ -147,6 +160,10 @@ export interface AppEngine { // Renamed from Engine to avoid conflict with Reaso
     solutionType: string;
     assistants?: Assistant[]; // For backup structure
     dataStoreIds?: string[];
+    // Add missing properties based on API response
+    industryVertical?: string;
+    appType?: string; // e.g. APP_TYPE_INTRANET
+    searchEngineConfig?: any;
 }
 
 export interface VertexAiAgentConfig {

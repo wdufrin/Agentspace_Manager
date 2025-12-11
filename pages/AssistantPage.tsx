@@ -20,7 +20,7 @@ interface AssistantRowData {
     error?: string;
 }
 
-type SortKey = 'engineId' | 'webGrounding' | 'instructions' | 'policy' | 'vertexAgents' | 'tools' | 'actions';
+type SortKey = 'displayName' | 'engineId' | 'solutionType' | 'webGrounding' | 'instructions' | 'policy' | 'vertexAgents' | 'tools' | 'actions';
 type SortDirection = 'asc' | 'desc';
 
 interface SortConfig {
@@ -59,6 +59,32 @@ const SortIcon: React.FC<{ direction: SortDirection }> = ({ direction }) => {
     );
 };
 
+// Helper function to determine the nuanced app type
+const determineAppType = (engine: AppEngine): string => {
+    if (engine.solutionType === 'SOLUTION_TYPE_CHAT') {
+        return 'Chat';
+    }
+    
+    if (engine.solutionType === 'SOLUTION_TYPE_SEARCH') {
+        // Only classify as Gemini Enterprise if appType is specifically APP_TYPE_INTRANET
+        if (engine.appType === 'APP_TYPE_INTRANET') {
+            return 'Gemini Enterprise';
+        }
+        return 'Search';
+    }
+    
+    if (engine.solutionType === 'SOLUTION_TYPE_RECOMMENDATION') {
+        return 'Recommendation';
+    }
+    
+    if (engine.solutionType === 'SOLUTION_TYPE_GENERATIVE_CHAT') {
+        return 'Gemini Enterprise';
+    }
+    
+    // Fallback formatter
+    return engine.solutionType?.replace('SOLUTION_TYPE_', '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()) || 'Unknown';
+};
+
 const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProjectNumber }) => {
   const [config, setConfig] = useState(getInitialConfig);
   
@@ -68,7 +94,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
   const [listError, setListError] = useState<string | null>(null);
   
   // Sorting State
-  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'engineId', direction: 'asc' });
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'displayName', direction: 'asc' });
 
   // Detail View State
   const [selectedRow, setSelectedRow] = useState<AssistantRowData | null>(null);
@@ -103,11 +129,21 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
   };
 
   const getSortValue = (row: AssistantRowData, key: SortKey): string | number | boolean => {
-      if (!row.assistant) return ''; // Should not happen for visible rows
+      // If no assistant, return "empty" values for sorting to push them to bottom/top
+      if (!row.assistant) {
+          if (key === 'displayName') return row.engine.displayName;
+          if (key === 'engineId') return row.engine.name.split('/').pop() || '';
+          if (key === 'solutionType') return determineAppType(row.engine);
+          return ''; // Treat others as empty/falsy
+      }
       
       switch (key) {
+          case 'displayName':
+              return row.engine.displayName;
           case 'engineId':
               return row.engine.name.split('/').pop() || '';
+          case 'solutionType':
+              return determineAppType(row.engine);
           case 'webGrounding':
               return row.assistant.webGroundingType === 'WEB_GROUNDING_TYPE_GOOGLE_SEARCH';
           case 'instructions':
@@ -177,16 +213,13 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
                 const assistant = await api.getAssistant(assistantName, assistantConfig);
                 return { engine, assistant };
             } catch (e: any) {
-                // If assistant doesn't exist (e.g. Chat app), we just return null assistant to filter it out
-                // console.warn(`Failed to fetch assistant for engine ${appId}`, e);
+                // If assistant doesn't exist (e.g. Chat app), return null assistant
                 return { engine, assistant: null, error: e.message };
             }
         });
 
         const results = await Promise.all(rowPromises);
-        // Filter out rows where assistant is missing (likely not a Search/Assistant engine or deleted assistant)
-        const validRows = results.filter(row => row.assistant !== null);
-        setRows(validRows);
+        setRows(results);
 
     } catch (err: any) {
         setListError(err.message || "Failed to fetch engines list.");
@@ -292,7 +325,9 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
               <table className="min-w-full divide-y divide-gray-700">
                   <thead className="bg-gray-700/50">
                       <tr>
+                          <SortHeader label="Display Name" sortKey="displayName" />
                           <SortHeader label="Engine ID" sortKey="engineId" />
+                          <SortHeader label="App Type" sortKey="solutionType" />
                           <SortHeader label="Web Grounding" sortKey="webGrounding" />
                           <SortHeader label="System Instructions" sortKey="instructions" />
                           <SortHeader label="Customer Policy" sortKey="policy" />
@@ -305,55 +340,79 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
                   <tbody className="bg-gray-800 divide-y divide-gray-700">
                       {sortedRows.length === 0 && !isListLoading && (
                           <tr>
-                              <td colSpan={8} className="px-6 py-8 text-center text-sm text-gray-500">
-                                  No engines with default assistants found in this location.
+                              <td colSpan={10} className="px-6 py-8 text-center text-sm text-gray-500">
+                                  No engines found in this location.
                               </td>
                           </tr>
                       )}
                       {sortedRows.map((row) => {
                           const engineId = row.engine.name.split('/').pop()!;
                           const assistant = row.assistant;
+                          const appType = determineAppType(row.engine);
                           
-                          if (!assistant) {
-                              return null; // Should be filtered out already, but safe guard
-                          }
-
-                          const hasWebGrounding = assistant.webGroundingType === 'WEB_GROUNDING_TYPE_GOOGLE_SEARCH';
-                          const hasInstructions = !!assistant.generationConfig?.systemInstruction?.additionalSystemInstruction;
-                          const hasPolicy = !!(assistant.customerPolicy && Object.keys(assistant.customerPolicy).length > 0);
-                          const vertexAgentsCount = assistant.vertexAiAgentConfigs?.length || 0;
-                          const toolsCount = Object.keys(assistant.enabledTools || {}).length;
-                          const actionsCount = Object.keys(assistant.enabledActions || {}).length;
+                          // Check if assistant exists to extract props, otherwise defaults
+                          const hasWebGrounding = assistant?.webGroundingType === 'WEB_GROUNDING_TYPE_GOOGLE_SEARCH';
+                          const hasInstructions = !!assistant?.generationConfig?.systemInstruction?.additionalSystemInstruction;
+                          const hasPolicy = !!(assistant?.customerPolicy && Object.keys(assistant.customerPolicy).length > 0);
+                          const vertexAgentsCount = assistant?.vertexAiAgentConfigs?.length || 0;
+                          const toolsCount = Object.keys(assistant?.enabledTools || {}).length;
+                          const actionsCount = Object.keys(assistant?.enabledActions || {}).length;
 
                           return (
                               <tr key={engineId} className="hover:bg-gray-700/50 transition-colors">
                                   <td className="px-6 py-4 whitespace-nowrap">
                                       <div className="text-sm font-medium text-white">{row.engine.displayName}</div>
-                                      <div className="text-xs text-gray-500 font-mono">{engineId}</div>
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap">
-                                      <StatusBadge active={hasWebGrounding} />
+                                      <div className="text-xs text-gray-400 font-mono">{engineId}</div>
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap">
-                                      <StatusBadge active={hasInstructions} text={hasInstructions ? 'Yes' : 'No'} />
+                                      <span className={`text-sm px-2 py-1 rounded border ${
+                                          appType === 'Gemini Enterprise' 
+                                            ? 'text-purple-300 bg-purple-900/50 border-purple-700' 
+                                            : appType === 'Chat' 
+                                                ? 'text-blue-300 bg-blue-900/50 border-blue-700'
+                                                : 'text-gray-300 bg-gray-700/50 border-gray-600'
+                                      }`}>
+                                          {appType}
+                                      </span>
                                   </td>
-                                  <td className="px-6 py-4 whitespace-nowrap">
-                                      <StatusBadge active={hasPolicy} text={hasPolicy ? 'Applied' : 'None'} />
-                                  </td>
-                                  <td className="px-6 py-4 whitespace-nowrap text-center">
-                                      <CountBadge count={vertexAgentsCount} />
-                                  </td>
-                                  <td className="px-6 py-4 whitespace-nowrap text-center">
-                                      <CountBadge count={toolsCount} />
-                                  </td>
-                                  <td className="px-6 py-4 whitespace-nowrap text-center">
-                                      <CountBadge count={actionsCount} />
-                                  </td>
-                                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                      <button onClick={() => handleRowClick(row)} className="text-blue-400 hover:text-blue-300 font-semibold">
-                                          View / Edit
-                                      </button>
-                                  </td>
+                                  {assistant ? (
+                                      <>
+                                          <td className="px-6 py-4 whitespace-nowrap">
+                                              <StatusBadge active={hasWebGrounding} />
+                                          </td>
+                                          <td className="px-6 py-4 whitespace-nowrap">
+                                              <StatusBadge active={hasInstructions} text={hasInstructions ? 'Yes' : 'No'} />
+                                          </td>
+                                          <td className="px-6 py-4 whitespace-nowrap">
+                                              <StatusBadge active={hasPolicy} text={hasPolicy ? 'Applied' : 'None'} />
+                                          </td>
+                                          <td className="px-6 py-4 whitespace-nowrap text-center">
+                                              <CountBadge count={vertexAgentsCount} />
+                                          </td>
+                                          <td className="px-6 py-4 whitespace-nowrap text-center">
+                                              <CountBadge count={toolsCount} />
+                                          </td>
+                                          <td className="px-6 py-4 whitespace-nowrap text-center">
+                                              <CountBadge count={actionsCount} />
+                                          </td>
+                                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                              <button onClick={() => handleRowClick(row)} className="text-blue-400 hover:text-blue-300 font-semibold">
+                                                  View / Edit
+                                              </button>
+                                          </td>
+                                      </>
+                                  ) : (
+                                      <>
+                                          <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500 italic">
+                                              No Default Assistant Configured
+                                          </td>
+                                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                              <span className="text-gray-600 cursor-not-allowed">N/A</span>
+                                          </td>
+                                      </>
+                                  )}
                               </tr>
                           );
                       })}

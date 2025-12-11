@@ -485,6 +485,35 @@ export const streamQueryReasoningEngine = async (
 export const listDialogflowAgents = async (config: Config) => {
     const { projectId, reasoningEngineLocation } = config;
     const url = `https://${reasoningEngineLocation}-dialogflow.googleapis.com/v3/projects/${projectId}/locations/${reasoningEngineLocation}/agents`;
+    
+    // Try using native fetch first to ensure we bypass any potential gapi client quirks regarding specific APIs
+    try {
+        const client = await getGapiClient();
+        const tokenObj = client.getToken();
+        const token = tokenObj ? tokenObj.access_token : null;
+        
+        if (token) {
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'X-Goog-User-Project': projectId,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!response.ok) {
+                 const errText = await response.text();
+                 throw new Error(`API Error ${response.status}: ${errText}`);
+            }
+            return await response.json();
+        }
+    } catch (e) {
+        console.warn("Fetch fallback failed for Dialogflow, trying standard gapiRequest", e);
+        // Fallthrough to gapiRequest if fetch fails (e.g. no token in gapi client yet) or error occurs
+        throw e;
+    }
+
     return gapiRequest<{ agents: DialogflowAgent[] }>(url, 'GET', projectId);
 };
 

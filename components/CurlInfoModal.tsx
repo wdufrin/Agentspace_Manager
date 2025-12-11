@@ -94,7 +94,7 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
         ]
     },
     [Page.AGENT_ENGINES]: {
-        description: "These are the underlying REST API calls for managing Vertex AI Reasoning Engines.",
+        description: "These are the underlying REST API calls for discovering available agent backends (Reasoning Engines, Cloud Run Services, and Dialogflow Agents).",
         commands: [
             {
                 title: 'List Reasoning Engines',
@@ -103,6 +103,20 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   "https://[LOCATION]-aiplatform.googleapis.com/v1beta1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/reasoningEngines"`
             },
+            {
+                title: 'List Cloud Run Services (A2A)',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-run.googleapis.com/v2/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/services"`
+            },
+            {
+                title: 'List Dialogflow CX Agents',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-dialogflow.googleapis.com/v3/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/agents"`
+            }
         ]
     },
     [Page.DATA_STORES]: {

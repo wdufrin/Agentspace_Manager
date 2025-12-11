@@ -156,6 +156,7 @@ const App: React.FC = () => {
       if (window.google && window.google.accounts && GOOGLE_CLIENT_ID) {
           tokenClient.current = window.google.accounts.oauth2.initTokenClient({
               client_id: GOOGLE_CLIENT_ID,
+              // Update scopes to include Dialogflow
               scope: 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/dialogflow',
               callback: (tokenResponse: any) => {
                   if (tokenResponse && tokenResponse.access_token) {
