@@ -645,6 +645,24 @@ export const uploadFileToGcs = async (bucket: string, objectName: string, file: 
     return response.json();
 };
 
+export const getGcsObjectContent = async (bucket: string, objectName: string, projectId: string) => {
+    const client = await getGapiClient();
+    const accessToken = client.getToken().access_token;
+    
+    const response = await fetch(`https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodeURIComponent(objectName)}?alt=media`, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'X-Goog-User-Project': projectId
+        }
+    });
+    
+    if (!response.ok) {
+        throw new Error(`Failed to download file from GCS: ${response.statusText}`);
+    }
+    return response.text();
+};
+
 // --- A2A ---
 
 export const fetchA2aAgentCard = async (serviceUrl: string, accessToken: string) => {

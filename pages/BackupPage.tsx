@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Agent, AppEngine, Assistant, Authorization, Collection, Config, DataStore, ReasoningEngine } from '../types';
+import { Agent, AppEngine, Assistant, Authorization, Collection, Config, DataStore, ReasoningEngine, GcsBucket, GcsObject } from '../types';
 import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
 import RestoreSelectionModal from '../components/backup/RestoreSelectionModal';
@@ -29,9 +29,9 @@ interface BackupRestoreCardProps {
   onBackup: () => Promise<void>;
   onRestore: (section: string, processor: (data: any) => Promise<void>) => Promise<void>;
   processor: (data: any) => Promise<void>;
-  restoreFile: File | null;
-  onFileChange: (section: string, file: File | null) => void;
-  restoreFileInputRefs: React.MutableRefObject<{ [key: string]: HTMLInputElement | null }>;
+  availableBackups: string[];
+  selectedBackup: string;
+  onBackupSelectionChange: (section: string, value: string) => void;
   loadingSection: string | null;
   isGloballyLoading: boolean;
   onShowInfo: (infoKey: string) => void;
@@ -43,9 +43,9 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
   onBackup, 
   onRestore, 
   processor, 
-  restoreFile, 
-  onFileChange,
-  restoreFileInputRefs,
+  availableBackups,
+  selectedBackup,
+  onBackupSelectionChange,
   loadingSection,
   isGloballyLoading,
   onShowInfo
@@ -69,7 +69,7 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
                 {isBackupLoading ? (
                 <>
                     <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
-                    Backing up...
+                    Backing up to GCS...
                 </>
                 ) : 'Backup'}
             </button>
@@ -88,21 +88,24 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
 
         {/* Restore Action */}
         <div className="flex-1 mt-4">
-          <p className="text-xs text-center text-gray-400 mb-2">Restore from a .json backup file.</p>
+          <p className="text-xs text-center text-gray-400 mb-2">Restore from GCS.</p>
           <div className="flex items-center gap-2">
-            <input
-              type="file"
-              accept=".json"
-              ref={el => { restoreFileInputRefs.current[section] = el; }}
-              onChange={(e) => onFileChange(section, e.target.files ? e.target.files[0] : null)}
-              disabled={isGloballyLoading}
-              className="block w-full text-xs text-gray-400 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-gray-700 file:text-gray-300 hover:file:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-            />
+            <select
+                value={selectedBackup}
+                onChange={(e) => onBackupSelectionChange(section, e.target.value)}
+                disabled={isGloballyLoading}
+                className="block w-full text-xs bg-gray-700 border border-gray-600 rounded-l-md text-white p-2 h-8 disabled:opacity-50"
+            >
+                <option value="">-- Select Backup File --</option>
+                {availableBackups.map(file => (
+                    <option key={file} value={file}>{file}</option>
+                ))}
+            </select>
             <div className="flex shrink-0">
                 <button
                 onClick={() => onRestore(section, processor)}
-                disabled={isGloballyLoading || !restoreFile}
-                className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-l-md hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center h-8"
+                disabled={isGloballyLoading || !selectedBackup}
+                className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center h-8"
                 >
                 {isRestoreLoading ? (
                     <>
@@ -136,8 +139,16 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   const [loadingSection, setLoadingSection] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
-  const [restoreFile, setRestoreFile] = useState<{ [key: string]: File | null }>({});
-  const restoreFileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  
+  // GCS State
+  const [buckets, setBuckets] = useState<GcsBucket[]>([]);
+  const [selectedBucket, setSelectedBucket] = useState<string>('');
+  const [isLoadingBuckets, setIsLoadingBuckets] = useState(false);
+  
+  // Available Backup Files (Keyed by section prefix)
+  const [backupFiles, setBackupFiles] = useState<Record<string, string[]>>({});
+  const [selectedRestoreFiles, setSelectedRestoreFiles] = useState<Record<string, string>>({});
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
 
   const [modalData, setModalData] = useState<{
     section: string;
@@ -179,17 +190,86 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     }));
     setApps([]);
     setReasoningEngines([]);
+    setBuckets([]);
+    setSelectedBucket('');
   };
   
-  const handleFileChange = (section: string, file: File | null) => {
-      setRestoreFile(prev => ({ ...prev, [section]: file }));
-  };
-
   const addLog = (message: string) => {
       setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${message}`]);
   };
 
   // --- Effects to fetch dropdown data ---
+  
+  // Fetch GCS Buckets
+  useEffect(() => {
+      if (!apiConfig.projectId) return;
+      const fetchBuckets = async () => {
+          setIsLoadingBuckets(true);
+          setBuckets([]);
+          try {
+              const res = await api.listBuckets(apiConfig.projectId);
+              const items = res.items || [];
+              setBuckets(items);
+              if (items.length > 0) {
+                  // Default to first bucket if not set
+                  if (!selectedBucket) setSelectedBucket(items[0].name);
+              }
+          } catch (e) {
+              console.error("Failed to fetch buckets", e);
+          } finally {
+              setIsLoadingBuckets(false);
+          }
+      };
+      fetchBuckets();
+  }, [apiConfig.projectId]);
+
+  const fetchBackups = async () => {
+      if (!selectedBucket || !apiConfig.projectId) return;
+      setIsLoadingFiles(true);
+      setBackupFiles({}); // Clear while loading
+      try {
+          const res = await api.listGcsObjects(selectedBucket, '', apiConfig.projectId);
+          const objects = res.items || [];
+          
+          // Categorize files based on prefixes
+          const categorized: Record<string, string[]> = {
+              'DiscoveryResources': [],
+              'ReasoningEngine': [],
+              'Assistant': [],
+              'Agents': [],
+              'DataStores': [],
+              'Authorizations': [],
+          };
+
+          objects.forEach(obj => {
+              if (obj.name.startsWith('agentspace-discovery-backup')) categorized['DiscoveryResources'].push(obj.name);
+              else if (obj.name.startsWith('agentspace-reasoning-engine')) categorized['ReasoningEngine'].push(obj.name);
+              else if (obj.name.startsWith('agentspace-assistant')) categorized['Assistant'].push(obj.name);
+              else if (obj.name.startsWith('agentspace-agents')) categorized['Agents'].push(obj.name);
+              else if (obj.name.startsWith('agentspace-data-stores')) categorized['DataStores'].push(obj.name);
+              else if (obj.name.startsWith('agentspace-authorizations')) categorized['Authorizations'].push(obj.name);
+          });
+
+          // Sort chronologically (names contain ISO timestamp, so alphabetical reverse works)
+          Object.keys(categorized).forEach(key => {
+              categorized[key].sort().reverse();
+          });
+
+          setBackupFiles(categorized);
+      } catch (e) {
+          console.error("Failed to list objects", e);
+          addLog(`Error listing backup files: ${(e as any).message}`);
+      } finally {
+          setIsLoadingFiles(false);
+      }
+  };
+
+  // Fetch Backup Files when bucket changes
+  useEffect(() => {
+      fetchBackups();
+  }, [selectedBucket, apiConfig.projectId]);
+
+
   useEffect(() => {
     if (!apiConfig.projectId || !apiConfig.appLocation) {
         setApps([]);
@@ -242,18 +322,21 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   }, [apiConfig.projectId, apiConfig.reasoningEngineLocation]);
 
 
-  const downloadJson = (data: object, filenamePrefix: string) => {
+  const uploadBackupToGcs = async (data: object, filenamePrefix: string) => {
+      if (!selectedBucket) {
+          throw new Error("No GCS bucket selected for backup.");
+      }
       const jsonString = JSON.stringify(data, null, 2);
-      const blob = new Blob([jsonString], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      link.download = `${filenamePrefix}-${timestamp}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      const filename = `${filenamePrefix}-${timestamp}.json`;
+      const file = new File([jsonString], filename, { type: 'application/json' });
+      
+      addLog(`Uploading backup to gs://${selectedBucket}/${filename}...`);
+      await api.uploadFileToGcs(selectedBucket, filename, file, apiConfig.projectId);
+      addLog(`Upload successful.`);
+      
+      // Refresh file list to show the new backup
+      await fetchBackups();
   };
   
   const executeOperation = async (section: string, operation: () => Promise<void>) => {
@@ -297,9 +380,6 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
     if (collections.length === 0) {
         addLog('Warning: default_collection not found in this location.');
-        const backupData = { type: 'DiscoveryResources', createdAt: new Date().toISOString(), sourceConfig: apiConfig, collections: [] };
-        downloadJson(backupData, 'agentspace-discovery-backup');
-        addLog(`Backup complete! No collections found to back up.`);
         return;
     }
     
@@ -317,7 +397,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     }
 
     const backupData = { type: 'DiscoveryResources', createdAt: new Date().toISOString(), sourceConfig: apiConfig, collections };
-    downloadJson(backupData, 'agentspace-discovery-backup');
+    await uploadBackupToGcs(backupData, 'agentspace-discovery-backup');
     addLog(`Backup complete! Found and backed up 'default_collection'.`);
   });
   
@@ -331,7 +411,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     const engine = await api.getReasoningEngine(engineName, apiConfig);
     
     const backupData = { type: 'ReasoningEngine', createdAt: new Date().toISOString(), sourceConfig: apiConfig, engine };
-    downloadJson(backupData, `agentspace-reasoning-engine-${apiConfig.reasoningEngineId}-backup`);
+    await uploadBackupToGcs(backupData, `agentspace-reasoning-engine-${apiConfig.reasoningEngineId}-backup`);
     addLog(`Backup complete! Reasoning Engine '${engine.displayName}' saved.`);
   });
 
@@ -348,7 +428,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     assistant.agents = agentsResponse.agents || [];
     
     const backupData = { type: 'Assistant', createdAt: new Date().toISOString(), sourceConfig: apiConfig, assistant };
-    downloadJson(backupData, `agentspace-assistant-${apiConfig.assistantId}-backup`);
+    await uploadBackupToGcs(backupData, `agentspace-assistant-${apiConfig.assistantId}-backup`);
     addLog(`Backup complete! Assistant '${assistant.displayName}' and its ${assistant.agents.length} agents saved.`);
   });
   
@@ -362,7 +442,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     const agents: Agent[] = agentsResponse.agents || [];
     
     const backupData = { type: 'Agents', createdAt: new Date().toISOString(), sourceConfig: apiConfig, agents };
-    downloadJson(backupData, `agentspace-agents-${apiConfig.assistantId}-backup`);
+    await uploadBackupToGcs(backupData, `agentspace-agents-${apiConfig.assistantId}-backup`);
     addLog(`Backup complete! Found ${agents.length} agents.`);
   });
 
@@ -372,7 +452,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     const dataStores: DataStore[] = dataStoresResponse.dataStores || [];
     
     const backupData = { type: 'DataStores', createdAt: new Date().toISOString(), sourceConfig: apiConfig, dataStores };
-    downloadJson(backupData, 'agentspace-data-stores-backup');
+    await uploadBackupToGcs(backupData, 'agentspace-data-stores-backup');
     addLog(`Backup complete! Found ${dataStores.length} data stores.`);
   });
 
@@ -388,7 +468,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       });
       
       const backupData = { type: 'Authorizations', createdAt: new Date().toISOString(), sourceConfig: apiConfig, authorizations };
-      downloadJson(backupData, 'agentspace-authorizations-backup');
+      await uploadBackupToGcs(backupData, 'agentspace-authorizations-backup');
       addLog(`Backup complete! Found ${authorizations.length} authorizations (client secrets omitted).`);
   });
 
@@ -396,16 +476,17 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   // --- Restore Handlers & Processors ---
 
   const handleRestore = async (section: string, processor: (data: any) => Promise<void>) => {
-    const file = restoreFile[section];
-    if (!file) {
-      setError(`Please select a backup file for ${section}.`);
+    const filename = selectedRestoreFiles[section];
+    if (!filename || !selectedBucket) {
+      setError(`Please select a bucket and a backup file for ${section}.`);
       return;
     }
     
     const sectionName = section.replace(/[A-Z]/g, ' $&').trim(); // e.g., 'DiscoveryResources' -> 'Discovery Resources'
     executeOperation(`Restore${section}`, async () => {
-      addLog(`Reading file: ${file.name}...`);
-      const fileContent = await file.text();
+      addLog(`Downloading file: gs://${selectedBucket}/${filename}...`);
+      
+      const fileContent = await api.getGcsObjectContent(selectedBucket, filename, apiConfig.projectId);
       const backupData = JSON.parse(fileContent);
       
       if (backupData.type !== section) {
@@ -884,6 +965,10 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     secretPrompt?.resolve(null);
     setSecretPrompt(null);
   };
+  
+  const handleBackupSelectionChange = (section: string, value: string) => {
+      setSelectedRestoreFiles(prev => ({ ...prev, [section]: value }));
+  };
 
   const cardConfigs = [
     { section: 'DiscoveryResources', title: 'All Discovery Resources', backupHandler: handleBackupDiscovery, restoreProcessor: processRestoreDiscovery },
@@ -921,7 +1006,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
       <div className="bg-gray-800 p-4 rounded-lg shadow-md">
         <h2 className="text-lg font-semibold text-white mb-3">Configuration for Backup & Restore</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">Target Project ID / Number</label>
             <ProjectInput value={projectNumber} onChange={handleProjectNumberChange} />
@@ -933,6 +1018,20 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
               <option value="us">us</option>
               <option value="eu">eu</option>
             </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">Backup Bucket (GCS)</label>
+            <div className="flex gap-2">
+                <select 
+                    value={selectedBucket} 
+                    onChange={(e) => setSelectedBucket(e.target.value)} 
+                    className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 h-[42px]"
+                    disabled={isLoadingBuckets || buckets.length === 0}
+                >
+                    <option value="">{isLoadingBuckets ? 'Loading buckets...' : '-- Select Bucket --'}</option>
+                    {buckets.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
+                </select>
+            </div>
           </div>
           <div>
             <label htmlFor="appId" className="block text-sm font-medium text-gray-400 mb-1">Target Gemini Enterprise ID</label>
@@ -967,8 +1066,10 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       </div>
       
        <div className="space-y-4">
-          <h2 className="text-xl font-bold text-white text-center">Backup & Restore Actions</h2>
-          <p className="text-center text-gray-400 text-sm -mt-2">Select a resource type below to perform a backup or restore operation.</p>
+          <h2 className="text-xl font-bold text-white text-center">Backup & Restore Actions (GCS)</h2>
+          <p className="text-center text-gray-400 text-sm -mt-2">
+              Backups are stored in <strong>gs://{selectedBucket || '...'}</strong>. Select a file from the dropdown to restore.
+          </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {cardConfigs.map(card => (
@@ -979,11 +1080,11 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
                     onBackup={card.backupHandler}
                     onRestore={handleRestore}
                     processor={card.restoreProcessor}
-                    restoreFile={restoreFile[card.section] || null}
-                    onFileChange={handleFileChange}
-                    restoreFileInputRefs={restoreFileInputRefs}
+                    availableBackups={backupFiles[card.section] || []}
+                    selectedBackup={selectedRestoreFiles[card.section] || ''}
+                    onBackupSelectionChange={handleBackupSelectionChange}
                     loadingSection={loadingSection}
-                    isGloballyLoading={isLoading}
+                    isGloballyLoading={isLoading || isLoadingFiles}
                     onShowInfo={setInfoModalKey}
                 />
             ))}
