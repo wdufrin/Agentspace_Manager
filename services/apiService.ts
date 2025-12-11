@@ -724,7 +724,7 @@ export const streamChat = async (
     
     const payload: any = {
         query: { text: query },
-        user_id: "test-user" // required for some features
+        // user_id: "test-user" // REMOVED: Causing issues with some endpoints/configs, matches working curl better without it.
     };
     if (sessionId) {
         payload.session = sessionId;
@@ -752,37 +752,47 @@ export const streamChat = async (
         if (done) break;
         
         buffer += decoder.decode(value, { stream: true });
-        // The API returns a stream of JSON objects, potentially separated by newlines or just concatenated
-        // We'll need to parse valid JSON objects from the buffer.
-        // A simple approach assuming line-delimited JSON or similar structure:
         
-        // Fix for potential array of objects or rapid stream
-        // Discovery Engine streaming usually returns JSON objects.
-        // Let's try to split by some delimiter if standard JSON stream format is used.
-        // Or assume the buffer contains complete JSONs if slow enough.
+        // Robust parser for array-wrapped or concatenated JSON streams.
+        // Google APIs often return [ {...}, {...} ] or sometimes just concatenated objects.
+        // This parser extracts any complete top-level object {} found in the buffer.
         
-        // Robust strategy: Find matching braces
+        let cursor = 0;
         let braceCount = 0;
-        let jsonStartIndex = 0;
-        
-        for (let i = 0; i < buffer.length; i++) {
-            if (buffer[i] === '{') braceCount++;
-            else if (buffer[i] === '}') braceCount--;
+        let inString = false;
+        let escaped = false;
+        let start = -1;
+
+        while (cursor < buffer.length) {
+            const char = buffer[cursor];
             
-            if (braceCount === 0 && i > jsonStartIndex) {
-                const potentialJson = buffer.substring(jsonStartIndex, i + 1);
-                try {
-                    const chunk = JSON.parse(potentialJson);
-                    onChunk(chunk);
-                    jsonStartIndex = i + 1;
-                } catch (e) {
-                    // Not a valid JSON yet, keep buffering
+            if (!inString && char === '{') {
+                if (braceCount === 0) start = cursor;
+                braceCount++;
+            } else if (!inString && char === '}') {
+                braceCount--;
+                if (braceCount === 0 && start !== -1) {
+                    // Found complete object
+                    const jsonStr = buffer.substring(start, cursor + 1);
+                    try {
+                        const chunk = JSON.parse(jsonStr);
+                        onChunk(chunk);
+                    } catch(e) {
+                        console.warn("Failed to parse stream chunk", e);
+                    }
+                    // Remove processed part from buffer and reset scan
+                    buffer = buffer.substring(cursor + 1);
+                    cursor = -1; // Will become 0 after cursor++
+                    start = -1;
                 }
+            } else if (char === '"' && !escaped) {
+                inString = !inString;
+            } else if (char === '\\' && inString) {
+                escaped = !escaped;
+            } else {
+                escaped = false; // Reset escape if it wasn't a backslash
             }
-        }
-        
-        if (jsonStartIndex > 0) {
-            buffer = buffer.substring(jsonStartIndex);
+            cursor++;
         }
     }
 };

@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage, Config } from '../../types';
 import * as api from '../../services/apiService';
@@ -17,13 +18,14 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
     const [error, setError] = useState<string | null>(null);
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [detailsToShow, setDetailsToShow] = useState<ChatMessage['answerDetails'] | null>(null);
+    const [thinkingProcess, setThinkingProcess] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
 
-    useEffect(scrollToBottom, [messages]);
+    useEffect(scrollToBottom, [messages, thinkingProcess]);
 
     // When the component mounts or the agent changes, reset to a fresh conversation.
     useEffect(() => {
@@ -31,6 +33,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
         setSessionId(null);
         setError(null);
         setInput('');
+        setThinkingProcess(null);
     }, [targetDisplayName]);
 
     const handleSend = async () => {
@@ -44,6 +47,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
         setInput('');
         setIsLoading(true);
         setError(null);
+        setThinkingProcess(null);
 
         let wasMessageReceived = false;
         let skipReason: string | null = null;
@@ -75,8 +79,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
                         skipReason = 'NON_ASSIST_SEEKING_QUERY_IGNORED';
                     }
                     
-                    // Aggregate citations from the final SUCCEEDED chunk
-                    if (parsedChunk.answer?.state === 'SUCCEEDED' && parsedChunk.answer.replies) {
+                    // Aggregate citations from ANY chunk that has them (not just SUCCEEDED)
+                    if (parsedChunk.answer?.replies) {
                         for (const reply of parsedChunk.answer.replies) {
                             const references = reply.groundedContent?.textGroundingMetadata?.references;
                             if (references) {
@@ -85,21 +89,29 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
                         }
                     }
 
-                    // Extract the text content from the chunk
+                    // Extract the content from the chunk
                     const replyContent = parsedChunk.answer?.replies?.[0]?.groundedContent?.content;
-                    if (replyContent && replyContent.text && !replyContent.thought) {
-                        wasMessageReceived = true;
-                        const chunkText = replyContent.text;
-                        setMessages(prev => {
-                            const newMessages = [...prev];
-                            const lastMessage = newMessages[newMessages.length - 1];
-                            if (lastMessage && lastMessage.role === 'assistant') {
-                                const updatedLastMessage = { ...lastMessage, content: lastMessage.content + chunkText };
-                                newMessages[newMessages.length - 1] = updatedLastMessage;
-                                return newMessages;
-                            }
-                            return prev;
-                        });
+                    
+                    if (replyContent) {
+                        // Handle "Thought" chunks
+                        if (replyContent.thought && replyContent.text) {
+                            setThinkingProcess(prev => (prev ? prev + replyContent.text : replyContent.text));
+                        }
+                        // Handle "Answer" chunks
+                        else if (replyContent.text) {
+                            wasMessageReceived = true;
+                            const chunkText = replyContent.text;
+                            setMessages(prev => {
+                                const newMessages = [...prev];
+                                const lastMessage = newMessages[newMessages.length - 1];
+                                if (lastMessage && lastMessage.role === 'assistant') {
+                                    const updatedLastMessage = { ...lastMessage, content: lastMessage.content + chunkText };
+                                    newMessages[newMessages.length - 1] = updatedLastMessage;
+                                    return newMessages;
+                                }
+                                return prev;
+                            });
+                        }
                     }
                 }
             );
@@ -117,6 +129,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
             });
         } finally {
             setIsLoading(false);
+            setThinkingProcess(null); // Clear thought process when done
             setMessages(prev => {
                 const newMessages = [...prev];
                 const messageToUpdate = newMessages[assistantMessageIndex];
@@ -188,7 +201,17 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
                         )}
                     </div>
                 ))}
-                {isLoading && messages[messages.length - 1]?.role === 'assistant' && messages[messages.length - 1]?.content === '' && (
+                
+                {thinkingProcess && (
+                     <div className="flex justify-start animate-pulse">
+                       <div className="max-w-xl px-4 py-2 rounded-lg bg-gray-800 border border-gray-600 text-gray-400 text-xs italic">
+                           <p className="font-bold mb-1">Thinking...</p>
+                           <p style={{whiteSpace: 'pre-wrap'}}>{thinkingProcess}</p>
+                       </div>
+                    </div>
+                )}
+
+                {isLoading && !thinkingProcess && messages[messages.length - 1]?.role === 'assistant' && messages[messages.length - 1]?.content === '' && (
                     <div className="flex justify-start">
                        <div className="max-w-xl px-4 py-2 rounded-lg bg-gray-700 text-gray-200">
                            <div className="flex items-center space-x-2">

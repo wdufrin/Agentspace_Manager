@@ -8,10 +8,12 @@ import AssistantDetailsForm from '../components/assistants/AssistantDetailsForm'
 import AgentListForAssistant from '../components/assistants/AgentListForAssistant';
 import ExportMetricsModal from '../components/assistants/ExportMetricsModal';
 import AnalyticsMetricsViewer from '../components/assistants/AnalyticsMetricsViewer';
+import ChatWindow from '../components/agents/ChatWindow';
 
 interface AssistantPageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
+  accessToken: string;
 }
 
 interface AssistantRowData {
@@ -85,7 +87,7 @@ const determineAppType = (engine: AppEngine): string => {
     return engine.solutionType?.replace('SOLUTION_TYPE_', '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()) || 'Unknown';
 };
 
-const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProjectNumber }) => {
+const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProjectNumber, accessToken }) => {
   const [config, setConfig] = useState(getInitialConfig);
   
   // List View State
@@ -101,6 +103,9 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
   const [agents, setAgents] = useState<Agent[]>([]);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
+  // Chat State
+  const [activeChatConfig, setActiveChatConfig] = useState<{ displayName: string; config: Config } | null>(null);
 
   useEffect(() => {
     sessionStorage.setItem('assistantPageConfig', JSON.stringify(config));
@@ -274,6 +279,20 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
       fetchAgentsForAssistant(row.engine.name.split('/').pop()!);
   };
 
+  const handleChatClick = (row: AssistantRowData, e: React.MouseEvent) => {
+      e.stopPropagation();
+      const engineId = row.engine.name.split('/').pop()!;
+      // Create a full config for this specific engine
+      const chatConfig: Config = {
+          ...baseApiConfig,
+          appId: engineId,
+      };
+      setActiveChatConfig({
+          displayName: row.engine.displayName,
+          config: chatConfig
+      });
+  };
+
   const handleBack = () => {
       setSelectedRow(null);
       setAgents([]);
@@ -398,9 +417,20 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
                                               <CountBadge count={actionsCount} />
                                           </td>
                                           <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                              <button onClick={() => handleRowClick(row)} className="text-blue-400 hover:text-blue-300 font-semibold">
-                                                  View / Edit
-                                              </button>
+                                              <div className="flex items-center justify-end gap-3">
+                                                  <button 
+                                                      onClick={(e) => handleChatClick(row, e)} 
+                                                      className="text-green-400 hover:text-green-300 transition-colors" 
+                                                      title="Chat with Assistant"
+                                                  >
+                                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                          <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
+                                                      </svg>
+                                                  </button>
+                                                  <button onClick={() => handleRowClick(row)} className="text-blue-400 hover:text-blue-300 font-semibold">
+                                                      View / Edit
+                                                  </button>
+                                              </div>
                                           </td>
                                       </>
                                   ) : (
@@ -478,7 +508,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
       {/* Configuration Header */}
       {!selectedRow && (
           <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700">
@@ -501,6 +531,18 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
       )}
 
       {selectedRow ? renderDetail() : renderList()}
+
+      {/* Floating Chat Window */}
+      {activeChatConfig && (
+          <div className="fixed bottom-4 right-4 z-50 w-[450px] h-[600px] shadow-2xl rounded-lg overflow-hidden border border-gray-700 bg-gray-800 flex flex-col">
+              <ChatWindow
+                  targetDisplayName={activeChatConfig.displayName}
+                  config={activeChatConfig.config}
+                  accessToken={accessToken}
+                  onClose={() => setActiveChatConfig(null)}
+              />
+          </div>
+      )}
     </div>
   );
 };

@@ -14,6 +14,7 @@ import A2aTesterPage from './pages/A2aTesterPage';
 import McpServersPage from './pages/McpServersPage';
 import AgentCatalogPage from './pages/AgentCatalogPage';
 import CloudRunAgentsPage from './pages/CloudRunAgentsPage';
+import DialogflowAgentsPage from './pages/DialogflowAgentsPage';
 import ProjectInput from '../components/ProjectInput';
 import { initGapiClient, getGapiClient } from './services/gapiService';
 import * as api from './services/apiService';
@@ -565,7 +566,7 @@ const App: React.FC = () => {
       case Page.AGENTS:
         return <AgentsPage {...projectProps} accessToken={accessToken} />;
       case Page.ASSISTANT:
-        return <AssistantPage {...projectProps} />;
+        return <AssistantPage {...projectProps} accessToken={accessToken} />;
       case Page.AUTHORIZATIONS:
         return <AuthorizationsPage {...commonProps} />;
       case Page.AGENT_ENGINES:
@@ -578,6 +579,8 @@ const App: React.FC = () => {
         return <AgentCatalogPage {...projectProps} accessToken={accessToken} onBuildTriggered={handleBuildTriggered} />;
       case Page.CLOUD_RUN_AGENTS:
         return <CloudRunAgentsPage {...projectProps} />;
+      case Page.DIALOGFLOW_AGENTS:
+        return <DialogflowAgentsPage {...projectProps} accessToken={accessToken} />;
       case Page.CHAT:
         return <ChatPage {...projectProps} accessToken={accessToken} context={pageContext} />;
       case Page.DATA_STORES:

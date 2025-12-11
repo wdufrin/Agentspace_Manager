@@ -46,6 +46,7 @@ interface AdkAgentConfig {
 // --- Tab Definitions ---
 const ADK_TABS = [
     { id: 'agent', label: 'agent.py' },
+    { id: 'deploy_re', label: 'deploy_re.py' },
     { id: 'env', label: '.env' },
     { id: 'requirements', label: 'requirements.txt' },
     { id: 'readme', label: 'README.md' }
@@ -620,6 +621,68 @@ root_agent = ${agentClass}(
 `.trim();
 };
 
+const generateAdkDeployScript = (config: AdkAgentConfig): string => {
+    return `
+import os
+import logging
+import vertexai
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+location = os.getenv("GOOGLE_CLOUD_LOCATION")
+staging_bucket = os.getenv("STAGING_BUCKET")
+
+logger.info(f"Initializing Vertex AI: project={project_id}, location={location}, staging_bucket={staging_bucket}")
+vertexai.init(project=project_id, location=location, staging_bucket=staging_bucket)
+
+try:
+    import agent
+    root_agent = agent.root_agent
+    logger.info("Agent imported successfully.")
+except ImportError as e:
+    logger.error(f"Failed to import agent: {e}")
+    raise
+
+# Read requirements
+reqs = ["google-cloud-aiplatform[adk,agent_engines]>=1.38", "python-dotenv"]
+if os.path.exists("requirements.txt"):
+    with open("requirements.txt", "r") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                reqs.append(line)
+reqs = list(set(reqs))
+
+try:
+    from vertexai import agent_engines
+    # Create the App
+    app = agent_engines.AdkApp(agent=root_agent, enable_tracing=True)
+
+    logger.info("Creating Agent Engine...")
+    remote_app = agent_engines.create(
+        agent_engine=app,
+        requirements=reqs,
+        display_name=os.getenv("AGENT_DISPLAY_NAME", "${config.name || 'my-agent'}")
+    )
+
+except ImportError:
+    logger.warning("Fallback to preview namespace.")
+    from vertexai.preview import reasoning_engines
+    app = reasoning_engines.AdkApp(agent=root_agent)
+
+    remote_app = reasoning_engines.ReasoningEngine.create(
+        app,
+        requirements=reqs,
+        display_name=os.getenv("AGENT_DISPLAY_NAME", "${config.name || 'my-agent'}"),
+    )
+
+print(f"Deployment finished!")
+print(f"Resource Name: {remote_app.resource_name}")
+`.trim();
+};
+
 const generateAdkEnvFile = (config: AdkAgentConfig, projectNumber: string, location: string): string => {
     let content = `GOOGLE_GENAI_USE_VERTEXAI=TRUE
 MODEL="${config.model}"
@@ -672,14 +735,9 @@ This agent was created using the Gemini Enterprise Manager Agent Builder (ADK).
 3.  **Deploy to Vertex AI:**
     Ensure you have set \`GOOGLE_CLOUD_PROJECT\`, \`GOOGLE_CLOUD_LOCATION\`, and \`STAGING_BUCKET\` in your \`.env\` file.
     
-    Run the following command to deploy your agent:
+    Run the deploy script:
     \`\`\`sh
-    adk deploy agent_engine \\
-        --project=$GOOGLE_CLOUD_PROJECT \\
-        --region=$GOOGLE_CLOUD_LOCATION \\
-        --staging_bucket=$STAGING_BUCKET \\
-        --display_name="$AGENT_DISPLAY_NAME" \\
-        /multi_tool_agent
+    python deploy_re.py
     \`\`\`
 `.trim();
 };
@@ -738,8 +796,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         authId: '',
     });
     const [vertexLocation, setVertexLocation] = useState('us-central1');
-    const [adkGeneratedCode, setAdkGeneratedCode] = useState({ agent: '', env: '', requirements: '', readme: '' });
-    const [adkActiveTab, setAdkActiveTab] = useState<'agent' | 'env' | 'requirements' | 'readme'>('agent');
+    const [adkGeneratedCode, setAdkGeneratedCode] = useState({ agent: '', env: '', requirements: '', readme: '', deploy_re: '' });
+    const [adkActiveTab, setAdkActiveTab] = useState<'agent' | 'env' | 'requirements' | 'readme' | 'deploy_re'>('agent');
     const [adkCopySuccess, setAdkCopySuccess] = useState('');
     
     // Data Store Tool State
@@ -817,7 +875,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         const envCode = generateAdkEnvFile(adkConfig, projectNumber, vertexLocation);
         const reqsCode = generateAdkRequirementsFile(adkConfig);
         const readmeCode = generateAdkReadmeFile(adkConfig);
-        setAdkGeneratedCode({ agent: agentCode, env: envCode, requirements: reqsCode, readme: readmeCode });
+        const deployCode = generateAdkDeployScript(adkConfig);
+        setAdkGeneratedCode({ agent: agentCode, env: envCode, requirements: reqsCode, readme: readmeCode, deploy_re: deployCode });
     }, [adkConfig, projectNumber, vertexLocation]);
 
     // ADK Data Store & Buckets Fetching
@@ -993,6 +1052,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         zip.file('.env', adkGeneratedCode.env);
         zip.file('requirements.txt', adkGeneratedCode.requirements);
         zip.file('README.md', adkGeneratedCode.readme);
+        zip.file('deploy_re.py', adkGeneratedCode.deploy_re);
         const blob = await zip.generateAsync({ type: 'blob' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1008,7 +1068,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         agent: adkGeneratedCode.agent, 
         env: adkGeneratedCode.env, 
         requirements: adkGeneratedCode.requirements, 
-        readme: adkGeneratedCode.readme
+        readme: adkGeneratedCode.readme,
+        deploy_re: adkGeneratedCode.deploy_re
     }[adkActiveTab];
 
     const a2aCodeDisplay = { 
@@ -1022,7 +1083,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         { name: 'agent.py', content: adkGeneratedCode.agent },
         { name: '.env', content: adkGeneratedCode.env },
         { name: 'requirements.txt', content: adkGeneratedCode.requirements },
-        { name: 'README.md', content: adkGeneratedCode.readme }
+        { name: 'README.md', content: adkGeneratedCode.readme },
+        { name: 'deploy_re.py', content: adkGeneratedCode.deploy_re }
     ];
 
     const a2aFilesForBuild = [

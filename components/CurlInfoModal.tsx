@@ -62,6 +62,17 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
         }
       }' \\
   "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/default_collection/engines/[ENGINE_ID]/assistants/default_assistant?updateMask=display_name,generation_config.system_instruction.additional_system_instruction"`
+            },
+            {
+                title: 'Test Assistant (Streaming)',
+                command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "query": { "text": "Hello, what can you do?" }
+      }' \\
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/default_assistant:streamAssist"`
             }
         ]
     },
