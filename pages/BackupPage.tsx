@@ -1006,7 +1006,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
       <div className="bg-gray-800 p-4 rounded-lg shadow-md">
         <h2 className="text-lg font-semibold text-white mb-3">Configuration for Backup & Restore</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">Target Project ID / Number</label>
             <ProjectInput value={projectNumber} onChange={handleProjectNumberChange} />
@@ -1018,20 +1018,6 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
               <option value="us">us</option>
               <option value="eu">eu</option>
             </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Backup Bucket (GCS)</label>
-            <div className="flex gap-2">
-                <select 
-                    value={selectedBucket} 
-                    onChange={(e) => setSelectedBucket(e.target.value)} 
-                    className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 h-[42px]"
-                    disabled={isLoadingBuckets || buckets.length === 0}
-                >
-                    <option value="">{isLoadingBuckets ? 'Loading buckets...' : '-- Select Bucket --'}</option>
-                    {buckets.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
-                </select>
-            </div>
           </div>
           <div>
             <label htmlFor="appId" className="block text-sm font-medium text-gray-400 mb-1">Target Gemini Enterprise ID</label>
@@ -1061,6 +1047,20 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
                   return <option key={re.name} value={id}>{re.displayName} ({id})</option>
               })}
             </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">Backup Bucket (GCS)</label>
+            <div className="flex gap-2">
+                <select 
+                    value={selectedBucket} 
+                    onChange={(e) => setSelectedBucket(e.target.value)} 
+                    className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 focus:ring-blue-500 focus:border-blue-500 h-[42px]"
+                    disabled={isLoadingBuckets || buckets.length === 0}
+                >
+                    <option value="">{isLoadingBuckets ? 'Loading buckets...' : '-- Select Bucket --'}</option>
+                    {buckets.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
+                </select>
+            </div>
           </div>
         </div>
       </div>
