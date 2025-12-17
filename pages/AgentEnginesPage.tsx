@@ -269,22 +269,24 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
     for (const res of resourcesToDelete) {
         try {
             if (res.type === 'Reasoning Engine') {
+                // Pre-emptively terminate active sessions to ensure clean deletion
+                try {
+                    const sessionsResp = await api.listReasoningEngineSessions(res.id, apiConfig);
+                    const sessions = sessionsResp.sessions || [];
+                    if (sessions.length > 0) {
+                        await Promise.all(sessions.map(s => api.deleteReasoningEngineSession(s.name, apiConfig)));
+                    }
+                } catch (sessionErr) {
+                    console.warn(`Warning: Failed to cleanup sessions for ${res.id}`, sessionErr);
+                    // Proceed with engine deletion anyway, in case sessions were already gone
+                }
+
                 await api.deleteReasoningEngine(res.id, apiConfig);
             } else {
                 await api.deleteCloudRunService(res.id, apiConfig);
             }
         } catch (err: any) {
-            if (err.message?.toLowerCase().includes('resource has children') && res.type === 'Reasoning Engine') {
-                 try {
-                     const sessions = (await api.listReasoningEngineSessions(res.id, apiConfig)).sessions || [];
-                     await Promise.all(sessions.map(s => api.deleteReasoningEngineSession(s.name, apiConfig)));
-                     await api.deleteReasoningEngine(res.id, apiConfig);
-                 } catch (retryErr: any) {
-                     failures.push(`- ${res.shortId}: ${retryErr.message}`);
-                 }
-            } else {
-                failures.push(`- ${res.shortId}: ${err.message}`);
-            }
+            failures.push(`- ${res.shortId}: ${err.message}`);
         }
     }
 

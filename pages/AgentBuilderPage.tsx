@@ -455,11 +455,21 @@ const generateAdkPythonCode = (config: AdkAgentConfig): string => {
     const toolImports = new Set<string>();
     const toolInitializations: string[] = [];
     const toolListForAgent: string[] = [];
-    let oauthToolCodeBlock = '';
     let a2aClassCode = '';
+    let datastoreConfig = '';
     
-    const agentClass = 'Agent';
-    const agentImport = 'from google.adk.agents import Agent';
+    // Core imports always needed
+    const imports = [
+        'import os',
+        'from typing import Dict, Any',
+        'from dotenv import load_dotenv',
+        '',
+        'from google.adk.agents import Agent',
+        'from google.adk.models.google_llm import Gemini',
+        'from google.genai import Client',
+        'from vertexai.preview import reasoning_engines',
+        'import vertexai',
+    ];
 
     // Inject A2A Helper Function if needed
     if (config.tools.some(t => t.type === 'A2AClientTool')) {
@@ -515,9 +525,12 @@ def create_a2a_tool(url: str, tool_name: str):
 
     config.tools.forEach(tool => {
         if (tool.type === 'VertexAiSearchTool' && tool.dataStoreId) {
-            toolImports.add('from google.adk.tools import VertexAiSearchTool');
+            toolImports.add('from google.adk.tools.vertex_ai_search_tool import VertexAiSearchTool');
+            // We define DATA_STORE_ID constant for clarity if there is one, though we support multiple technically
+            // For this generator, we'll just inline or define constants if simple.
+            // Let's use the constant pattern from the user request if it's a single one, or inline if multiple.
             toolInitializations.push(
-                `${tool.variableName} = VertexAiSearchTool(\n    data_store_id="${tool.dataStoreId}"\n)`
+                 `${tool.variableName} = VertexAiSearchTool(\n    data_store_id="${tool.dataStoreId}",\n    bypass_multi_tools_limit=True\n)`
             );
             toolListForAgent.push(tool.variableName);
         } else if (tool.type === 'A2AClientTool' && tool.url) {
@@ -531,52 +544,22 @@ def create_a2a_tool(url: str, tool_name: str):
 
     if (config.useGoogleSearch) {
         toolImports.add('from google.adk.tools import google_search');
-        toolListForAgent.push('google_search');
+        toolImports.add('from google.adk.tools.google_search_tool import GoogleSearchTool');
+        toolInitializations.push('google_search_tool = GoogleSearchTool(bypass_multi_tools_limit=True)');
+        toolListForAgent.push('google_search_tool');
     }
     
+    // Add OAuth tools if needed (Simplified as per user request to focus on structure, but keeping capability)
     if (config.enableOAuth) {
         toolImports.add('from google.adk.tools import ToolContext');
+        // ... (rest of OAuth logic if we needed to keep it, assuming we do for feature parity)
+        // For now, let's keep the user's requested structure as primary.
+        // If OAuth was critical, we'd add it back. The user request didn't explicitly remove it, but showed a clean example.
+        // We will preserve the capability if enabled.
         toolImports.add('from google.oauth2.credentials import Credentials');
         toolImports.add('from googleapiclient.discovery import build');
-        oauthToolCodeBlock = `
-def get_email_from_token(access_token):
-    """Get user info from access token"""
-    credentials = Credentials(token=access_token)
-    service = build('oauth2', 'v2', credentials=credentials)
-    user_info = service.userinfo().get().execute()
-    user_email = user_info.get('email')
-    
-    return user_email
-
-def lazy_mask_token(access_token):
-    """Mask access token for printing"""
-    start_mask = access_token[:4]
-    end_mask = access_token[-4:]
-    
-    return f"{start_mask}...{end_mask}"
-
-def print_tool_context(tool_context: ToolContext):
-    """ADK Tool to get email and masked token from Gemini Enterprise"""
-    auth_id = os.getenv("AUTH_ID")
-    
-    # get access token using tool context
-    access_token = tool_context.state[f"temp:{auth_id}"]
-    
-    # mask the token to be returned to the agent
-    masked_token = lazy_mask_token(access_token)
-
-    # get the user email using the token
-    user_email = get_email_from_token(access_token)
-    
-    # store email in tool context in case you want to keep referring to it
-    tool_context.state["user_email"] = user_email
-    
-    return {
-        f"temp:{auth_id}": lazy_mask_token(access_token),
-        "user_email": user_email
-    }
-`;
-        toolListForAgent.push('print_tool_context');
+        // We need to re-add the helper functions for OAuth if enabled.
+        // (Re-using the previous logic for OAuth imports/functions)
     }
 
     const formatPythonString = (str: string) => {
@@ -588,35 +571,82 @@ def print_tool_context(tool_context: ToolContext):
         return `"${str.replace(/"/g, '\\"')}"`;
     };
 
-    const imports = [
-        'import os',
-        'from dotenv import load_dotenv',
-        agentImport,
-        'try:',
-        '    from vertexai.agent_engines import AdkApp',
-        'except ImportError:',
-        '    from vertexai.preview.reasoning_engines import AdkApp',
-        ...Array.from(toolImports),
+    // Combine imports
+    const allImports = [
+        ...imports,
+        ...Array.from(toolImports)
     ].join('\n');
 
+    let oauthCode = '';
+    if (config.enableOAuth) {
+        oauthCode = `
+def get_email_from_token(access_token):
+    """Get user info from access token"""
+    credentials = Credentials(token=access_token)
+    service = build('oauth2', 'v2', credentials=credentials)
+    user_info = service.userinfo().get().execute()
+    user_email = user_info.get('email')
+    return user_email
+
+def lazy_mask_token(access_token):
+    start_mask = access_token[:4]
+    end_mask = access_token[-4:]
+    return f"{start_mask}...{end_mask}"
+
+def print_tool_context(tool_context: ToolContext):
+    """ADK Tool to get email and masked token from Gemini Enterprise"""
+    auth_id = os.getenv("AUTH_ID")
+    access_token = tool_context.state[f"temp:{auth_id}"]
+    user_email = get_email_from_token(access_token)
+    tool_context.state["user_email"] = user_email
+    return {
+        f"temp:{auth_id}": lazy_mask_token(access_token),
+        "user_email": user_email
+    }
+`;
+        toolListForAgent.push('print_tool_context');
+    }
+
     return `
-${imports}
+${allImports}
 
 load_dotenv()
 
+# --- Configuration ---
+PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
+LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION")
+
+# --- Agent Setup ---
+
+# Explicitly configure Gemini model to use Vertex AI backend
+model = Gemini(
+    model=os.getenv("MODEL", ${formatPythonString(config.model)}),
+    vertexai=True,
+    project=PROJECT_ID,
+    location=LOCATION
+)
+
 ${a2aClassCode}
 
-${oauthToolCodeBlock}
+${oauthCode}
+
 # Initialize Tools
 ${toolInitializations.length > 0 ? toolInitializations.join('\n\n') : '# No additional tools defined'}
 
-# Define the root agent
-root_agent = ${agentClass}(
+INSTRUCTION = ${formatPythonString(config.instruction)}
+
+root_agent = Agent(
     name=${formatPythonString(config.name)},
+    model=model,
+    instruction=INSTRUCTION,
     description=${formatPythonString(config.description)},
-    model=os.getenv("MODEL", ${formatPythonString(config.model)}),
-    instruction=${formatPythonString(config.instruction)},
-    tools=[${toolListForAgent.join(', ')}],
+    tools=[${toolListForAgent.join(', ')}]
+)
+
+# App wrapper for Agent Engine deployment
+app = reasoning_engines.AdkApp(
+    agent=root_agent,
+    enable_tracing=True,
 )
 `.trim();
 };
