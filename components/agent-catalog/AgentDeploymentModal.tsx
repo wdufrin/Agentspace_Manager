@@ -12,6 +12,9 @@ interface AgentDeploymentModalProps {
     files: { name: string; content: string }[];
     projectNumber: string;
     onBuildTriggered?: (buildId: string) => void;
+    readmeContent?: string;
+    onLoadFiles?: () => void;
+    isFetchingFiles?: boolean;
 }
 
 interface EnvVar {
@@ -30,7 +33,7 @@ const NodeIcon: React.FC<{ type: string }> = ({ type }) => {
     }
 }
 
-const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onClose, agentName, files, projectNumber, onBuildTriggered }) => {
+const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onClose, agentName, files, projectNumber, onBuildTriggered, readmeContent: initialReadme, onLoadFiles, isFetchingFiles }) => {
     const [envVars, setEnvVars] = useState<EnvVar[]>([]);
     const [target, setTarget] = useState<'cloud_run' | 'reasoning_engine'>('reasoning_engine');
     const [region, setRegion] = useState('us-central1');
@@ -98,8 +101,15 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
         const isA2a = files.some(f => f.content.includes('to_a2a('));
 
         // Set Readme
-        setReadmeContent(readme);
-        if (readme) setLeftTab('docs');
+        const effectiveReadme = readme || initialReadme || '';
+        setReadmeContent(effectiveReadme);
+        if (effectiveReadme) setLeftTab('docs');
+
+        // If no files and we have a callback, default to docs (already done) or show empty state
+        if (files.length === 0) {
+            setTarget('reasoning_engine'); // Default
+            return; // consistent return to avoid running file matching logic on empty list
+        }
 
         // Determine Default Target
         if (hasDockerfile || isA2a) {
@@ -165,6 +175,7 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
         if (mainFileContent.includes('GoogleSearch')) detectedTools.add('Google Search');
         if (mainFileContent.includes('VertexAiSearchTool')) detectedTools.add('Vertex AI Search');
         if (mainFileContent.includes('LangchainTool')) detectedTools.add('Langchain Tool');
+        if (mainFileContent.includes('to_a2a')) detectedTools.add('A2A Interface');
         
         const toolsMatch = mainFileContent.match(/tools\s*=\s*\[(.*?)\]/s);
         if (toolsMatch && toolsMatch[1]) {
@@ -742,6 +753,34 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                                         <p>No README.md found in this agent package.</p>
                                     </div>
                                 )
+                            ) : files.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-gray-900/50 rounded-lg border border-dashed border-gray-700 mt-10">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                    <h3 className="text-lg font-medium text-white mb-2">Source Code Required</h3>
+                                    <p className="text-sm text-gray-400 mb-6 max-w-xs">
+                                        To view architecture or configure deployment, the full source code must be loaded.
+                                    </p>
+                                    {onLoadFiles ? (
+                                        <button
+                                            onClick={onLoadFiles}
+                                            disabled={isFetchingFiles}
+                                            className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-md shadow flex items-center gap-2"
+                                        >
+                                            {isFetchingFiles ? (
+                                                <>
+                                                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                                                    Loading Files...
+                                                </>
+                                            ) : (
+                                                'Load Source Code'
+                                            )}
+                                        </button>
+                                    ) : (
+                                        <p className="text-red-400 text-sm">File loader unavailable.</p>
+                                    )}
+                                </div>
                             ) : leftTab === 'architecture' ? (
                                 <div className="flex flex-col items-center space-y-6">
                                     {/* Agent Node */}

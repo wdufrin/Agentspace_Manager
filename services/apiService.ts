@@ -612,6 +612,8 @@ export const fetchBuildLogs = async (projectId: string, buildId: string): Promis
 
 // --- GCS ---
 
+// --- GCS ---
+
 export const listBuckets = async (projectId: string) => {
     return gapiRequest<{ items: GcsBucket[] }>(`https://storage.googleapis.com/storage/v1/b?project=${projectId}`, 'GET', projectId);
 };
@@ -622,6 +624,28 @@ export const listGcsObjects = async (bucket: string, prefix: string, projectId: 
         'GET',
         projectId
     );
+};
+
+export const deleteGcsObject = async (bucketName: string, objectName: string, projectId: string) => {
+    // Note: object name must be URL encoded
+    const encodedName = encodeURIComponent(objectName);
+    return gapiRequest(`https://storage.googleapis.com/storage/v1/b/${bucketName}/o/${encodedName}`, 'DELETE', projectId);
+};
+
+export const renameGcsObject = async (bucketName: string, oldName: string, newName: string, projectId: string) => {
+    // Rename is Copy + Delete
+    // 1. Copy (Rewrite)
+    const encodedOld = encodeURIComponent(oldName);
+    const encodedNew = encodeURIComponent(newName);
+
+    await gapiRequest(
+        `https://storage.googleapis.com/storage/v1/b/${bucketName}/o/${encodedOld}/rewriteTo/b/${bucketName}/o/${encodedNew}`,
+        'POST',
+        projectId
+    );
+
+    // 2. Delete old
+    await deleteGcsObject(bucketName, oldName, projectId);
 };
 
 export const uploadFileToGcs = async (bucket: string, objectName: string, file: File, projectId: string) => {
