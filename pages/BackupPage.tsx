@@ -357,6 +357,13 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   }, [apiConfig.projectId, apiConfig.reasoningEngineLocation]);
 
 
+
+  const promptForSecret = (auth: Authorization, customMessage?: string): Promise<string | null> => {
+    return new Promise((resolve) => {
+      setSecretPrompt({ auth, resolve, customMessage });
+    });
+  };
+
   const uploadBackupToGcs = async (data: object, filenamePrefix: string, customName?: string) => {
       if (!selectedBucket) {
           throw new Error("No GCS bucket selected for backup.");
@@ -691,43 +698,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     });
   };
 
-  const handleConfirmRestore = (section: string, items: any[], processor: (data: any) => Promise<void>, originalData: any) => {
-    setModalData(null); // Close the modal first
 
-    const sectionName = section.replace(/[A-Z]/g, ' $&').trim();
-    executeOperation(`Restore${section}`, async () => {
-      let dataToRestore = { ...originalData };
-      
-      // Filter the original data based on the selected items
-      switch (section) {
-          case 'DiscoveryResources':
-              dataToRestore.collections = originalData.collections.filter((c: Collection) => items.some(item => item.name === c.name));
-              break;
-          case 'ReasoningEngine':
-              // It's a single item select for now
-              dataToRestore.engine = items.length > 0 ? items[0] : null; 
-              break;
-          case 'Assistant':
-              dataToRestore.assistant.agents = originalData.assistant.agents.filter((a: Agent) => items.some(item => item.name === a.name));
-              break;
-          case 'Agents':
-              dataToRestore.agents = originalData.agents.filter((a: Agent) => items.some(item => item.name === a.name));
-              break;
-          case 'DataStores':
-              dataToRestore.dataStores = originalData.dataStores.filter((ds: DataStore) => items.some(item => item.name === ds.name));
-              break;
-          case 'Authorizations':
-              dataToRestore.authorizations = originalData.authorizations.filter((auth: Authorization) => items.some(item => item.name === auth.name));
-              break;
-          default:
-              throw new Error(`Unknown section type for selective restore: ${section}`);
-      }
-      
-      addLog(`Starting restore of ${items.length} selected ${sectionName}...`);
-      await processor(dataToRestore);
-      addLog(`Restore process for ${sectionName} finished.`);
-    });
-  };
 
   const restoreAgentsIntoAssistant = async (agents: Agent[], restoreConfig: typeof apiConfig) => {
     addLog(`  - Restoring ${agents.length} agent(s)...`);
@@ -940,7 +911,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
             if (selectedData.assistants && selectedData.assistants.length > 0) {
               addLog(`Restoring ${selectedData.assistants.length} Assistant(s)...`);
               for (const assistant of selectedData.assistants) {
-                await processRestoreAssistant({ assistant }, false);
+                await processRestoreAssistant({ assistant });
               }
             }
 
@@ -1003,6 +974,43 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     // I will KEEP current `restoreAgentsIntoAssistant` as it seems MORE advanced/fixed for the current env.
     await restoreAgentsIntoAssistant(agents, targetConfig);
   };
+
+  const executeRestoreAssistants = async (assistants: Assistant[]) => {
+    addLog(`Restoring ${assistants.length} Assistant(s)...`);
+    for (const assistant of assistants) {
+      const assistantId = assistant.name.split('/').pop()!;
+      addLog(`  - Restoring Assistant '${assistant.displayName}' (${assistantId})...`);
+
+      const parts = assistant.name.split('/');
+      const collectionId = parts[parts.indexOf('collections') + 1];
+      const appId = parts[parts.indexOf('engines') + 1];
+      const restoreConfig = { ...apiConfig, collectionId, appId, assistantId };
+
+      try {
+        // Check/Create Assistant
+        const payload = { displayName: assistant.displayName };
+        await api.createAssistant(assistantId, payload, restoreConfig);
+        addLog(`      - CREATED: Assistant '${assistantId}'.`);
+
+        // Restore Agents if present
+        if (assistant.agents && assistant.agents.length > 0) {
+          await restoreAgentsIntoAssistant(assistant.agents, restoreConfig);
+        }
+
+      } catch (err: any) {
+        if (err.message && err.message.includes("ALREADY_EXISTS")) {
+          addLog(`      - INFO: Assistant '${assistantId}' already exists. Proceeding to restore agents...`);
+          if (assistant.agents && assistant.agents.length > 0) {
+            await restoreAgentsIntoAssistant(assistant.agents, restoreConfig);
+          }
+        } else {
+          addLog(`      - ERROR: Failed to create Assistant '${assistantId}': ${err.message}`);
+        }
+      }
+      await delay(1000);
+    }
+  };
+
 
   const executeRestoreDataStores = async (dataStores: any[]) => {
     addLog(`Restoring ${dataStores.length} Data Store(s) into collection '${apiConfig.collectionId}'...`);
