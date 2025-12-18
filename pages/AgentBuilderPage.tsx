@@ -777,12 +777,13 @@ interface AgentBuilderPageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
   context?: any;
-  onBuildTriggered?: (buildId: string) => void;
+    onBuildTriggered?: (buildId: string, name?: string) => void;
 }
 
 const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setProjectNumber, context, onBuildTriggered }) => {
     const [builderTab, setBuilderTab] = useState<'a2a' | 'adk'>('adk');
     
+
     // --- A2A State ---
     const [a2aConfig, setA2aConfig] = useState<A2aConfig>({
         serviceName: 'my-a2a-function',
@@ -1125,8 +1126,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         { name: 'env.yaml', content: a2aGeneratedCode.yaml }
     ];
 
-    const handleBuildTriggered = (id: string) => {
-        if (onBuildTriggered) onBuildTriggered(id);
+    const handleBuildTriggered = (id: string, name?: string) => {
+        if (onBuildTriggered) onBuildTriggered(id, name);
         setIsA2aDeployModalOpen(false);
         setIsAdkDeployModalOpen(false);
     };

@@ -9,7 +9,7 @@ interface AgentCatalogPageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
   accessToken: string;
-  onBuildTriggered: (buildId: string) => void;
+    onBuildTriggered: (buildId: string, name?: string) => void;
 }
 
 interface CatalogAgent {
@@ -187,8 +187,8 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
     const [selectedAgent, setSelectedAgent] = useState<CatalogAgent | null>(null);
     const [selectedAgentFiles, setSelectedAgentFiles] = useState<{ name: string, content: string }[]>([]);
 
-  const handleBuildTriggered = (buildId: string) => {
-      onBuildTriggered(buildId); // Notify parent
+    const handleBuildTriggered = (buildId: string, name?: string) => {
+        onBuildTriggered(buildId, name); // Notify parent
       setIsDeployModalOpen(false); // Close modal
   };
 

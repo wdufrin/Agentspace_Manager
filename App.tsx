@@ -85,14 +85,14 @@ const App: React.FC = () => {
   const [architectureError, setArchitectureError] = useState<string | null>(null);
 
   // Global State for Cloud Build Progress
-  const [activeBuilds, setActiveBuilds] = useState<string[]>([]);
+    const [activeBuilds, setActiveBuilds] = useState<{ id: string, name?: string }[]>([]);
 
-  const handleBuildTriggered = (buildId: string) => {
-      setActiveBuilds(prev => [...prev, buildId]);
+    const handleBuildTriggered = (buildId: string, name?: string) => {
+        setActiveBuilds(prev => [...prev, { id: buildId, name }]);
   };
 
   const handleRemoveBuild = (buildId: string) => {
-      setActiveBuilds(prev => prev.filter(id => id !== buildId));
+      setActiveBuilds(prev => prev.filter(b => b.id !== buildId));
   };
 
 
@@ -823,14 +823,16 @@ const App: React.FC = () => {
       </div>
       
       {/* Global Build Progress Indicators */}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 items-end">
-          {activeBuilds.map(id => (
-              <CloudBuildProgress 
-                  key={id} 
-                  projectId={projectNumber} 
-                  buildId={id} 
-                  onClose={() => handleRemoveBuild(id)} 
-              />
+          <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 items-end max-h-[90vh] overflow-y-auto pr-2 pointer-events-none">
+              {activeBuilds.map(build => (
+                  <div key={build.id} className="pointer-events-auto">
+                      <CloudBuildProgress 
+                      projectId={projectNumber} 
+                      buildId={build.id}
+                      displayName={build.name}
+                      onClose={() => handleRemoveBuild(build.id)}
+                  />
+              </div>
           ))}
       </div>
 

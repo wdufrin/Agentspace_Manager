@@ -12,7 +12,7 @@ import PrunerDeploymentModal from '../components/license/PrunerDeploymentModal';
 interface LicensePageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
-  onBuildTriggered?: (buildId: string) => void;
+    onBuildTriggered?: (buildId: string, name?: string) => void;
 }
 
 type SortKey = 'userPrincipal' | 'licenseAssignmentState' | 'licenseConfig' | 'lastLoginTime';

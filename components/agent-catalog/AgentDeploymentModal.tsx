@@ -11,7 +11,7 @@ interface AgentDeploymentModalProps {
     agentName: string;
     files: { name: string; content: string }[];
     projectNumber: string;
-    onBuildTriggered?: (buildId: string) => void;
+    onBuildTriggered?: (buildId: string, name?: string) => void;
     readmeContent?: string;
     onLoadFiles?: () => void;
     isFetchingFiles?: boolean;
@@ -570,6 +570,10 @@ if os.path.exists("requirements.txt"):
 reqs = list(set(reqs))
 logger.info(f"Using requirements: {reqs}")
 
+# Environment variables to forward to the deployed agent
+# We filter out GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION as they are reserved by the platform
+env_vars = ${JSON.stringify(envVars.filter(e => !['GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION'].includes(e.key)).map(e => e.key))}
+
 try:
     from vertexai import agent_engines
     if hasattr(root_agent, 'register_operations'):
@@ -581,7 +585,8 @@ try:
     remote_app = agent_engines.create(
         agent_engine=app,
         requirements=reqs,
-        display_name="${agentName}"
+        display_name="${agentName}",
+        env_vars=env_vars
     )
 
 except ImportError:
@@ -673,7 +678,7 @@ print(f"Resource Name: {remote_app.resource_name}")
             setBuildId(triggeredBuildId);
             
             if (onBuildTriggered && triggeredBuildId !== 'unknown') {
-                onBuildTriggered(triggeredBuildId);
+                onBuildTriggered(triggeredBuildId, agentName);
             }
 
             addLog(`Build triggered! ID: ${triggeredBuildId}`);
