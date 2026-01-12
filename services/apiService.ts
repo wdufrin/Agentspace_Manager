@@ -46,20 +46,27 @@ const gapiRequest = async <T>(
     // Robust error message extraction to avoid [object Object]
     let errorMessage = "Unknown API Error";
     
+    // Try to extract from gapi result error structure
     if (error?.result?.error?.message) {
         errorMessage = error.result.error.message;
-    } else if (error?.result?.error?.code) {
-        errorMessage = `API Error ${error.result.error.code}: ${JSON.stringify(error.result.error)}`;
-    } else if (error?.message) {
+    } 
+    // Try to extract from top-level error message
+    else if (error?.message) {
         errorMessage = error.message;
-    } else {
+    } 
+    // Otherwise, stringify the whole response result for maximum visibility
+    else if (error?.result) {
+        errorMessage = JSON.stringify(error.result, null, 2);
+    }
+    // Fallback to stringifying the error object itself
+    else if (typeof error === 'object' && error !== null) {
         try {
-            // Try to stringify if it's a non-empty object
-            const json = JSON.stringify(error);
-            if (json !== '{}') errorMessage = json;
+            errorMessage = JSON.stringify(error.result, null, 2);
         } catch (e) {
-            // Fallback
+            errorMessage = "Complex Error Object (cannot stringify)";
         }
+    } else if (error) {
+        errorMessage = String(error);
     }
     
     throw new Error(errorMessage);
@@ -93,7 +100,6 @@ export const validateEnabledApis = async (projectId: string): Promise<{ enabled:
         'dialogflow.googleapis.com'
     ];
     
-    // List enabled services (pagination omitted for brevity, usually fit in 200)
     const response = await gapiRequest<any>(`https://serviceusage.googleapis.com/v1/projects/${projectId}/services?filter=state:ENABLED&pageSize=200`, 'GET', projectId);
     const enabledServices = new Set((response.services || []).map((s: any) => s.config.name));
     
@@ -162,28 +168,26 @@ export const listResources = async (resourceType: 'agents'|'engines'|'dataStores
     return gapiRequest(url, 'GET', projectId);
 };
 
+// FIX: Added missing createCollection function.
+export const createCollection = async (collectionId: string, payload: any, config: Config) => {
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections?collectionId=${collectionId}`;
+    return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
+};
+
 export const getDiscoveryOperation = async (name: string, config: Config, apiVersion: string = DISCOVERY_API_VERSION) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
     return gapiRequest<any>(`${baseUrl}/${apiVersion}/${name}`, 'GET', config.projectId);
 };
 
 export const getVertexAiOperation = async (name: string, config: Config) => {
-    // name is like projects/{project}/locations/{location}/operations/{opId}
-    // OR projects/{project}/locations/{location}/reasoningEngines/{reId}/operations/{opId}
     const parts = name.split('/');
     const locIndex = parts.indexOf('locations');
     const location = (locIndex !== -1 && parts.length > locIndex + 1) ? parts[locIndex + 1] : (config.reasoningEngineLocation || 'us-central1');
     
     const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${name}`;
     return gapiRequest<any>(url, 'GET', config.projectId);
-};
-
-// Collections
-export const createCollection = async (collectionId: string, payload: any, config: Config) => {
-    const { projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/${DISCOVERY_API_BETA}/projects/${projectId}/locations/${appLocation}/collections?collectionId=${collectionId}`;
-    return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
 };
 
 // Engines
@@ -209,7 +213,7 @@ export const getAssistant = async (name: string, config: Config) => {
         undefined,
         undefined,
         undefined,
-        config.suppressErrorLog // Pass through suppression flag
+        config.suppressErrorLog
     );
 };
 
@@ -276,9 +280,6 @@ export const enableAgent = async (name: string, config: Config) => {
 
 export const shareAgent = async (name: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-    // CRITICAL: The :share method on Agents in v1alpha often expects a flattened resource path 
-    // that omits the 'assistants/default_assistant' segment. 
-    // Example: projects/.../engines/ABC/agents/123:share
     const flatName = name.replace('/assistants/default_assistant', '');
     await gapiRequest(`${baseUrl}/${DISCOVERY_API_VERSION}/${flatName}:share`, 'POST', config.projectId);
     return getAgent(name, config);
@@ -335,7 +336,7 @@ export const importDocuments = async (dataStoreName: string, gcsUris: string[], 
 
 // Authorizations
 export const listAuthorizations = async (config: Config) => {
-    const baseUrl = getDiscoveryEngineUrl('global'); // Authorizations are global
+    const baseUrl = getDiscoveryEngineUrl('global');
     const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${config.projectId}/locations/global/authorizations`;
     return gapiRequest<{ authorizations: Authorization[] }>(url, 'GET', config.projectId);
 };
@@ -357,29 +358,17 @@ export const updateAuthorization = async (name: string, payload: any, updateMask
     return gapiRequest<Authorization>(url, 'PATCH', config.projectId, undefined, payload);
 };
 
-export const deleteAuthorization = async (name: string, config: Config) => {
+export const deleteAuthorization = async (authId: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl('global');
-    // Extract ID if only ID is passed, otherwise use full name
-    const resourceName = name.startsWith('projects/') ? name : `projects/${config.projectId}/locations/global/authorizations/${name}`;
-    return gapiRequest(`${baseUrl}/${DISCOVERY_API_VERSION}/${resourceName}`, 'DELETE', config.projectId);
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${config.projectId}/locations/global/authorizations/${authId}`;
+    return gapiRequest(url, 'DELETE', config.projectId);
 };
 
-export const setAgentIamPolicy = async (resourceName: string, policy: any, config: Config) => {
-    const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-    return gapiRequest<any>(`${baseUrl}/${DISCOVERY_API_VERSION}/${resourceName}:setIamPolicy`, 'POST', config.projectId, undefined, { policy });
-};
-
-export const getAgentIamPolicy = async (resourceName: string, config: Config) => {
-    const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-    return gapiRequest<any>(`${baseUrl}/${DISCOVERY_API_VERSION}/${resourceName}:getIamPolicy`, 'GET', config.projectId);
-};
-
-// --- Vertex AI (Reasoning Engines) ---
-
+// Vertex AI Reasoning Engines
 export const listReasoningEngines = async (config: Config) => {
-    const { projectId, reasoningEngineLocation } = config;
-    const url = `https://${reasoningEngineLocation}-aiplatform.googleapis.com/v1beta1/projects/${projectId}/locations/${reasoningEngineLocation}/reasoningEngines`;
-    return gapiRequest<{ reasoningEngines: ReasoningEngine[] }>(url, 'GET', projectId);
+    const location = config.reasoningEngineLocation || 'us-central1';
+    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${config.projectId}/locations/${location}/reasoningEngines`;
+    return gapiRequest<{ reasoningEngines: ReasoningEngine[] }>(url, 'GET', config.projectId);
 };
 
 export const getReasoningEngine = async (name: string, config: Config) => {
@@ -389,183 +378,195 @@ export const getReasoningEngine = async (name: string, config: Config) => {
 };
 
 export const createReasoningEngine = async (config: Config, payload: any) => {
-    const { projectId, reasoningEngineLocation } = config;
-    const url = `https://${reasoningEngineLocation}-aiplatform.googleapis.com/v1beta1/projects/${projectId}/locations/${reasoningEngineLocation}/reasoningEngines`;
-    return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
+    const location = config.reasoningEngineLocation || 'us-central1';
+    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${config.projectId}/locations/${location}/reasoningEngines`;
+    return gapiRequest<any>(url, 'POST', config.projectId, undefined, payload);
 };
 
 export const deleteReasoningEngine = async (name: string, config: Config) => {
     const location = name.split('/')[3];
-    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${name}`;
+    // IMPORTANT: Added force=true to automatically handle child resources (sessions) as requested by the API error message.
+    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${name}?force=true`;
     return gapiRequest(url, 'DELETE', config.projectId);
 };
 
-export const listReasoningEngineSessions = async (name: string, config: Config) => {
-    const location = name.split('/')[3];
-    // This is not a standard list method, it might be :listSessions or similar if available, 
-    // or standard REST pattern if sessions are sub-resources. Assuming standard pattern:
-    // projects/.../reasoningEngines/.../sessions (This is hypothetical as public API might differ)
-    // Adjusting to a known pattern if available or returning empty if not supported yet.
-    // For now, assuming a made-up endpoint based on resource hierarchy logic.
-    // NOTE: Replace with actual endpoint if known. Assuming standard sub-resource list.
-    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${name}/sessions`;
-    return gapiRequest<{ sessions: any[] }>(url, 'GET', config.projectId).catch(() => ({ sessions: [] }));
-};
-
-export const deleteReasoningEngineSession = async (name: string, config: Config) => {
-    const location = name.split('/')[3];
-    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${name}`;
-    return gapiRequest(url, 'DELETE', config.projectId);
-};
-
-export const generateVertexContent = async (config: Config, prompt: string, model: string = 'gemini-1.5-flash-001'): Promise<string> => {
-    const { projectId } = config;
-    const location = 'us-central1'; // Generative AI usually in us-central1
-    const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${model}:generateContent`;
-    
-    const payload = {
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 8192 }
-    };
-    
-    const response: any = await gapiRequest(url, 'POST', projectId, undefined, payload);
-    return response.candidates?.[0]?.content?.parts?.[0]?.text || '';
-};
-
-export const streamQueryReasoningEngine = async (
-    engineName: string, 
-    query: string, 
-    sessionId: string, 
-    config: Config, 
-    accessToken: string, 
-    onChunk: (chunk: any) => void
-) => {
+export const listReasoningEngineSessions = async (engineName: string, config: Config) => {
     const location = engineName.split('/')[3];
-    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${engineName}:streamQuery`;
-    
+    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${engineName}/sessions`;
+    return gapiRequest<{ sessions: { name: string }[] }>(url, 'GET', config.projectId);
+};
+
+export const deleteReasoningEngineSession = async (sessionName: string, config: Config) => {
+    const location = sessionName.split('/')[3];
+    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${sessionName}`;
+    return gapiRequest(url, 'DELETE', config.projectId);
+};
+
+// Stream Assist API
+export const streamChat = async (agentName: string | null, query: string, sessionId: string | null, config: Config, accessToken: string, onChunk: (chunk: any) => void, toolsSpec?: any) => {
+    const { projectId, appLocation, collectionId, appId, assistantId } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/v1alpha/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}:streamAssist`;
+
+    const body: any = {
+        query: { text: query },
+        toolsSpec: toolsSpec
+    };
+    if (sessionId) {
+        body.session = sessionId;
+    }
+
     const response = await fetch(url, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
-            'X-Goog-User-Project': config.projectId
+            'X-Goog-User-Project': projectId
         },
-        body: JSON.stringify({ input: { message: query, user_id: sessionId } })
+        body: JSON.stringify(body)
     });
 
-    if (!response.ok) throw new Error(`Stream query failed: ${response.statusText}`);
-    if (!response.body) throw new Error("No response body");
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Chat API Error: ${response.status} - ${errorText}`);
+    }
 
-    const reader = response.body.getReader();
+    const reader = response.body?.getReader();
+    if (!reader) return;
+
     const decoder = new TextDecoder();
     let buffer = '';
 
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
+
         buffer += decoder.decode(value, { stream: true });
         
         const lines = buffer.split('\n');
-        // Keep the last line in buffer as it might be incomplete
-        buffer = lines.pop() || ''; 
+        buffer = lines.pop() || '';
 
         for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-            
-            let jsonStr = trimmed;
-            // Handle SSE format if present
-            if (trimmed.startsWith('data: ')) {
-                jsonStr = trimmed.substring(6);
-            }
-            
+            if (line.trim() === '') continue;
             try {
-                const chunk = JSON.parse(jsonStr);
+                const chunk = JSON.parse(line);
                 onChunk(chunk);
-            } catch (e) { 
-                console.warn("Failed to parse chunk", e); 
+            } catch (e) {
+                console.warn("Could not parse chat chunk", line);
             }
         }
     }
 };
 
-// --- Dialogflow CX ---
+// Stream Query API (Direct Reasoning Engine Query)
+export const streamQueryReasoningEngine = async (engineName: string, query: string, userId: string, config: Config, accessToken: string, onChunk: (chunk: any) => void) => {
+    const { projectId } = config;
+    const location = engineName.split('/')[3];
+    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/${engineName}:streamQuery`;
 
-export const listDialogflowAgents = async (config: Config) => {
-    const { projectId, reasoningEngineLocation } = config;
-    const url = `https://${reasoningEngineLocation}-dialogflow.googleapis.com/v3/projects/${projectId}/locations/${reasoningEngineLocation}/agents`;
-    
-    // Try using native fetch first to ensure we bypass any potential gapi client quirks regarding specific APIs
-    try {
-        const client = await getGapiClient();
-        const tokenObj = client.getToken();
-        const token = tokenObj ? tokenObj.access_token : null;
-        
-        if (token) {
-            const response = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'X-Goog-User-Project': projectId,
-                    'Content-Type': 'application/json'
-                }
-            });
-            
-            if (!response.ok) {
-                 const errText = await response.text();
-                 throw new Error(`API Error ${response.status}: ${errText}`);
-            }
-            return await response.json();
-        }
-    } catch (e) {
-        console.warn("Fetch fallback failed for Dialogflow, trying standard gapiRequest", e);
-        // Fallthrough to gapiRequest if fetch fails (e.g. no token in gapi client yet) or error occurs
-        throw e;
-    }
-
-    return gapiRequest<{ agents: DialogflowAgent[] }>(url, 'GET', projectId);
-};
-
-export const deleteDialogflowAgent = async (name: string, config: Config) => {
-    const location = name.split('/')[3];
-    const url = `https://${location}-dialogflow.googleapis.com/v3/${name}`;
-    return gapiRequest(url, 'DELETE', config.projectId);
-};
-
-export const detectDialogflowIntent = async (agentName: string, text: string, sessionId: string, config: Config, accessToken: string) => {
-    const location = agentName.split('/')[3];
-    const url = `https://${location}-dialogflow.googleapis.com/v3/${agentName}/sessions/${sessionId}:detectIntent`;
-    const payload = {
-        queryInput: {
-            text: {
-                text: text
-            },
-            languageCode: "en" 
+    const body = {
+        input: {
+            message: query,
+            user_id: userId
         }
     };
+
     const response = await fetch(url, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
-            'X-Goog-User-Project': config.projectId
+            'X-Goog-User-Project': projectId
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(body)
     });
-    
+
     if (!response.ok) {
-        throw new Error(`Dialogflow query failed: ${response.status} ${response.statusText}`);
+        const errorText = await response.text();
+        throw new Error(`Reasoning Engine Stream API Error: ${response.status} - ${errorText}`);
     }
-    
-    return response.json();
+
+    const reader = response.body?.getReader();
+    if (!reader) return;
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+            if (line.trim() === '') continue;
+            try {
+                const chunk = JSON.parse(line);
+                onChunk(chunk);
+            } catch (e) {
+                console.warn("Could not parse query chunk", line);
+            }
+        }
+    }
 };
 
-// --- Cloud Run ---
+// Generate Vertex Content (AI Helpers)
+export const generateVertexContent = async (config: Config, prompt: string, model: string = 'gemini-2.5-flash') => {
+    const location = 'us-central1';
+    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${config.projectId}/locations/${location}/publishers/google/models/${model}:streamGenerateContent`;
+    
+    const client = await getGapiClient();
+    const token = client.getToken().access_token;
+
+    const body = {
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 2048 }
+    };
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+        throw new Error(`Vertex AI Error: ${response.status} - ${await response.text()}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) return '';
+
+    const decoder = new TextDecoder();
+    let fullText = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunkStr = decoder.decode(value);
+        try {
+            const json = JSON.parse(chunkStr.startsWith('[') ? chunkStr : `[${chunkStr.replace(/}\n{/g, '},{')}]`);
+            json.forEach((c: any) => {
+                const part = c.candidates?.[0]?.content?.parts?.[0];
+                if (part?.text) fullText += part.text;
+            });
+        } catch (e) {
+            console.warn("Vertex Stream Error", e);
+        }
+    }
+    return fullText;
+};
+
+// --- Cloud Run Services ---
 
 export const listCloudRunServices = async (config: Config, region: string) => {
     const url = `https://${region}-run.googleapis.com/v2/projects/${config.projectId}/locations/${region}/services`;
-    return gapiRequest<{ services: CloudRunService[] }>(url, 'GET', config.projectId);
+    return gapiRequest<any>(url, 'GET', config.projectId);
 };
 
 export const getCloudRunService = async (name: string, config: Config) => {
@@ -577,26 +578,53 @@ export const getCloudRunService = async (name: string, config: Config) => {
 export const deleteCloudRunService = async (name: string, config: Config) => {
     const region = name.split('/')[3];
     const url = `https://${region}-run.googleapis.com/v2/${name}`;
-    const op: any = await gapiRequest(url, 'DELETE', config.projectId);
-    // Poll operation
-    let currentOp = op;
-    while (!currentOp.done) {
-        await new Promise(r => setTimeout(r, 2000));
-        currentOp = await gapiRequest(`https://${region}-run.googleapis.com/v2/${op.name}`, 'GET', config.projectId);
+    return gapiRequest<any>(url, 'DELETE', config.projectId);
+};
+
+// --- GCS ---
+
+export const listBuckets = async (projectId: string) => {
+    return gapiRequest<any>(`https://storage.googleapis.com/storage/v1/b?project=${projectId}`, 'GET', projectId);
+};
+
+export const listGcsObjects = async (bucket: string, prefix: string, projectId: string) => {
+    let url = `https://storage.googleapis.com/storage/v1/b/${bucket}/o`;
+    if (prefix) url += `?prefix=${encodeURIComponent(prefix)}`;
+    return gapiRequest<any>(url, 'GET', projectId);
+};
+
+export const getGcsObjectContent = async (bucket: string, objectName: string, projectId: string) => {
+    const url = `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodeURIComponent(objectName)}?alt=media`;
+    const client = await getGapiClient();
+    const response = await client.request({ path: url, method: 'GET', headers: { 'X-Goog-User-Project': projectId } });
+    return typeof response.body === 'string' ? response.body : JSON.stringify(response.body);
+};
+
+export const uploadFileToGcs = async (bucket: string, objectName: string, file: File | Blob, projectId: string) => {
+    const url = `https://storage.googleapis.com/upload/storage/v1/b/${bucket}/o?uploadType=media&name=${encodeURIComponent(objectName)}`;
+    const client = await getGapiClient();
+    const token = client.getToken().access_token;
+    
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'X-Goog-User-Project': projectId,
+            'Content-Type': file.type || 'application/octet-stream'
+        },
+        body: file
+    });
+    
+    if (!response.ok) {
+        throw new Error(`GCS Upload Failed: ${response.status} - ${await response.text()}`);
     }
-    return currentOp;
+    return response.json();
 };
 
 // --- Cloud Build ---
 
 export const createCloudBuild = async (projectId: string, buildConfig: any) => {
-    return gapiRequest<any>(
-        `https://cloudbuild.googleapis.com/v1/projects/${projectId}/builds`,
-        'POST',
-        projectId,
-        undefined,
-        buildConfig
-    );
+    return gapiRequest<any>(`https://cloudbuild.googleapis.com/v1/projects/${projectId}/builds`, 'POST', projectId, undefined, buildConfig);
 };
 
 export const getCloudBuild = async (projectId: string, buildId: string) => {
@@ -604,325 +632,198 @@ export const getCloudBuild = async (projectId: string, buildId: string) => {
 };
 
 export const fetchBuildLogs = async (projectId: string, buildId: string): Promise<string[]> => {
-    // Fetch logs from Cloud Logging using the build_id
-    const body = {
-        resourceNames: [`projects/${projectId}`],
-        filter: `resource.type="build" AND resource.labels.build_id="${buildId}"`,
-        orderBy: "timestamp asc",
-        pageSize: 1000
-    };
     try {
-        const response = await gapiRequest<{ entries: LogEntry[] }>(`https://logging.googleapis.com/v2/entries:list`, 'POST', projectId, undefined, body);
-        return (response.entries || []).map(entry => entry.textPayload || '');
-    } catch (e: any) {
+        const build = await getCloudBuild(projectId, buildId);
+        const logUri = build.logUrl; // This is a web console URL, not the direct log access
+        // Direct log access is via Cloud Logging for newer builds
+        const filter = `resource.type="build" AND resource.labels.build_id="${buildId}"`;
+        const res = await gapiRequest<any>(`https://logging.googleapis.com/v2/entries:list`, 'POST', projectId, undefined, {
+            resourceNames: [`projects/${projectId}`],
+            filter: filter,
+            orderBy: "timestamp asc",
+            pageSize: 1000
+        });
+        return (res.entries || []).map((e: any) => e.textPayload || JSON.stringify(e.jsonPayload || e.protoPayload));
+    } catch (e) {
         console.warn("Failed to fetch build logs", e);
-        return [`[Log Error] ${e.message || 'Unknown error fetching logs'}`];
+        return ["Logging not available yet or permission denied."];
     }
 };
 
-// --- GCS ---
+// --- BigQuery ---
 
-export const listBuckets = async (projectId: string) => {
-    return gapiRequest<{ items: GcsBucket[] }>(`https://storage.googleapis.com/storage/v1/b?project=${projectId}`, 'GET', projectId);
+export const listBigQueryDatasets = async (projectId: string) => {
+    return gapiRequest<any>(`https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets`, 'GET', projectId);
 };
 
-export const listGcsObjects = async (bucket: string, prefix: string, projectId: string) => {
-    return gapiRequest<{ items: GcsObject[] }>(
-        `https://storage.googleapis.com/storage/v1/b/${bucket}/o?prefix=${encodeURIComponent(prefix)}`,
-        'GET',
-        projectId
-    );
+export const createBigQueryDataset = async (projectId: string, datasetId: string, location: string = 'US') => {
+    const body = {
+        datasetReference: { datasetId, projectId },
+        location
+    };
+    return gapiRequest<any>(`https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets`, 'POST', projectId, undefined, body);
 };
 
-export const uploadFileToGcs = async (bucket: string, objectName: string, file: File, projectId: string) => {
-    const client = await getGapiClient();
-    // Use the upload endpoint
-    const accessToken = client.getToken().access_token;
-    
-    const response = await fetch(`https://storage.googleapis.com/upload/storage/v1/b/${bucket}/o?uploadType=media&name=${encodeURIComponent(objectName)}`, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': file.type || 'application/octet-stream',
-            'X-Goog-User-Project': projectId
-        },
-        body: file
+export const listBigQueryTables = async (projectId: string, datasetId: string) => {
+    return gapiRequest<any>(`https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/${datasetId}/tables`, 'GET', projectId);
+};
+
+export const createBigQueryTable = async (projectId: string, datasetId: string, tableId: string) => {
+    const body = {
+        tableReference: { tableId, datasetId, projectId }
+    };
+    return gapiRequest<any>(`https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/${datasetId}/tables`, 'POST', projectId, undefined, body);
+};
+
+export const runBigQueryQuery = async (projectId: string, query: string) => {
+    return gapiRequest<any>(`https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`, 'POST', projectId, undefined, { query, useLegacySql: false });
+};
+
+// --- Logging ---
+
+export const fetchViolationLogs = async (config: Config, customFilter: string = '') => {
+    const filter = `resource.type="modelarmor.googleapis.com/SanitizeOperation" ${customFilter ? 'AND ' + customFilter : ''}`;
+    return gapiRequest<any>(`https://logging.googleapis.com/v2/entries:list`, 'POST', config.projectId, undefined, {
+        resourceNames: [`projects/${config.projectId}`],
+        filter: filter,
+        orderBy: "timestamp desc",
+        pageSize: 50
     });
-    
-    if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`);
-    }
-    return response.json();
 };
 
-export const getGcsObjectContent = async (bucket: string, objectName: string, projectId: string) => {
-    const client = await getGapiClient();
-    const accessToken = client.getToken().access_token;
+// --- Dialogflow CX ---
+
+export const listDialogflowAgents = async (config: Config) => {
+    const location = config.reasoningEngineLocation || 'us-central1';
+    const url = `https://${location}-dialogflow.googleapis.com/v3/projects/${config.projectId}/locations/${location}/agents`;
+    return gapiRequest<any>(url, 'GET', config.projectId);
+};
+
+export const deleteDialogflowAgent = async (name: string, config: Config) => {
+    const location = name.split('/')[3];
+    const url = `https://${location}-dialogflow.googleapis.com/v3/${name}`;
+    return gapiRequest<any>(url, 'DELETE', config.projectId);
+};
+
+export const detectDialogflowIntent = async (agentName: string, query: string, sessionId: string, config: Config, accessToken: string) => {
+    const location = agentName.split('/')[3];
+    const sessionPath = `${agentName}/sessions/${sessionId}`;
+    const url = `https://${location}-dialogflow.googleapis.com/v3/${sessionPath}:detectIntent`;
     
-    const response = await fetch(`https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodeURIComponent(objectName)}?alt=media`, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'X-Goog-User-Project': projectId
+    const body = {
+        queryInput: {
+            text: { text: query },
+            languageCode: "en"
         }
-    });
-    
-    if (!response.ok) {
-        throw new Error(`Failed to download file from GCS: ${response.statusText}`);
-    }
-    return response.text();
-};
-
-// --- A2A ---
-
-export const fetchA2aAgentCard = async (serviceUrl: string, accessToken: string) => {
-    const url = `${serviceUrl.replace(/\/$/, '')}/.well-known/agent.json`;
-    const response = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-    });
-    if (!response.ok) throw new Error(`Failed to fetch agent card: ${response.statusText}`);
-    return response.json();
-};
-
-export const invokeA2aAgent = async (serviceUrl: string, prompt: string, accessToken: string) => {
-    const url = `${serviceUrl.replace(/\/$/, '')}/invoke`;
-    const payload = {
-        jsonrpc: "2.0",
-        method: "chat",
-        params: { message: { role: "user", parts: [{ text: prompt }] } },
-        id: crypto.randomUUID()
     };
-    
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: { 
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json' 
-        },
-        body: JSON.stringify(payload)
-    });
-    
-    if (!response.ok) throw new Error(`Invocation failed: ${response.statusText}`);
-    const data = await response.json();
-    return data.result; // Expecting JSON-RPC result
-};
-
-export const registerA2aAgent = async (config: Config, agentName: string, payload: any) => {
-    // Uses createAgent logic but specifically for A2A
-    return createAgent(payload, config, agentName);
-};
-
-// --- Chat ---
-
-export const streamChat = async (
-    agentName: string | null,
-    query: string,
-    sessionId: string | null,
-    config: Config,
-    accessToken: string,
-    onChunk: (chunk: any) => void,
-    toolsSpec?: any
-) => {
-    const { projectId, appLocation, collectionId, appId, assistantId } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    
-    // Construct URL for streamAssist. If agentName is null, we talk to the assistant directly.
-    // If agentName is provided, we might need a different endpoint (sessions:streamQuery),
-    // but the UI typically uses the assistant's streamAssist to route to agents.
-    
-    // Standard path for Assistant streaming
-    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}:streamAssist`;
-    
-    const payload: any = {
-        query: { text: query },
-    };
-    if (sessionId) {
-        payload.session = sessionId;
-    }
-    if (toolsSpec) {
-        payload.toolsSpec = toolsSpec;
-    }
 
     const response = await fetch(url, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
-            'X-Goog-User-Project': projectId
+            'X-Goog-User-Project': config.projectId
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(body)
     });
 
-    if (!response.ok) throw new Error(`Chat stream failed: ${response.statusText}`);
-    if (!response.body) throw new Error("No response body");
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        
-        // Robust parser for array-wrapped or concatenated JSON streams.
-        // Google APIs often return [ {...}, {...} ] or sometimes just concatenated objects.
-        // This parser extracts any complete top-level object {} found in the buffer.
-        
-        let cursor = 0;
-        let braceCount = 0;
-        let inString = false;
-        let escaped = false;
-        let start = -1;
-
-        while (cursor < buffer.length) {
-            const char = buffer[cursor];
-            
-            if (!inString && char === '{') {
-                if (braceCount === 0) start = cursor;
-                braceCount++;
-            } else if (!inString && char === '}') {
-                braceCount--;
-                if (braceCount === 0 && start !== -1) {
-                    // Found complete object
-                    const jsonStr = buffer.substring(start, cursor + 1);
-                    try {
-                        const chunk = JSON.parse(jsonStr);
-                        onChunk(chunk);
-                    } catch(e) {
-                        console.warn("Failed to parse stream chunk", e);
-                    }
-                    // Remove processed part from buffer and reset scan
-                    buffer = buffer.substring(cursor + 1);
-                    cursor = -1; // Will become 0 after cursor++
-                    start = -1;
-                }
-            } else if (char === '"' && !escaped) {
-                inString = !inString;
-            } else if (char === '\\' && inString) {
-                escaped = !escaped;
-            } else {
-                escaped = false; // Reset escape if it wasn't a backslash
-            }
-            cursor++;
-        }
+    if (!response.ok) {
+        throw new Error(`Dialogflow DetectIntent Error: ${response.status} - ${await response.text()}`);
     }
+    return response.json();
 };
 
-// --- Logging ---
+// --- IAM Helper for Agents ---
 
-export const fetchViolationLogs = async (config: Config, filter: string) => {
-    const { projectId } = config;
-    let logFilter = `resource.type="modelarmor.googleapis.com/SanitizeOperation"`;
-    if (filter && filter.trim()) {
-        logFilter += ` AND ${filter}`;
-    }
-    const body = {
-        resourceNames: [`projects/${projectId}`],
-        filter: logFilter,
-        orderBy: "timestamp desc",
-        pageSize: 50
-    };
-    return gapiRequest<{ entries: LogEntry[] }>(`https://logging.googleapis.com/v2/entries:list`, 'POST', projectId, undefined, body);
+export const getAgentIamPolicy = async (name: string, config: Config) => {
+    const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}:getIamPolicy`;
+    return gapiRequest<any>(url, 'POST', config.projectId);
 };
 
-// --- BigQuery & Analytics ---
-
-export const listBigQueryDatasets = async (projectId: string): Promise<{ datasets?: any[] }> => {
-    const path = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets`;
-    return gapiRequest<{ datasets?: any[] }>(path, 'GET', projectId);
+export const setAgentIamPolicy = async (name: string, policy: any, config: Config) => {
+    const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}:setIamPolicy`;
+    return gapiRequest<any>(url, 'POST', config.projectId, undefined, { policy });
 };
 
-export const listBigQueryTables = async (projectId: string, datasetId: string): Promise<{ tables?: any[] }> => {
-    const path = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/${datasetId}/tables`;
-    return gapiRequest<{ tables?: any[] }>(path, 'GET', projectId);
-};
+// --- Assistant Export/Metrics ---
 
-export const createBigQueryDataset = async (projectId: string, datasetId: string, location: string): Promise<any> => {
-    const path = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets`;
-    const body = {
-        datasetReference: { datasetId },
-        location
-    };
-    return gapiRequest<any>(path, 'POST', projectId, undefined, body);
-};
-
-export const createBigQueryTable = async (projectId: string, datasetId: string, tableId: string): Promise<any> => {
-    const path = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/${datasetId}/tables`;
-    const body = {
-        tableReference: { projectId, datasetId, tableId }
-    };
-    return gapiRequest<any>(path, 'POST', projectId, undefined, body);
-};
-
-export const exportAnalyticsMetrics = async (config: Config, bigQueryDatasetId: string, bigQueryTableId: string): Promise<any> => {
-    const { projectId, appLocation, collectionId, appId } = config;
-    const parent = `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}`;
+export const exportAnalyticsMetrics = async (config: Config, datasetId: string, tableId: string) => {
+    const { projectId, appLocation, collectionId, appId, assistantId } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${parent}/analytics:exportMetrics`;
-
+    const url = `${baseUrl}/v1alpha/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}:exportAnalyticsMetrics`;
+    
     const body = {
-        analytics: parent,
-        outputConfig: {
-            bigqueryDestination: {
-                datasetId: bigQueryDatasetId,
-                tableId: bigQueryTableId
-            }
-        }
+        bigqueryDestination: {
+            tableUri: `bq://${projectId}.${datasetId}.${tableId}`
+        },
+        filter: "timestamp >= \"30 days ago\"" // Example filter
     };
     return gapiRequest<any>(url, 'POST', projectId, undefined, body);
 };
 
-export const runBigQueryQuery = async (projectId: string, query: string): Promise<any> => {
-    const path = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`;
-    const body = {
-        query,
-        useLegacySql: false
-    };
-    return gapiRequest<any>(path, 'POST', projectId, undefined, body);
-};
-
-// --- Licenses ---
-
-export const listUserLicenses = async (config: Config, userStoreId: string, filter: string, pageToken?: string, pageSize: number = 50) => {
-    const { projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    // Use v1 for licenses as it is GA
-    const url = `${baseUrl}/v1/projects/${projectId}/locations/${appLocation}/userStores/${userStoreId}/userLicenses`;
-    const params: any = { pageSize };
-    if (filter) params.filter = filter;
-    if (pageToken) params.pageToken = pageToken;
-    
-    return gapiRequest(url, 'GET', projectId, params);
-};
-
 export const getLicenseConfig = async (name: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-    // Assuming v1
-    return gapiRequest<any>(`${baseUrl}/v1/${name}`, 'GET', config.projectId);
+    const url = `${baseUrl}/v1/${name}`;
+    return gapiRequest<any>(url, 'GET', config.projectId);
+};
+
+export const listUserLicenses = async (config: Config, userStoreId: string, filter?: string, pageToken?: string, pageSize: number = 20) => {
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    let url = `${baseUrl}/v1/projects/${projectId}/locations/${appLocation}/userStores/${userStoreId}/userLicenses?pageSize=${pageSize}`;
+    if (filter) url += `&filter=${encodeURIComponent(filter)}`;
+    if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+    return gapiRequest<any>(url, 'GET', projectId);
 };
 
 export const revokeUserLicenses = async (config: Config, userStoreId: string, userPrincipals: string[]) => {
     const { projectId, appLocation } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const parent = `projects/${projectId}/locations/${appLocation}/userStores/${userStoreId}`;
-    const url = `${baseUrl}/v1/${parent}:batchUpdateUserLicenses`;
+    const url = `${baseUrl}/v1/projects/${projectId}/locations/${appLocation}/userStores/${userStoreId}:batchUpdateUserLicenses`;
     
-    // To revoke, we update the license to have NO license config, effectively removing it?
-    // Or check if there is a delete method. Usually batchUpdate with empty config works for unassignment.
-    // Based on API docs, setting licenseConfig to empty string or null unassigns it if paths include it.
-    
-    const inlineSource = {
-        userLicenses: userPrincipals.map(p => ({ userPrincipal: p })),
-        updateMask: { paths: ['userPrincipal', 'licenseConfig'] } // Update config to empty/default
-    };
-    
-    // Need to check if deleteUnassignedUserLicenses param is available or implied
     const body = {
-        inlineSource,
-        deleteUnassignedUserLicenses: true // This helps cleanup
+        inlineSource: {
+            userLicenses: userPrincipals.map(p => ({ userPrincipal: p })),
+            updateMask: { paths: ["userPrincipal", "licenseConfig"] }
+        },
+        deleteUnassignedUserLicenses: true
     };
-    
-    return gapiRequest(url, 'POST', projectId, undefined, body);
+    return gapiRequest<any>(url, 'POST', projectId, undefined, body);
+};
+
+export const registerA2aAgent = async (config: Config, agentId: string, payload: any) => {
+    return createAgent(payload, config, agentId);
+};
+
+export const fetchA2aAgentCard = async (serviceUrl: string, accessToken: string) => {
+    const url = `${serviceUrl.replace(/\/$/, '')}/.well-known/agent.json`;
+    const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (!response.ok) {
+        throw new Error(`A2A Discovery Error: ${response.status} - ${await response.text()}`);
+    }
+    return response.json();
+};
+
+export const invokeA2aAgent = async (serviceUrl: string, prompt: string, accessToken: string) => {
+    const url = `${serviceUrl.replace(/\/$/, '')}/invoke`;
+    const body = {
+        jsonrpc: "2.0",
+        method: "chat",
+        params: { message: { role: "user", parts: [{ text: prompt }] } },
+        id: "1"
+    };
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+    if (!response.ok) {
+        throw new Error(`A2A Invocation Error: ${response.status} - ${await response.text()}`);
+    }
+    return response.json();
 };

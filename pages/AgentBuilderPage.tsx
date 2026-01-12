@@ -31,7 +31,7 @@ interface A2aConfig {
     tools: AgentTool[];
 }
 
-// Separate interface for ADK Agent (removed A2A fields)
+// Separate interface for ADK Agent
 interface AdkAgentConfig {
     name: string;
     description: string;
@@ -157,7 +157,6 @@ AGENT_DESCRIPTION = os.getenv("AGENT_DESCRIPTION", "An agent-to-agent function."
 PROVIDER_ORGANIZATION = os.getenv("PROVIDER_ORGANIZATION", "Unknown")
 
 # This is the DEFAULT instruction if none is provided in the request
-# Note: In this template, we hardcode it for simplicity, but it also matches AGENT_DESCRIPTION env var.
 DEFAULT_SYSTEM_INSTRUCTION = """
 ${instruction}
 """
@@ -198,11 +197,8 @@ def get_agent_card():
     card = {
         "name": AGENT_DISPLAY_NAME,
         "description": AGENT_DESCRIPTION,
-        # IMPORTANT: The URL must point to the endpoint that handles POST requests.
-        # We append /invoke to the base URL to match the route defined below.
         "url": f"{AGENT_URL.rstrip('/')}/invoke",
         "capabilities": {
-            # The invoke endpoint is not streaming, so set to false.
             "streaming": False
         },
         "defaultInputModes": ["text/plain"],
@@ -233,9 +229,7 @@ def invoke():
     if not model:
         return jsonify({"error": "Model not initialized"}), 500
         
-    # Cloud Run's IAM integration handles the actual token validation.
     if "Authorization" not in request.headers:
-        # We log a warning but don't block, in case auth is handled at the infrastructure layer
         print("Warning: Missing Authorization header")
 
     data = request.get_json()
@@ -260,7 +254,6 @@ def invoke():
             "id": request_id
         }), 400
 
-    # Parse A2A Message Structure: params -> message -> parts -> [ { text: "..." } ]
     message = params.get("message")
     if not isinstance(message, dict):
         return jsonify({
@@ -346,7 +339,6 @@ if __name__ == "__main__":
 }
 
 const generateA2aEnvYaml = (config: A2aConfig, projectId: string): string => {
-    // Generate valid YAML with block scalar for the multiline description
     return `GOOGLE_CLOUD_PROJECT: "${projectId}"
 GOOGLE_CLOUD_LOCATION: "${config.region}"
 GOOGLE_GENAI_USE_VERTEXAI: "TRUE"
@@ -406,7 +398,6 @@ REGION="${config.region}"
 MEMORY="${config.memory}"
 
 # --- Pre-flight Check ---
-# Check if PROJECT_ID looks like a number (which causes gcloud deploy to fail)
 if [[ "$PROJECT_ID" =~ ^[0-9]+$ ]]; then
   echo "⚠️  WARNING: PROJECT_ID '$PROJECT_ID' appears to be a Project Number."
   echo "   'gcloud run deploy' requires the Project ID string (e.g., 'my-project-id')."
@@ -418,8 +409,6 @@ fi
 
 echo "Starting deployment of service '$SERVICE_NAME' to project '$PROJECT_ID'..."
 
-# Step 1: Deploy the service from source code.
-# Environment variables are loaded from env.yaml to handle special characters and multi-line strings.
 gcloud run deploy "$SERVICE_NAME" \\
   --source . \\
   --project "$PROJECT_ID" \\
@@ -431,7 +420,6 @@ gcloud run deploy "$SERVICE_NAME" \\
 
 echo "Initial deployment complete. Fetching service URL..."
 
-# Step 2: Get the public URL of the newly deployed service.
 SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --project="$PROJECT_ID" --region="$REGION" --format='value(status.url)')
 
 if [ -z "$SERVICE_URL" ]; then
@@ -442,8 +430,6 @@ fi
 echo "Service URL found: $SERVICE_URL"
 echo "Updating service with own URL..."
 
-# Step 3: Update the service to set the AGENT_URL environment variable.
-# This makes the service self-aware of its public endpoint.
 gcloud run services update "$SERVICE_NAME" \\
   --project="$PROJECT_ID" \\
   --region="$REGION" \\
@@ -469,12 +455,11 @@ const generateAdkPythonCode = (config: AdkAgentConfig): string => {
     
     const agentClass = 'Agent';
     const agentImport = 'from google.adk.agents import Agent';
-    const appImport = 'from google.adk.apps import App';
+    const adkAppImport = 'from google.adk.apps import App';
 
-    // Ensure google.auth is imported for credentials
     toolImports.add('import google.auth');
 
-    // Inject A2A Helper Function if needed
+    // Inject A2A Helper Function
     if (config.tools.some(t => t.type === 'A2AClientTool')) {
         a2aClassCode = `
 import requests
@@ -503,7 +488,6 @@ def create_a2a_tool(url: str, tool_name: str):
         
         try:
             auth_req = google.auth.transport.requests.Request()
-            # Target audience is the root URL
             target_audience = url.replace("/invoke", "").rstrip('/')
             id_token = google.oauth2.id_token.fetch_id_token(auth_req, target_audience)
             headers["Authorization"] = f"Bearer {id_token}"
@@ -520,7 +504,6 @@ def create_a2a_tool(url: str, tool_name: str):
         except Exception as e:
             return f"Communication failed: {e}"
 
-    # Rename the function so the LLM sees a unique name
     a2a_interaction.__name__ = tool_name
     return a2a_interaction
 `;
@@ -581,34 +564,21 @@ def get_email_from_token(access_token):
     service = build('oauth2', 'v2', credentials=credentials)
     user_info = service.userinfo().get().execute()
     user_email = user_info.get('email')
-    
     return user_email
 
 def lazy_mask_token(access_token):
     """Mask access token for printing"""
-    start_mask = access_token[:4]
-    end_mask = access_token[-4:]
-    
-    return f"{start_mask}...{end_mask}"
+    return f"{access_token[:4]}...{access_token[-4:]}"
 
 def print_tool_context(tool_context: ToolContext):
     """ADK Tool to get email and masked token from Gemini Enterprise"""
     auth_id = os.getenv("AUTH_ID")
-    
-    # get access token using tool context
     access_token = tool_context.state[f"temp:{auth_id}"]
-    
-    # mask the token to be returned to the agent
-    masked_token = lazy_mask_token(access_token)
-
-    # get the user email using the token
     user_email = get_email_from_token(access_token)
-    
-    # store email in tool context in case you want to keep referring to it
     tool_context.state["user_email"] = user_email
     
     return {
-        f"temp:{auth_id}"] = lazy_mask_token(access_token),
+        f"temp:{auth_id}": lazy_mask_token(access_token),
         "user_email": user_email
     }
 `;
@@ -628,17 +598,18 @@ def print_tool_context(tool_context: ToolContext):
         'import os',
         'from dotenv import load_dotenv',
         agentImport,
-        appImport,
-        'try:',
-        '    from vertexai.agent_engines import AdkApp',
-        'except ImportError:',
-        '    from vertexai.preview.reasoning_engines import AdkApp',
+        'from vertexai.preview import reasoning_engines',
         ...Array.from(toolImports),
         ...Array.from(pluginsImports),
-    ].join('\n');
+    ];
+
+    const hasPlugins = pluginList.length > 0;
+    if (hasPlugins) {
+        imports.push(adkAppImport);
+    }
 
     return `
-${imports}
+${imports.join('\n')}
 
 load_dotenv()
 
@@ -660,11 +631,20 @@ root_agent = ${agentClass}(
     tools=[${toolListForAgent.join(', ')}],
 )
 
-# Define the App
-app = App(
+${hasPlugins ? `
+# Define the ADK App with plugins
+adk_app = App(
     name=${formatPythonString(config.name)},
     root_agent=root_agent,
     plugins=[${pluginList.join(', ')}],
+)
+` : ''}
+
+# Define the App for Vertex AI Reasoning Engine
+# Note: Root agent is wrapped in AdkApp as requested.
+app = reasoning_engines.AdkApp(
+    agent=${hasPlugins ? 'adk_app' : 'root_agent'},
+    enable_tracing=False
 )
 `.trim();
 };
@@ -674,6 +654,7 @@ const generateAdkDeployScript = (config: AdkAgentConfig): string => {
 import os
 import logging
 import vertexai
+from vertexai.preview import reasoning_engines
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -688,7 +669,7 @@ vertexai.init(project=project_id, location=location, staging_bucket=staging_buck
 try:
     import agent
     if hasattr(agent, 'app'):
-        # If the user defined an App (e.g. for plugins), use it.
+        # If the user defined an App, use it.
         app_obj = agent.app
         logger.info("Imported 'app' from agent.py")
     else:
@@ -702,7 +683,7 @@ except ImportError as e:
     raise
 
 # Read requirements
-reqs = ["google-cloud-aiplatform[adk,agent_engines]>=1.38", "python-dotenv"]
+reqs = ["google-cloud-aiplatform[adk,agent_engines]>=1.75.0", "python-dotenv"]
 if os.path.exists("requirements.txt"):
     with open("requirements.txt", "r") as f:
         for line in f:
@@ -711,37 +692,22 @@ if os.path.exists("requirements.txt"):
                 reqs.append(line)
 reqs = list(set(reqs))
 
-try:
-    from vertexai import agent_engines
-    
-    # We must ensure the agent object is wrapped in the Vertex AI AdkApp class.
-    # Even if it is a google.adk.apps.App, we need to wrap it to provide the required interface.
-    if isinstance(app_obj, agent_engines.AdkApp):
-         app_to_deploy = app_obj
-    else:
-         app_to_deploy = agent_engines.AdkApp(agent=app_obj, enable_tracing=True)
+# --- CRITICAL FIX FOR Pydantic ValidationError ---
+# We check if the app_obj is already an AdkApp instance by checking for the 'agent' attribute.
+# This prevents 'double-wrapping' which causes the 'Input should be a valid dictionary or instance of BaseAgent' error.
+if hasattr(app_obj, 'agent'):
+     app_to_deploy = app_obj
+     logger.info("App is already an AdkApp-compatible instance. Proceeding to deploy...")
+else:
+     logger.info("Wrapping agent in AdkApp for deployment...")
+     app_to_deploy = reasoning_engines.AdkApp(agent=app_obj, enable_tracing=False)
 
-    logger.info("Creating Agent Engine...")
-    remote_app = agent_engines.create(
-        agent_engine=app_to_deploy,
-        requirements=reqs,
-        display_name=os.getenv("AGENT_DISPLAY_NAME", "${config.name || 'my-agent'}")
-    )
-
-except ImportError:
-    logger.warning("Fallback to preview namespace.")
-    from vertexai.preview import reasoning_engines
-    
-    if isinstance(app_obj, reasoning_engines.AdkApp):
-         app_to_deploy = app_obj
-    else:
-         app_to_deploy = reasoning_engines.AdkApp(agent=app_obj)
-
-    remote_app = reasoning_engines.ReasoningEngine.create(
-        app_to_deploy,
-        requirements=reqs,
-        display_name=os.getenv("AGENT_DISPLAY_NAME", "${config.name || 'my-agent'}"),
-    )
+logger.info("Creating Reasoning Engine...")
+remote_app = reasoning_engines.ReasoningEngine.create(
+    app_to_deploy,
+    requirements=reqs,
+    display_name=os.getenv("AGENT_DISPLAY_NAME", "${config.name || 'my-agent'}"),
+)
 
 print(f"Deployment finished!")
 print(f"Resource Name: {remote_app.resource_name}")
@@ -769,7 +735,7 @@ AGENT_DISPLAY_NAME="${config.name}"`;
 
 const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
     const requirements = new Set([
-        'google-cloud-aiplatform[adk,agent_engines]>=1.38', 
+        'google-cloud-aiplatform[adk,agent_engines]>=1.75.0', 
         'python-dotenv'
     ]);
     if (config.enableOAuth || config.tools.some(t => t.type === 'A2AClientTool')) {
@@ -783,7 +749,7 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
     if (config.enableBigQuery || config.enableBqAnalytics) {
         requirements.add('google-cloud-bigquery');
         requirements.add('google-auth');
-        requirements.add('db-dtypes'); // Often needed for BigQuery pandas integration
+        requirements.add('db-dtypes'); 
     }
     return Array.from(requirements).join('\n');
 };
@@ -798,7 +764,7 @@ This agent was created using the Gemini Enterprise Manager Agent Builder (ADK).
 
 1.  **Install ADK:**
     \`\`\`sh
-    pip install "google-cloud-aiplatform[adk,agent_engines]>=1.38"
+    pip install "google-cloud-aiplatform[adk,agent_engines]>=1.75.0"
     \`\`\`
 
 2.  **Install dependencies:**
@@ -872,7 +838,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         bigQueryWriteMode: 'BLOCKED',
         enableBqAnalytics: false,
         bqDatasetId: '',
-        bqTableId: '' // Change default to empty so datalist works properly
+        bqTableId: '' 
     });
     const [vertexLocation, setVertexLocation] = useState('us-central1');
     const [adkGeneratedCode, setAdkGeneratedCode] = useState({ agent: '', env: '', requirements: '', readme: '', deploy_re: '' });
@@ -968,7 +934,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     // ADK Data Store & Buckets Fetching
     const apiConfig = useMemo(() => ({
       projectId: projectNumber,
-      appLocation: 'global', // Default for AI operations
+      appLocation: 'global',
       collectionId: '',
       appId: '',
       assistantId: ''
@@ -978,7 +944,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
       if (!projectNumber) return;
       
       const fetchData = async () => {
-        // Fetch Data Stores from all regions
         setIsLoadingDataStores(true);
         setDataStores([]);
         
@@ -998,9 +963,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                  if (res.dataStores) {
                      res.dataStores.forEach((ds: any) => dsResults.push({ ...ds, location: loc }));
                  }
-             } catch(e) { 
-                 // Ignore errors
-             }
+             } catch(e) { }
         }));
         
         setDataStores(dsResults);
@@ -1009,7 +972,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         }
         setIsLoadingDataStores(false);
 
-        // Fetch A2A Cloud Run Services
         setIsLoadingServices(true);
         setCloudRunServices([]);
         const regions = ['us-central1', 'us-east1', 'europe-west1', 'asia-east1']; 
@@ -1022,7 +984,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
             } catch (e) {}
         }));
         
-        // Filter for A2A
         const a2a = services.filter(s => {
              const envVars = s.template?.containers?.[0]?.env || [];
              const getEnv = (name: string) => envVars.find(e => e.name === name)?.value;
@@ -1086,7 +1047,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         if (type === 'checkbox') {
              setA2aConfig(prev => ({...prev, [name]: (e.target as HTMLInputElement).checked }));
         } else if (name === 'serviceName') {
-            // Transform spaces to dashes, lowercase, remove invalid chars
             const sanitizedValue = value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').substring(0, 63);
             setA2aConfig(prev => ({...prev, [name]: sanitizedValue }));
         } else {
@@ -1099,7 +1059,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         if (type === 'checkbox') {
              setAdkConfig(prev => ({...prev, [name]: (e.target as HTMLInputElement).checked }));
         } else if (name === 'name') {
-             // Transform spaces to underscores
              const sanitizedValue = value.replace(/\s+/g, '_');
              setAdkConfig(prev => ({...prev, [name]: sanitizedValue }));
         } else {
@@ -1128,13 +1087,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         
         const currentInstruction = builderTab === 'a2a' ? a2aConfig.instruction : adkConfig.instruction;
         const prompt = `You are an expert prompt engineer. Your task is to rewrite the following system instruction to be highly effective for a Large Language Model (LLM).
-        Structure the rewritten prompt clearly (e.g., using sections like Role, Objective, Context, Rules).
-        Add necessary context and details to make the agent robust and easier for the AI to consume, while strictly preserving the user's original intent.
-        Do not provide explanations or multiple options. Output ONLY the rewritten system instruction.
+        Structure the rewritten prompt clearly.
+        Add necessary context and details to make the agent robust while preserving the user's original intent.
+        Output ONLY the rewritten system instruction.
         
-        Original Instruction: "${currentInstruction}"
-        
-        Rewritten Instruction:`;
+        Original Instruction: "${currentInstruction}"`;
 
         try {
             const text = await api.generateVertexContent(apiConfig, prompt, 'gemini-2.5-flash');
@@ -1337,7 +1294,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                                         value={adkConfig.bqTableId} 
                                                         onChange={handleAdkConfigChange} 
                                                         list="bq-tables-list"
-                                                        placeholder="agent_events (type to create new)" 
+                                                        placeholder="agent_events" 
                                                         className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" 
                                                         disabled={!adkConfig.bqDatasetId}
                                                     />
@@ -1348,7 +1305,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                                     </datalist>
                                                     <button onClick={fetchBqTables} className="px-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-xs text-white" disabled={isLoadingBqTables || !adkConfig.bqDatasetId}>↻</button>
                                                 </div>
-                                                {bqTablesError && <p className="text-xs text-red-400 mt-1">{bqTablesError}</p>}
                                             </div>
                                         </div>
                                     )}
@@ -1387,11 +1343,9 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                             </>
                         )}
 
-                        {/* Tool Builder Section */}
                         <div className="pt-4 border-t border-gray-700">
                             <h3 className="text-sm font-medium text-gray-300 mb-2">Add Tools</h3>
                             <div className="bg-gray-700/50 p-3 rounded-md space-y-3">
-                                {/* Data Store Tool */}
                                 <div>
                                     <label className="block text-xs font-medium text-gray-400 mb-1">Vertex AI Search Data Store</label>
                                     <div className="flex flex-col gap-2">
@@ -1428,7 +1382,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                         </div>
                                     </div>
                                 </div>
-                                {/* A2A Tool */}
                                 <div>
                                     <label className="block text-xs font-medium text-gray-400 mb-1">Call Other Agent (A2A)</label>
                                     <div className="flex flex-col gap-2">
@@ -1464,7 +1417,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                 </div>
                             </div>
                             
-                            {/* Active Tools List */}
                             <div className="mt-3 space-y-2">
                                 {(builderTab === 'a2a' ? a2aConfig.tools : adkConfig.tools).map((tool, i) => (
                                     <div key={i} className="flex justify-between items-center bg-gray-900 px-3 py-2 rounded border border-gray-700">
@@ -1477,13 +1429,12 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                             </div>
                         </div>
 
-                        {/* Testing Options Section for A2A */}
                         {builderTab === 'a2a' && (
                             <div className="pt-4 border-t border-gray-700">
                                 <h3 className="text-sm font-medium text-gray-300 mb-2">Testing Options</h3>
                                 <div className="space-y-2">
                                     <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="allowUnauthenticated" checked={a2aConfig.allowUnauthenticated} onChange={handleA2aConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Allow unauthenticated invocations</span></label>
-                                    <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="enableCors" checked={a2aConfig.enableCors} onChange={handleA2aConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable CORS (For Browser Testing)</span></label>
+                                    <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="enableCors" checked={a2aConfig.enableCors} onChange={handleA2aConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable CORS</span></label>
                                 </div>
                             </div>
                         )}
@@ -1492,7 +1443,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
 
                 {/* Right Column: Code & Deploy (Box 2 & 3) */}
                 <div className="flex flex-col gap-6 flex-1 min-h-0">
-                    {/* Box 2: Generated Source Code */}
                     <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col flex-1 min-h-0 border border-gray-700">
                         <h2 className="text-lg font-semibold text-white mb-3 shrink-0">2. Generated Source Code</h2>
                         <div className="flex justify-between items-center mb-2 shrink-0">
@@ -1523,7 +1473,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                         </div>
                     </div>
 
-                    {/* Box 3: Deployment Options */}
                     <div className="bg-gray-800 p-4 rounded-lg shadow-md flex flex-col flex-1 min-h-0 border border-gray-700">
                         <h2 className="text-lg font-semibold text-white mb-3 shrink-0">3. Deployment Options</h2>
                         <div className="flex flex-col gap-4 flex-1 min-h-0 overflow-y-auto">

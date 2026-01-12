@@ -70,7 +70,6 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectNumber,
       reasoningEngineLocation: location,
-      // Dummy values for other required config properties
       appLocation: 'global',
       collectionId: 'default_collection',
       appId: '',
@@ -81,28 +80,22 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
     if (!allAgents.length) return {};
     
     return allAgents.reduce((acc, agent) => {
-        // Check for Reasoning Engine Link
         const reName = agent.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine;
         if (reName) {
             if (!acc[reName]) acc[reName] = [];
             acc[reName].push(agent);
         }
 
-        // Check for A2A Link (via Agent Card URL matching Service URL)
         if (agent.a2aAgentDefinition?.jsonAgentCard) {
             try {
                 const card = JSON.parse(agent.a2aAgentDefinition.jsonAgentCard);
-                const agentUrl = card.url; // e.g. https://service.run.app/invoke
-                
-                // Find matching Cloud Run resource by URI
+                const agentUrl = card.url;
                 const matchingResource = resources.find(r => r.uri && agentUrl && agentUrl.startsWith(r.uri));
                 if (matchingResource) {
                     if (!acc[matchingResource.id]) acc[matchingResource.id] = [];
                     acc[matchingResource.id].push(agent);
                 }
-            } catch (e) {
-                // ignore parsing error
-            }
+            } catch (e) {}
         }
         return acc;
     }, {} as { [key: string]: Agent[] });
@@ -125,12 +118,10 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
         const unifiedList: UnifiedResource[] = [];
         const errors: string[] = [];
 
-        // 1. Fetch Reasoning Engines
         try {
             const reResponse = await api.listReasoningEngines(apiConfig);
             const engines = reResponse.reasoningEngines || [];
             
-            // Fetch session counts in parallel
             if (engines.length > 0) {
                 const sessionPromises = engines.map(engine =>
                     api.listReasoningEngineSessions(engine.name, apiConfig)
@@ -156,24 +147,17 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
             errors.push(`Reasoning Engines: ${e.message}`);
         }
 
-        // 2. Fetch Cloud Run Services
         try {
             const crResponse = await api.listCloudRunServices(apiConfig, location);
             const services = crResponse.services || [];
-            
             services.forEach(service => {
                 const analysis = analyzeCloudRunService(service);
-                
-                // FILTER: Only list A2A services (Explicitly filter out generic Agents)
                 if (!analysis.isA2a) return;
-
-                let type: ResourceType = 'Cloud Run (A2A)';
-                
                 unifiedList.push({
                     id: service.name,
                     shortId: service.name.split('/').pop()!,
                     displayName: analysis.displayName,
-                    type: type,
+                    type: 'Cloud Run (A2A)',
                     location: location,
                     data: service,
                     uri: service.uri
@@ -184,15 +168,11 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
         }
 
         setResources(unifiedList);
-        if (errors.length > 0) {
-            setError(errors.join(' | '));
-        }
+        if (errors.length > 0) setError(errors.join(' | '));
 
-        // 3. Fetch Agents for Usage Mapping
         try {
             const agentsList: Agent[] = [];
             const discoveryLocations = ['global', 'us', 'eu'];
-            
             await Promise.all(discoveryLocations.map(async (loc) => {
                 const locConfig = { ...apiConfig, appLocation: loc };
                 try {
@@ -218,7 +198,6 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
         } catch (e) {
             console.warn("Failed to fetch usage data", e);
         }
-
     } catch (err: any) {
       setError(err.message || 'Failed to fetch resources.');
     } finally {
@@ -227,9 +206,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
   }, [apiConfig, location, projectNumber]);
   
   useEffect(() => {
-      if (projectNumber) {
-          fetchResources();
-      }
+      if (projectNumber) fetchResources();
   }, [projectNumber, location]);
 
   const handleToggleSelect = (id: string) => {
@@ -242,20 +219,13 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
   };
 
   const handleToggleSelectAll = () => {
-      if (selectedIds.size === resources.length) {
-          setSelectedIds(new Set());
-      } else {
-          setSelectedIds(new Set(resources.map(r => r.id)));
-      }
+      if (selectedIds.size === resources.length) setSelectedIds(new Set());
+      else setSelectedIds(new Set(resources.map(r => r.id)));
   };
 
   const openDeleteModal = (resource?: UnifiedResource) => {
-      if (resource) {
-          setSelectedIds(new Set([resource.id]));
-      }
-      if (selectedIds.size > 0 || resource) {
-          setIsDeleteModalOpen(true);
-      }
+      if (resource) setSelectedIds(new Set([resource.id]));
+      if (selectedIds.size > 0 || resource) setIsDeleteModalOpen(true);
   };
   
   const confirmDelete = async () => {
@@ -269,22 +239,24 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
     for (const res of resourcesToDelete) {
         try {
             if (res.type === 'Reasoning Engine') {
+                // Proactively terminate all sessions before deletion
+                try {
+                    const sessionRes = await api.listReasoningEngineSessions(res.id, apiConfig);
+                    const sessions = sessionRes.sessions || [];
+                    if (sessions.length > 0) {
+                        await Promise.all(sessions.map(s => api.deleteReasoningEngineSession(s.name, apiConfig)));
+                    }
+                } catch (sessionErr) {
+                    console.warn(`Could not clear sessions for ${res.shortId}, force delete will proceed.`, sessionErr);
+                }
+                
+                // Perform delete with force=true (now handled in apiService.ts)
                 await api.deleteReasoningEngine(res.id, apiConfig);
             } else {
                 await api.deleteCloudRunService(res.id, apiConfig);
             }
         } catch (err: any) {
-            if (err.message?.toLowerCase().includes('resource has children') && res.type === 'Reasoning Engine') {
-                 try {
-                     const sessions = (await api.listReasoningEngineSessions(res.id, apiConfig)).sessions || [];
-                     await Promise.all(sessions.map(s => api.deleteReasoningEngineSession(s.name, apiConfig)));
-                     await api.deleteReasoningEngine(res.id, apiConfig);
-                 } catch (retryErr: any) {
-                     failures.push(`- ${res.shortId}: ${retryErr.message}`);
-                 }
-            } else {
-                failures.push(`- ${res.shortId}: ${err.message}`);
-            }
+            failures.push(`- ${res.shortId}: ${err.message}`);
         }
     }
 
@@ -318,7 +290,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
   };
 
   const renderContent = () => {
-    if (isLoading && viewMode === 'list') { return <Spinner />; }
+    if (isLoading && viewMode === 'list') return <Spinner />;
     
     if (viewMode === 'details' && selectedResource) {
         if (selectedResource.type === 'Reasoning Engine') {
@@ -396,9 +368,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                                 const isSelected = selectedIds.has(res.id);
                                 const usingAgents = agentsByResource[res.id] || [];
                                 const isRE = res.type === 'Reasoning Engine';
-
-                                let badgeClass = 'bg-teal-900 text-teal-200';
-                                if (isRE) badgeClass = 'bg-purple-900 text-purple-200';
+                                let badgeClass = isRE ? 'bg-purple-900 text-purple-200' : 'bg-teal-900 text-teal-200';
 
                                 return (
                                     <tr key={res.id} className={`${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'} transition-colors`}>
@@ -523,7 +493,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                     )
                 })}
             </ul>
-            <p className="mt-4 text-sm text-yellow-300">This action cannot be undone.</p>
+            <p className="mt-4 text-sm text-yellow-300">This action cannot be undone. Active sessions (direct queries) will be automatically terminated before deletion.</p>
         </ConfirmationModal>
       )}
 
