@@ -9,7 +9,7 @@ interface CurlInfoModalProps {
 
 const ALL_INFO: { [key: string]: { description: string; commands: { title: string; command: string }[] } } = {
     [Page.AGENTS]: {
-        description: "These are the underlying REST API calls for managing agents. They interact with the v1alpha Discovery Engine API.",
+        description: "These are the underlying REST API calls for managing agents and their security. They interact with the v1alpha Discovery Engine API.",
         commands: [
             {
                 title: 'List Agents',
@@ -34,6 +34,39 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
         }
       }' \\
   "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents?agentId=[OPTIONAL_AGENT_ID]"`
+            },
+            {
+                title: 'Get Agent View',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents/[AGENT_ID]:getAgentView"`
+            },
+            {
+                title: 'Get IAM Policy',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents/[AGENT_ID]:getIamPolicy"`
+            },
+            {
+                title: 'Set IAM Policy',
+                command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "policy": {
+          "bindings": [
+            {
+              "role": "roles/discoveryengine.agentUser",
+              "members": ["user:someone@example.com"]
+            }
+          ],
+          "etag": "BwZ..."
+        }
+      }' \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents/[AGENT_ID]:setIamPolicy"`
             },
         ]
     },
@@ -228,7 +261,7 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
         ]
     },
     [Page.MODEL_ARMOR]: {
-        description: "Model Armor logs are stored in Cloud Logging. You can query them using the `entries:list` endpoint with a specific resource type filter.",
+        description: "Model Armor logs are stored in Cloud Logging. You can query them using the \`entries:list\` endpoint with a specific resource type filter.",
         commands: [
             {
                 title: 'Fetch Violation Logs',
@@ -250,7 +283,7 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
         commands: [{ title: 'List Collections (Primary Step)', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/collections"` }]
     },
     'Restore:DiscoveryResources': {
-        description: "Restoring discovery resources involves a series of `create` operations. The first step is to create the collection.",
+        description: "Restoring discovery resources involves a series of \`create\` operations. The first step is to create the collection.",
         commands: [{ title: 'Create Collection (First Step)', command: `curl -X POST -H "Authorization: Bearer [TOKEN]" -H "Content-Type: application/json" -d '{"displayName": "[COLLECTION_DISPLAY_NAME]"}' "https://[LOCATION]-discoveryengine.googleapis.com/v1beta/projects/[PROJECT_ID]/locations/[LOCATION]/collections?collectionId=[COLLECTION_ID]"` }]
     },
     'Backup:AppEngine': {
@@ -274,7 +307,7 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
         commands: [{ title: 'List Agents', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents"` }]
     },
     'Restore:Agents': {
-        description: "Restoring agents involves creating them within a target assistant. The `createAgent` call from the main Agents page is used.",
+        description: "Restoring agents involves creating them within a target assistant. The \`createAgent\` call from the main Agents page is used.",
         commands: [{ title: 'Create Agent', command: `curl -X POST -H "Authorization: Bearer [TOKEN]" -H "Content-Type: application/json" -d '{...}' "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents"` }]
     },
     'Backup:DataStores': {
@@ -290,7 +323,7 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
         commands: [{ title: 'List Authorizations', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/global/authorizations"` }]
     },
     'Restore:Authorizations': {
-        description: "Restoring an authorization involves creating it. The `createAuthorization` call from the Authorizations page is used. Note that you must provide the client secret, which is not included in the backup file.",
+        description: "Restoring an authorization involves creating it. The \`createAuthorization\` call from the Authorizations page is used. Note that you must provide the client secret, which is not included in the backup file.",
         commands: [{ title: 'Create Authorization', command: `curl -X POST -H "Authorization: Bearer [TOKEN]" -H "Content-Type: application/json" -d '{ "serverSideOauth2": { ... } }' "https://discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/global/authorizations?authorizationId=[AUTH_ID]"` }]
     },
     'ArchitectureScan': {
