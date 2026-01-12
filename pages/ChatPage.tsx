@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Config } from '../types';
 import * as api from '../services/apiService';
@@ -74,7 +75,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
 
   const selectedApp = useMemo(() => apps.find(a => a.name.endsWith(`/${config.appId}`)), [apps, config.appId]);
 
-  // --- Dropdown Data Fetching Effects ---
+  // Fetch Apps list
   useEffect(() => {
     if (!apiConfig.projectId || !apiConfig.appLocation) { setApps([]); return; }
     const fetch = async () => {
@@ -88,30 +89,33 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
     fetch();
   }, [apiConfig.projectId, apiConfig.appLocation, apiConfig.collectionId]);
 
-
   const renderContent = () => {
     if (!accessToken) {
       return <div className="text-center text-gray-400 mt-8">Please set your GCP Access Token to begin.</div>;
     }
     if (selectedApp) {
-        return <ChatWindow 
-            targetDisplayName={selectedApp.displayName} 
-            config={apiConfig} 
-            accessToken={accessToken} 
-            onClose={() => setConfig(prev => ({...prev, appId: ''}))} 
-        />;
+        return (
+            <div className="h-full">
+                <ChatWindow 
+                    targetDisplayName={selectedApp.displayName} 
+                    config={apiConfig} 
+                    accessToken={accessToken} 
+                    onClose={() => setConfig(prev => ({...prev, appId: ''}))}
+                />
+            </div>
+        );
     }
     return (
-        <div className="text-center text-gray-400 mt-8 bg-gray-800 p-6 rounded-lg">
+        <div className="text-center text-gray-400 mt-8 bg-gray-800 p-6 rounded-lg border border-gray-700">
             <h3 className="text-lg font-semibold text-white">Select a Gemini Enterprise Engine</h3>
-            <p>Please use the configuration dropdowns above to select an engine to chat with.</p>
+            <p className="mt-2">Please use the configuration dropdowns above to select an engine to chat with. Linked data stores will be included automatically.</p>
         </div>
     );
   };
   
  return (
     <div className="flex flex-col h-full space-y-6">
-      <div className="bg-gray-800 p-4 rounded-lg shadow-md">
+      <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700 shrink-0">
         <h2 className="text-lg font-semibold text-white mb-3">Test Agent Configuration</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
@@ -133,7 +137,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
           </div>
         </div>
       </div>
-      {error && <div className="text-center text-red-400 p-4 mb-4 bg-red-900/20 rounded-lg">{error}</div>}
+      {error && <div className="text-center text-red-400 p-4 mb-4 bg-red-900/20 rounded-lg border border-red-800">{error}</div>}
       <div className="flex-1 min-h-0">
         {renderContent()}
       </div>

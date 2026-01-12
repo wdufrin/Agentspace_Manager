@@ -18,24 +18,39 @@ const DetailItem: React.FC<{ label: string; value: string | undefined | null; is
     </div>
 );
 
-const JsonDetailsModal: React.FC<{ isOpen: boolean; onClose: () => void; data: any }> = ({ isOpen, onClose, data }) => {
+const ModelArmorModal: React.FC<{ isOpen: boolean; onClose: () => void; command: string }> = ({ isOpen, onClose, command }) => {
+    const [copyText, setCopyText] = useState('Copy');
     if (!isOpen) return null;
+    const handleCopy = () => {
+        navigator.clipboard.writeText(command).then(() => {
+            setCopyText('Copied!');
+            setTimeout(() => setCopyText('Copy'), 2000);
+        });
+    };
     return (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
-            <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl h-[80vh] flex flex-col">
-                <header className="p-4 border-b border-gray-700 flex justify-between items-center shrink-0">
-                    <h2 className="text-xl font-bold text-white">Engine JSON Details</h2>
+            <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl">
+                <header className="p-4 border-b border-gray-700 flex justify-between items-center">
+                    <h2 className="text-xl font-bold text-white">Enable Model Armor</h2>
                     <button onClick={onClose} className="text-gray-400 hover:text-white">&times;</button>
                 </header>
-                <main className="p-0 flex-1 overflow-hidden">
-                    <div className="h-full overflow-auto p-4">
-                        <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">
-                            {JSON.stringify(data, null, 2)}
-                        </pre>
+                <main className="p-6">
+                    <p className="text-sm text-gray-300 mb-4">
+                        To enable Model Armor for this Reasoning Engine, run the following command in your terminal.
+                        This registers the <code>:query</code> method with the Model Armor service.
+                    </p>
+                    <div className="bg-gray-900 rounded-lg overflow-hidden relative group">
+                        <button 
+                            onClick={handleCopy} 
+                            className="absolute top-2 right-2 px-2 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                            {copyText}
+                        </button>
+                        <pre className="p-4 text-xs text-gray-300 whitespace-pre-wrap break-all font-mono">{command}</pre>
                     </div>
                 </main>
-                <footer className="p-4 bg-gray-900/50 border-t border-gray-700 flex justify-end shrink-0">
-                    <button onClick={onClose} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Close</button>
+                <footer className="p-4 bg-gray-900/50 border-t border-gray-700 flex justify-end">
+                    <button onClick={onClose} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Done</button>
                 </footer>
             </div>
         </div>
@@ -58,8 +73,8 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({ engine, usingAgents, onBa
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [sessionToDelete, setSessionToDelete] = useState<{ name: string } | null>(null);
 
-    // State for JSON Details
-    const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
+    // State for Model Armor
+    const [isModelArmorModalOpen, setIsModelArmorModalOpen] = useState(false);
 
      useEffect(() => {
         const fetchDetails = async () => {
@@ -116,12 +131,25 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({ engine, usingAgents, onBa
         }
     };
 
+    const getModelArmorCommand = () => {
+        const location = engine.name.split('/')[3];
+        // Construct the fully qualified method URL
+        // Format: https://LOCATION-aiplatform.googleapis.com/v1beta1/projects/PROJECT_ID/locations/LOCATION/reasoningEngines/REASONING_ENGINE_ID:query
+        const resourceUrl = `https://${location}-aiplatform.googleapis.com/v1beta1/${engine.name}:query`;
+        
+        return `gcloud services content-security add \\
+  "${resourceUrl}" \\
+  modelarmor.googleapis.com \\
+  --project="${config.projectId}"`;
+    };
+
+
     return (
         <>
-            <JsonDetailsModal
-                isOpen={isJsonModalOpen}
-                onClose={() => setIsJsonModalOpen(false)}
-                data={fullEngine || engine} 
+            <ModelArmorModal 
+                isOpen={isModelArmorModalOpen} 
+                onClose={() => setIsModelArmorModalOpen(false)} 
+                command={getModelArmorCommand()} 
             />
 
             {sessionToDelete && (
@@ -149,15 +177,7 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({ engine, usingAgents, onBa
                         </h2>
                         <p className="text-gray-400 mt-1 font-mono">{engineId}</p>
                     </div>
-                    <div className="flex gap-2">
-                        <button
-                            onClick={() => setIsJsonModalOpen(true)}
-                            className="text-blue-400 hover:text-blue-300 text-sm font-semibold px-3 py-1 bg-blue-900/30 rounded border border-blue-800/50 hover:bg-blue-900/50 transition-colors"
-                        >
-                            JSON Details
-                        </button>
-                        <button onClick={onBack} className="text-gray-400 hover:text-white px-3 py-1">&larr; Back to list</button>
-                    </div>
+                    <button onClick={onBack} className="text-gray-400 hover:text-white">&larr; Back to list</button>
                 </div>
                 
                 <div className="mt-4 border-b border-gray-700">
@@ -279,6 +299,27 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({ engine, usingAgents, onBa
                                 )}
                             </>
                         )}
+                    </div>
+                </div>
+
+                <div className="mt-6 border-t border-gray-700 pt-6">
+                    <h3 className="text-lg font-semibold text-white">Content Security</h3>
+                    <div className="mt-4 bg-gray-900/50 p-4 rounded-lg border border-gray-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <div>
+                            <h4 className="font-medium text-blue-400 flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                                Model Armor
+                            </h4>
+                            <p className="text-sm text-gray-400 mt-1">Protect your engine with content safety filters by registering it with Model Armor.</p>
+                        </div>
+                        <button 
+                            onClick={() => setIsModelArmorModalOpen(true)} 
+                            className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 whitespace-nowrap shrink-0"
+                        >
+                            Enable via CLI
+                        </button>
                     </div>
                 </div>
 

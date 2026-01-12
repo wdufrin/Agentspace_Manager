@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import ProjectInput from '../components/ProjectInput';
 import Spinner from '../components/Spinner';
@@ -9,20 +10,16 @@ interface AgentCatalogPageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
   accessToken: string;
-    onBuildTriggered: (buildId: string, name?: string) => void;
+  onBuildTriggered: (buildId: string) => void;
 }
 
-interface CatalogAgent {
+interface GitAgentDir {
     name: string;
-    // For GitHub:
-    html_url?: string;
-    url?: string; // api url
-    // For Local:
-    dirHandle?: any; // FileSystemDirectoryHandle
-    // Common:
-    source: 'github' | 'local';
+    path: string;
+    html_url: string;
+    url: string; // api url
+    type: 'dir' | 'file';
     metadata?: Record<string, string>;
-    readmeContent?: string;
 }
 
 const extractMetadataFromReadme = (readme: string): Record<string, string> => {
@@ -77,10 +74,11 @@ const TagBubble: React.FC<{ label: string; value: string; colorClass?: string }>
     </span>
 );
 
-const AgentCard: React.FC<{
-    agent: CatalogAgent;
-    onSelect: (agent: CatalogAgent) => void;
-}> = ({ agent, onSelect }) => {
+const GitAgentCard: React.FC<{ 
+    agent: GitAgentDir; 
+    onSelect: (agent: GitAgentDir) => void;
+    isLoading: boolean;
+}> = ({ agent, onSelect, isLoading }) => {
     const meta = agent.metadata || {};
     
     // Prioritize specific fields for display
@@ -100,17 +98,10 @@ const AgentCard: React.FC<{
             className="bg-gray-800 rounded-lg p-5 border border-gray-700 hover:border-teal-500 hover:bg-gray-750 transition-all cursor-pointer shadow-lg flex flex-col h-full group"
         >
             <div className="flex items-start justify-between mb-4">
-                <div className="p-2 bg-gray-700 rounded-full group-hover:bg-gray-600 transition-colors relative">
+                <div className="p-2 bg-gray-700 rounded-full group-hover:bg-gray-600 transition-colors">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-teal-400" viewBox="0 0 24 24" fill="currentColor">
                         <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.604 9.604 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
                     </svg>
-                    {agent.source === 'local' && (
-                        <div className="absolute -bottom-1 -right-1 bg-blue-600 rounded-full p-0.5 border border-gray-900" title="Local Agent">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                            </svg>
-                        </div>
-                    )}
                 </div>
                 {/* Metadata Tags Row */}
                 <div className="flex flex-wrap gap-1 justify-end max-w-[65%]">
@@ -127,12 +118,17 @@ const AgentCard: React.FC<{
             
             <h3 className="text-lg font-bold text-white mb-2 break-all">{agent.name}</h3>
             <p className="text-sm text-gray-400 mb-4 flex-grow line-clamp-3">
-                {agent.metadata?.['Description'] || (agent.source === 'local' ? "Local agent loaded from filesystem." : "Python agent sample from GitHub. Click to view architecture and deploy.")}
+                {agent.metadata?.['Description'] || "Python agent sample from GitHub. Click to view architecture and deploy."}
             </p>
             
             <div className="mt-auto pt-4 border-t border-gray-700 flex justify-between items-center gap-2">
                 <span className="text-xs text-blue-400 flex items-center">
-                    Click to View
+                    {isLoading ? (
+                        <>
+                            <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-blue-400 mr-2"></div>
+                            Loading Files...
+                        </>
+                    ) : 'Click to Inspect & Deploy'}
                 </span>
                 {interactionType && (
                     <span className="text-[10px] text-gray-500 font-mono">
@@ -164,16 +160,12 @@ const FilterDropdown: React.FC<{
 );
 
 const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setProjectNumber, onBuildTriggered }) => {
-    // Catalog State
+  // Git Catalog State
   const [gitRepoUrl, setGitRepoUrl] = useState('https://github.com/google/adk-samples/tree/main/python/agents');
-    const [agents, setAgents] = useState<CatalogAgent[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-
-    // Loading state for file fetching
-    const [isFetchingFiles, setIsFetchingFiles] = useState<boolean>(false);
-    const [fetchStatus, setFetchStatus] = useState<string>('');
-
+  const [gitAgents, setGitAgents] = useState<GitAgentDir[]>([]);
+  const [isLoadingGit, setIsLoadingGit] = useState(false);
+  const [gitError, setGitError] = useState<string | null>(null);
+  const [loadingAgentFiles, setLoadingAgentFiles] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   
   // Filter States
@@ -184,103 +176,20 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
   
   // Deploy Modal State
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
-    const [selectedAgent, setSelectedAgent] = useState<CatalogAgent | null>(null);
-    const [selectedAgentFiles, setSelectedAgentFiles] = useState<{ name: string, content: string }[]>([]);
+  const [selectedGitAgentName, setSelectedGitAgentName] = useState<string>('');
+  const [selectedGitFiles, setSelectedGitFiles] = useState<{name: string, content: string}[]>([]);
 
-    const handleBuildTriggered = (buildId: string, name?: string) => {
-        onBuildTriggered(buildId, name); // Notify parent
+  const handleBuildTriggered = (buildId: string) => {
+      onBuildTriggered(buildId); // Notify parent
       setIsDeployModalOpen(false); // Close modal
   };
 
-    // --- Local Folder Logic ---
-    const handleLoadLocalAgents = async () => {
-        setIsLoading(true);
-        setError(null);
-        setAgents([]);
-
-        try {
-            // @ts-ignore - File System Access API
-            const dirHandle = await window.showDirectoryPicker();
-
-            const localAgents: CatalogAgent[] = [];
-
-            // Iterate through valid subdirectories
-            // @ts-ignore
-            for await (const entry of dirHandle.values()) {
-                if (entry.kind === 'directory') {
-                    // Check if this directory looks like an agent or contains a README
-                    // We'll treat every subdirectory as a potential agent
-                    let metadata: Record<string, string> = {};
-                    let readmeContent = '';
-
-                    try {
-                        const readmeHandle = await entry.getFileHandle('README.md');
-                        const file = await readmeHandle.getFile();
-                        readmeContent = await file.text();
-                        metadata = extractMetadataFromReadme(readmeContent);
-                    } catch (e) {
-                        // No README or error reading it, ignore metadata but still list agent
-                    }
-
-                    localAgents.push({
-                        name: entry.name,
-                        source: 'local',
-                        dirHandle: entry,
-                        metadata,
-                        readmeContent
-                    });
-                }
-            }
-
-            if (localAgents.length === 0) {
-                setError("No folders found in the selected directory.");
-            } else {
-                setAgents(localAgents);
-            }
-
-        } catch (err: any) {
-            if (err.name !== 'AbortError') {
-                setError(`Failed to load local agents: ${err.message} `);
-            }
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const getLocalFilesRecursive = async (dirHandle: any, prefix: string = ''): Promise<{ name: string, content: string }[]> => {
-        let results: { name: string, content: string }[] = [];
-        // @ts-ignore
-        for await (const entry of dirHandle.values()) {
-            const path = prefix ? `${prefix}/${entry.name}` : entry.name;
-            if (entry.kind === 'file') {
-                // Skip hidden files or large binaries if needed
-                if (!entry.name.startsWith('.')) {
-                    try {
-                        setFetchStatus(`Reading ${path}...`);
-                        const file = await entry.getFile();
-                        // Basic text check or try/catch
-                        const text = await file.text();
-                        results.push({ name: path, content: text });
-                    } catch (e) {
-                        console.warn(`Skipping binary or unreadable file: ${path}`);
-                    }
-                }
-            } else if (entry.kind === 'directory') {
-                if (!entry.name.startsWith('.') && entry.name !== '__pycache__' && entry.name !== 'venv' && entry.name !== 'node_modules') {
-                    const subResults = await getLocalFilesRecursive(entry, path);
-                    results = [...results, ...subResults];
-                }
-            }
-        }
-        return results;
-    };
-
-    // --- GitHub Logic ---
+  // --- Git Catalog Logic ---
   const fetchGitAgents = useCallback(async () => {
       if (!gitRepoUrl) return;
-      setIsLoading(true);
-      setError(null);
-      setAgents([]);
+      setIsLoadingGit(true);
+      setGitError(null);
+      setGitAgents([]);
 
       try {
           // Parse URL: https://github.com/OWNER/REPO/tree/BRANCH/PATH
@@ -305,56 +214,47 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
           
           const data = await response.json();
           if (Array.isArray(data)) {
-              const dirs: CatalogAgent[] = data.filter((item: any) => item.type === 'dir').map((item: any) => ({
-                  name: item.name,
-                  source: 'github',
-                  html_url: item.html_url,
-                  url: item.url,
-                  metadata: {}
-              }));
+              const dirs: GitAgentDir[] = data.filter((item: any) => item.type === 'dir');
               
               // 2. Fetch README for each directory to extract metadata
               // Using raw.githubusercontent.com to avoid API rate limits for content
-              const enrichedDirs = await Promise.all(dirs.map(async (agent) => {
+              const enrichedDirs = await Promise.all(dirs.map(async (dir) => {
                   try {
                       // Construct raw URL: https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}/${dir.name}/README.md
-                      const readmeUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}/${agent.name}/README.md`;
+                      const readmeUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}/${dir.name}/README.md`;
                       const readmeRes = await fetch(readmeUrl);
                       if (readmeRes.ok) {
                           const text = await readmeRes.text();
                           const metadata = extractMetadataFromReadme(text);
-                          return { ...agent, metadata, readmeContent: text };
+                          return { ...dir, metadata };
                       }
                   } catch (e) {
-                      console.warn(`Failed to fetch README for ${agent.name}`, e);
+                      console.warn(`Failed to fetch README for ${dir.name}`, e);
                   }
-                  return agent;
+                  return dir;
               }));
 
-              setAgents(enrichedDirs);
+              setGitAgents(enrichedDirs);
               if (enrichedDirs.length === 0) {
-                  setError("No agent directories found at this location.");
+                  setGitError("No agent directories found at this location.");
               }
           } else {
-              setError("Path does not point to a directory.");
+              setGitError("Path does not point to a directory.");
           }
 
       } catch (err: any) {
-          setError(err.message || "Failed to fetch from GitHub.");
+          setGitError(err.message || "Failed to fetch from GitHub.");
       } finally {
-          setIsLoading(false);
+          setIsLoadingGit(false);
       }
   }, [gitRepoUrl]);
 
-    // Initial fetch for GitHub default
+  // Initial fetch
   useEffect(() => {
-      // Only auto-fetch if we have a URL and empty list, and NOT if we intentionally cleared it or set up local
-      // For now, let's just trigger it once on mount if meaningful
-      if (agents.length === 0 && gitRepoUrl.includes('github.com')) {
+      if (gitAgents.length === 0) {
           fetchGitAgents();
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run once
+  }, [fetchGitAgents, gitAgents.length]);
 
   const fetchRepoContents = async (url: string, prefix: string = '', depth: number = 0): Promise<{name: string, content: string}[]> => {
       if (depth > 5) return [];
@@ -369,7 +269,7 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
 
       for (const item of items) {
           if (item.type === 'file' && item.download_url) {
-              setFetchStatus(`Fetching ${prefix}${item.name}`);
+              setLoadingAgentFiles(`Fetching ${prefix}${item.name}`);
               const fileRes = await fetch(item.download_url);
               if (fileRes.ok) {
                   const content = await fileRes.text();
@@ -385,46 +285,26 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
       return results;
   };
 
-    const loadFilesForAgent = async (agent: CatalogAgent) => {
-        setIsFetchingFiles(true);
-        setFetchStatus('Starting download...');
-
+  const handleSelectGitAgent = async (agent: GitAgentDir) => {
+      setLoadingAgentFiles(agent.name);
       try {
-          let loadedFiles: { name: string, content: string }[] = [];
-          if (agent.source === 'local' && agent.dirHandle) {
-              loadedFiles = await getLocalFilesRecursive(agent.dirHandle);
-          } else if (agent.source === 'github' && agent.url) {
-              loadedFiles = await fetchRepoContents(agent.url);
-          }
+          const loadedFiles = await fetchRepoContents(agent.url);
           
           if (loadedFiles.length === 0) {
-              alert("No readable files found in this agent directory.");
-          } else {
-              setSelectedAgentFiles(loadedFiles);
+              throw new Error("No readable files found in this agent directory or its subdirectories.");
           }
-        } catch (err: any) {
-            alert(`Failed to load files: ${err.message}`);
-            console.error("Agent file load error details:", err);
-        } finally {
-            setIsFetchingFiles(false);
-            setFetchStatus('');
-        }
-    };
 
-    const handleSelectAgent = (agent: CatalogAgent) => {
-        // Just open modal with agent info
-        setSelectedAgent(agent);
-        setSelectedAgentFiles([]); // Start empty
-        setIsDeployModalOpen(true);
+          setSelectedGitFiles(loadedFiles);
+          setSelectedGitAgentName(agent.name);
+          setIsDeployModalOpen(true);
 
-        // Auto-load for all agents
-        loadFilesForAgent(agent);
-    };
-
-    const handleLoadFiles = async () => {
-        if (!selectedAgent) return;
-        await loadFilesForAgent(selectedAgent);
-    };
+      } catch (err: any) {
+          alert(`Failed to load agent files: ${err.message}`);
+          console.error("Agent load error details:", err);
+      } finally {
+          setLoadingAgentFiles(null);
+      }
+  };
 
   // Derive unique filter options
   const filterOptions = useMemo(() => {
@@ -433,7 +313,7 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
       const types = new Set<string>();
       const interactionTypes = new Set<string>();
 
-      agents.forEach(agent => {
+      gitAgents.forEach(agent => {
           if (agent.metadata?.['Vertical']) verticals.add(agent.metadata['Vertical']);
           if (agent.metadata?.['Complexity']) complexities.add(agent.metadata['Complexity']);
           if (agent.metadata?.['Agent Type']) types.add(agent.metadata['Agent Type']);
@@ -446,10 +326,10 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
           types: Array.from(types).sort(),
           interactionTypes: Array.from(interactionTypes).sort(),
       };
-  }, [agents]);
+  }, [gitAgents]);
 
-    const filteredAgents = useMemo(() => {
-        let filtered = agents;
+  const filteredGitAgents = useMemo(() => {
+      let filtered = gitAgents;
 
       if (searchTerm) {
           const lowerTerm = searchTerm.toLowerCase();
@@ -469,7 +349,7 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
       }
 
       return filtered;
-    }, [agents, searchTerm, filterVertical, filterComplexity, filterAgentType, filterInteractionType]);
+  }, [gitAgents, searchTerm, filterVertical, filterComplexity, filterAgentType, filterInteractionType]);
 
 
   return (
@@ -479,13 +359,10 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
             <AgentDeploymentModal
                 isOpen={isDeployModalOpen}
                 onClose={() => setIsDeployModalOpen(false)}
-                  agentName={selectedAgent?.name || ''}
-                  files={selectedAgentFiles}
+                agentName={selectedGitAgentName}
+                files={selectedGitFiles}
                 projectNumber={projectNumber}
                 onBuildTriggered={handleBuildTriggered}
-                  readmeContent={selectedAgent?.readmeContent}
-                  onLoadFiles={handleLoadFiles}
-                  isFetchingFiles={isFetchingFiles}
             />
         )}
 
@@ -501,7 +378,7 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
                     <ProjectInput value={projectNumber} onChange={setProjectNumber} />
                 </div>
                 <div>
-                          <label htmlFor="gitRepoUrl" className="block text-sm font-medium text-gray-400 mb-1">Source (GitHub or Local)</label>
+                    <label htmlFor="gitRepoUrl" className="block text-sm font-medium text-gray-400 mb-1">GitHub Folder URL</label>
                     <div className="flex gap-2">
                         <input 
                             type="text" 
@@ -513,29 +390,17 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
                         />
                         <button 
                             onClick={fetchGitAgents} 
-                                  disabled={isLoading}
-                                  className="px-4 py-2 bg-teal-600 text-white text-sm font-semibold rounded-md hover:bg-teal-700 disabled:bg-gray-600 h-[42px] min-w-[80px]"
+                            disabled={isLoadingGit}
+                            className="px-4 py-2 bg-teal-600 text-white text-sm font-semibold rounded-md hover:bg-teal-700 disabled:bg-gray-600 h-[42px] min-w-[100px]"
                         >
-                                  Fetch
-                              </button>
-                              <div className="w-px bg-gray-600 mx-1"></div>
-                              <button
-                                  onClick={handleLoadLocalAgents}
-                                  disabled={isLoading}
-                                  className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-600 h-[42px] whitespace-nowrap flex items-center gap-2"
-                                  title="Select a local folder containing agent subdirectories"
-                              >
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                      <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
-                                  </svg>
-                                  Local Folder
+                            {isLoadingGit ? 'Fetching...' : 'Fetch'}
                         </button>
                     </div>
                 </div>
             </div>
             
             {/* Filters */}
-                  {agents.length > 0 && (
+            {gitAgents.length > 0 && (
                 <div className="flex gap-4 flex-wrap bg-gray-700/30 p-2 rounded-lg border border-gray-700">
                     <FilterDropdown label="Vertical" options={filterOptions.verticals} value={filterVertical} onChange={setFilterVertical} />
                     <FilterDropdown label="Complexity" options={filterOptions.complexities} value={filterComplexity} onChange={setFilterComplexity} />
@@ -567,26 +432,27 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
-              {/* Catalog View */}
-              {isLoading ? (
+        {/* Git Catalog View */}
+        {isLoadingGit ? (
             <Spinner />
-              ) : error ? (
-                  <div className="text-center text-red-400 p-8 bg-gray-800 rounded-lg">{error}</div>
-              ) : filteredAgents.length === 0 ? (
+        ) : gitError ? (
+            <div className="text-center text-red-400 p-8 bg-gray-800 rounded-lg">{gitError}</div>
+        ) : filteredGitAgents.length === 0 ? (
             <div className="text-center text-gray-500 p-12 bg-gray-800 rounded-lg border border-gray-700 border-dashed">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-4 text-gray-600" viewBox="0 0 24 24" fill="currentColor">
                     <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.604 9.604 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
                 </svg>
                 <h3 className="text-lg font-medium text-gray-300">No Samples Found</h3>
-                              <p className="mt-1">Check the URL or select a local folder.</p>
+                <p className="mt-1">Check the URL or try a different filter.</p>
             </div>
         ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-6">
-                                  {filteredAgents.map(agent => (
-                                      <AgentCard 
+                {filteredGitAgents.map(agent => (
+                    <GitAgentCard 
                         key={agent.name} 
                         agent={agent} 
-                                          onSelect={handleSelectAgent}
+                        onSelect={handleSelectGitAgent}
+                        isLoading={loadingAgentFiles === agent.name || (typeof loadingAgentFiles === 'string' && loadingAgentFiles.startsWith('Fetching ' + agent.name))}
                     />
                 ))}
             </div>

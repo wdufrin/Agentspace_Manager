@@ -1,4 +1,5 @@
 
+// ... existing imports
 import React, { useState, useEffect, useMemo } from 'react';
 import * as api from '../../services/apiService';
 import { GcsBucket } from '../../types';
@@ -11,16 +12,13 @@ interface AgentDeploymentModalProps {
     agentName: string;
     files: { name: string; content: string }[];
     projectNumber: string;
-    onBuildTriggered?: (buildId: string, name?: string) => void;
-    readmeContent?: string;
-    onLoadFiles?: () => void;
-    isFetchingFiles?: boolean;
+    onBuildTriggered?: (buildId: string) => void;
 }
 
 interface EnvVar {
     key: string;
     value: string;
-    source: 'code' | '.env.example';
+    source: 'code' | '.env.example' | '.env';
     description?: string;
     placeholder?: string;
 }
@@ -28,12 +26,12 @@ interface EnvVar {
 const NodeIcon: React.FC<{ type: string }> = ({ type }) => {
     switch (type) {
         case 'agent': return <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-pink-400" viewBox="0 0 20 20" fill="currentColor"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" /></svg>;
-        case 'tool': return <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-400" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.532 1.532 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.532 1.532 0 01-.947-2.287c1.561-.379-1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" /></svg>;
+        case 'tool': return <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-400" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.532 1.532 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.532 1.532 0 01-.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" /></svg>;
         default: return <div className="h-4 w-4 bg-gray-500 rounded-full"></div>;
     }
 }
 
-const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onClose, agentName, files, projectNumber, onBuildTriggered, readmeContent: initialReadme, onLoadFiles, isFetchingFiles }) => {
+const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onClose, agentName, files, projectNumber, onBuildTriggered }) => {
     const [envVars, setEnvVars] = useState<EnvVar[]>([]);
     const [target, setTarget] = useState<'cloud_run' | 'reasoning_engine'>('reasoning_engine');
     const [region, setRegion] = useState('us-central1');
@@ -97,19 +95,13 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
         // 2. Parse Files
         const readme = files.find(f => f.name.toLowerCase() === 'readme.md' || f.name.toLowerCase().endsWith('/readme.md'))?.content || '';
         const envExample = files.find(f => f.name === '.env.example' || f.name.endsWith('/.env.example'))?.content || '';
+        const envFile = files.find(f => f.name === '.env' || f.name.endsWith('/.env'))?.content || '';
         const hasDockerfile = files.some(f => f.name === 'Dockerfile');
         const isA2a = files.some(f => f.content.includes('to_a2a('));
 
         // Set Readme
-        const effectiveReadme = readme || initialReadme || '';
-        setReadmeContent(effectiveReadme);
-        if (effectiveReadme) setLeftTab('docs');
-
-        // If no files and we have a callback, default to docs (already done) or show empty state
-        if (files.length === 0) {
-            setTarget('reasoning_engine'); // Default
-            return; // consistent return to avoid running file matching logic on empty list
-        }
+        setReadmeContent(readme);
+        if (readme) setLeftTab('docs');
 
         // Determine Default Target
         if (hasDockerfile || isA2a) {
@@ -148,8 +140,6 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
             }
             
             // Detect Entry Point Variable
-            // Look for patterns like: var = Class(...) or var = to_a2a(...)
-            // Prefer root_agent if available
             if (mainFileContent.includes('root_agent =')) {
                 setEntryPoint('root_agent');
             } else {
@@ -175,7 +165,6 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
         if (mainFileContent.includes('GoogleSearch')) detectedTools.add('Google Search');
         if (mainFileContent.includes('VertexAiSearchTool')) detectedTools.add('Vertex AI Search');
         if (mainFileContent.includes('LangchainTool')) detectedTools.add('Langchain Tool');
-        if (mainFileContent.includes('to_a2a')) detectedTools.add('A2A Interface');
         
         const toolsMatch = mainFileContent.match(/tools\s*=\s*\[(.*?)\]/s);
         if (toolsMatch && toolsMatch[1]) {
@@ -189,27 +178,39 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
         }
         setTools(Array.from(detectedTools));
 
-        // Extract Env Vars from .env.example
+        // Extract Env Vars
         const varsMap = new Map<string, EnvVar>();
         
-        if (envExample) {
-            const lines = envExample.split('\n');
+        // Helper to parse env file content
+        const parseEnvContent = (content: string, source: '.env.example' | '.env') => {
+            const lines = content.split('\n');
             for (const line of lines) {
                 const trimmed = line.trim();
                 if (!trimmed || trimmed.startsWith('#')) continue;
                 // Supports KEY=value or KEY="value"
                 const parts = trimmed.split('=');
                 const key = parts[0].trim();
-                const placeholder = parts.length > 1 ? parts.slice(1).join('=').trim().replace(/^"|"$/g, '') : '';
+                const val = parts.length > 1 ? parts.slice(1).join('=').trim().replace(/^"|"$/g, '') : '';
                 
-                varsMap.set(key, {
-                    key,
-                    value: '',
-                    source: '.env.example',
-                    placeholder: placeholder
-                });
+                if (varsMap.has(key)) {
+                    // Update existing key if we have a better value (e.g. from .env overriding .env.example)
+                    const existing = varsMap.get(key)!;
+                    if (source === '.env' && val) {
+                        varsMap.set(key, { ...existing, value: val, source: '.env' });
+                    }
+                } else {
+                    varsMap.set(key, {
+                        key,
+                        value: val,
+                        source: source,
+                        placeholder: val
+                    });
+                }
             }
-        }
+        };
+
+        if (envExample) parseEnvContent(envExample, '.env.example');
+        if (envFile) parseEnvContent(envFile, '.env');
 
         // Extract Env Vars from code (fallback/addition)
         const regex = /os\.getenv\s*\(\s*["']([^"']+)["']/g;
@@ -289,6 +290,7 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
     };
 
     // Update Env Vars when projectId, region, or selectedBucket changes
+    // IMPORTANT: Only overwrite if value is empty/default, do not overwrite user custom values from .env
     useEffect(() => {
         setEnvVars(prev => prev.map(v => {
             if (v.key === 'GOOGLE_CLOUD_PROJECT') return { ...v, value: projectId };
@@ -554,8 +556,16 @@ target_object = "${entryPoint}"
 logger.info(f"Importing agent '{target_object}' from '{target_module}'...")
 try:
     module = __import__(target_module, fromlist=[target_object])
-    root_agent = getattr(module, target_object)
-    logger.info("Agent imported successfully.")
+    # Determine what was imported (Agent or App)
+    if hasattr(module, 'app'):
+        app_obj = module.app
+        logger.info("Found 'app' object in module.")
+    elif hasattr(module, target_object):
+        app_obj = getattr(module, target_object)
+        logger.info(f"Found '{target_object}' object in module.")
+    else:
+        raise ImportError(f"Could not find '{target_object}' or 'app' in {target_module}")
+
 except Exception as e:
     logger.error(f"Failed to import agent: {e}")
     raise
@@ -570,35 +580,35 @@ if os.path.exists("requirements.txt"):
 reqs = list(set(reqs))
 logger.info(f"Using requirements: {reqs}")
 
-# Environment variables to forward to the deployed agent
-# We filter out GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION as they are reserved by the platform
-env_vars = ${JSON.stringify(envVars.filter(e => !['GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION'].includes(e.key)).map(e => e.key))}
-
 try:
     from vertexai import agent_engines
-    if hasattr(root_agent, 'register_operations'):
-        app = root_agent
+    
+    # Check if app_obj is already an AdkApp-compatible object or needs wrapping
+    if isinstance(app_obj, agent_engines.AdkApp):
+         app_to_deploy = app_obj
     else:
-        app = agent_engines.AdkApp(agent=root_agent, enable_tracing=True)
+         # Wrap it. app_obj can be Agent or App.
+         app_to_deploy = agent_engines.AdkApp(agent=app_obj, enable_tracing=True)
 
     logger.info("Creating Agent Engine...")
     remote_app = agent_engines.create(
-        agent_engine=app,
+        agent_engine=app_to_deploy,
         requirements=reqs,
-        display_name="${agentName}",
-        env_vars=env_vars
+        display_name="${agentName}"
     )
 
 except ImportError:
     logger.warning("Fallback to preview namespace.")
     from vertexai.preview import reasoning_engines
-    if hasattr(root_agent, 'register_operations'):
-        app = root_agent
+    
+    # Similar check for preview namespace
+    if isinstance(app_obj, reasoning_engines.AdkApp):
+         app_to_deploy = app_obj
     else:
-        app = reasoning_engines.AdkApp(agent=root_agent)
+         app_to_deploy = reasoning_engines.AdkApp(agent=app_obj)
 
     remote_app = reasoning_engines.ReasoningEngine.create(
-        app,
+        app_to_deploy,
         requirements=reqs,
         display_name="${agentName}",
     )
@@ -678,7 +688,7 @@ print(f"Resource Name: {remote_app.resource_name}")
             setBuildId(triggeredBuildId);
             
             if (onBuildTriggered && triggeredBuildId !== 'unknown') {
-                onBuildTriggered(triggeredBuildId, agentName);
+                onBuildTriggered(triggeredBuildId);
             }
 
             addLog(`Build triggered! ID: ${triggeredBuildId}`);
@@ -758,34 +768,6 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                                         <p>No README.md found in this agent package.</p>
                                     </div>
                                 )
-                            ) : files.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-gray-900/50 rounded-lg border border-dashed border-gray-700 mt-10">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                    </svg>
-                                    <h3 className="text-lg font-medium text-white mb-2">Source Code Required</h3>
-                                    <p className="text-sm text-gray-400 mb-6 max-w-xs">
-                                        To view architecture or configure deployment, the full source code must be loaded.
-                                    </p>
-                                    {onLoadFiles ? (
-                                        <button
-                                            onClick={onLoadFiles}
-                                            disabled={isFetchingFiles}
-                                            className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-md shadow flex items-center gap-2"
-                                        >
-                                            {isFetchingFiles ? (
-                                                <>
-                                                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
-                                                    Loading Files...
-                                                </>
-                                            ) : (
-                                                'Load Source Code'
-                                            )}
-                                        </button>
-                                    ) : (
-                                        <p className="text-red-400 text-sm">File loader unavailable.</p>
-                                    )}
-                                </div>
                             ) : leftTab === 'architecture' ? (
                                 <div className="flex flex-col items-center space-y-6">
                                     {/* Agent Node */}
@@ -917,7 +899,7 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                                 <h3 className="text-lg font-medium text-white mb-3 flex items-center">
                                     2. Configuration Variables
                                     <span className="ml-2 text-xs font-normal text-gray-400 bg-gray-700 px-2 py-0.5 rounded-full">
-                                        Parsed from .env.example & {entryModulePath}.py
+                                        Parsed from .env & .env.example & {entryModulePath}.py
                                     </span>
                                 </h3>
                                 <div className="space-y-3">
@@ -926,7 +908,8 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                                             <label className="block text-xs font-medium text-gray-400 mb-1 flex justify-between">
                                                 <span>{v.key}</span>
                                                 <span className="flex items-center gap-2">
-                                                    {v.source === '.env.example' && <span className="text-[10px] bg-green-900 text-green-200 px-1.5 rounded">.env</span>}
+                                                    {v.source === '.env' && <span className="text-[10px] bg-green-900 text-green-200 px-1.5 rounded">.env</span>}
+                                                    {v.source === '.env.example' && <span className="text-[10px] bg-yellow-900 text-yellow-200 px-1.5 rounded">example</span>}
                                                     {v.source === 'code' && <span className="text-[10px] bg-gray-700 text-gray-300 px-1.5 rounded">code</span>}
                                                 </span>
                                             </label>

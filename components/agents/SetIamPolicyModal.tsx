@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Agent, Config } from '../../types';
 import * as api from '../../services/apiService';
@@ -115,10 +116,8 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
             finalPolicy.version = 3;
         } else if (finalPolicy.version === 3) {
             // If we remove the last condition, we should still submit with v3 to correctly process the removal.
-            // GCP will handle downgrading the policy version if no conditions remain.
             finalPolicy.version = 3;
         } else {
-            // It was a v1 policy and remains a v1 policy
             delete finalPolicy.version; 
         }
         
@@ -135,7 +134,7 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4" aria-modal="true" role="dialog">
-      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col border border-gray-700">
         <form onSubmit={handleSubmit} className="flex flex-col h-full">
             <header className="p-4 border-b border-gray-700">
               <h2 className="text-xl font-bold text-white">Edit IAM Policy for Agent</h2>
@@ -143,6 +142,17 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
             </header>
 
             <main className="p-6 space-y-4 overflow-y-auto flex-1">
+              <div className="bg-blue-900/20 border border-blue-800 p-3 rounded-md text-xs text-blue-300 mb-4">
+                  <p className="font-bold mb-1 uppercase tracking-wider">Supported Principal Formats:</p>
+                  <ul className="list-disc list-inside space-y-1">
+                      <li><strong>Users:</strong> <code>user:someone@example.com</code></li>
+                      <li><strong>Groups:</strong> <code>group:admins@example.com</code></li>
+                      <li><strong>Service Accounts:</strong> <code>serviceAccount:my-sa@project.iam.gserviceaccount.com</code></li>
+                      <li><strong>WIF Principals:</strong> <code>principal://iam.googleapis.com/projects/NUM/locations/global/workloadIdentityPools/POOL/subject/SUB</code></li>
+                      <li><strong>WIF Groups/Sets:</strong> <code>principalSet://iam.googleapis.com/projects/NUM/locations/global/workloadIdentityPools/POOL/group/GRP</code></li>
+                  </ul>
+              </div>
+
               {editablePolicy.bindings.map((binding: any, index: number) => (
                 <div key={index} className="bg-gray-900/50 p-4 rounded-lg border border-gray-700 space-y-4">
                   <div className="flex justify-between items-center">
@@ -152,7 +162,7 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
 
                   <div>
                     <label className="block text-sm font-medium text-gray-400">Role</label>
-                    <input type="text" value={binding.role} onChange={(e) => handleBindingChange(index, 'role', e.target.value)} placeholder="e.g., roles/discoveryengine.agentUser" className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm p-2" />
+                    <input type="text" value={binding.role} onChange={(e) => handleBindingChange(index, 'role', e.target.value)} placeholder="e.g., roles/discoveryengine.agentUser" className="mt-1 w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm p-2 text-white" />
                   </div>
 
                   <div>
@@ -161,8 +171,8 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
                       {binding.members.length > 0 ? (
                         binding.members.map((member: string, memberIndex: number) => (
                           <div key={memberIndex} className="flex justify-between items-center text-sm bg-gray-700 px-3 py-1.5 rounded-md">
-                            <span className="font-mono text-gray-300">{member}</span>
-                            <button type="button" onClick={() => handleRemoveMember(index, memberIndex)} className="p-1 text-gray-400 hover:text-white hover:bg-red-500 rounded-full" aria-label={`Remove ${member}`}>
+                            <span className="font-mono text-gray-300 truncate mr-4">{member}</span>
+                            <button type="button" onClick={() => handleRemoveMember(index, memberIndex)} className="p-1 text-gray-400 hover:text-white hover:bg-red-500 rounded-full shrink-0" aria-label={`Remove ${member}`}>
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"/></svg>
                             </button>
                           </div>
@@ -170,7 +180,13 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
                       ) : ( <p className="text-xs text-gray-500 italic">No members assigned.</p> )}
                     </div>
                     <div className="mt-3 flex items-center gap-2">
-                      <input type="text" placeholder="user:new@example.com, group:..." value={newMemberInputs[index] || ''} onChange={(e) => setNewMemberInputs(prev => ({...prev, [index]: e.target.value}))} className="flex-grow bg-gray-700 border-gray-600 rounded-md text-sm p-2" />
+                      <input 
+                        type="text" 
+                        placeholder="user:..., principal://..., principalSet://..." 
+                        value={newMemberInputs[index] || ''} 
+                        onChange={(e) => setNewMemberInputs(prev => ({...prev, [index]: e.target.value}))} 
+                        className="flex-grow bg-gray-700 border border-gray-600 rounded-md text-sm p-2 text-white" 
+                      />
                       <button type="button" onClick={() => handleAddMember(index)} disabled={!(newMemberInputs[index] || '').trim()} className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 disabled:bg-gray-500 shrink-0">Add Member</button>
                     </div>
                   </div>
@@ -181,9 +197,9 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
                        <button type="button" onClick={() => handleAddCondition(index)} className="mt-2 text-sm text-blue-400 hover:text-blue-300">+ Add Condition</button>
                     ) : (
                        <div className="mt-2 space-y-2 p-3 bg-gray-700/50 rounded-md">
-                           <input type="text" value={binding.condition.title} onChange={(e) => handleConditionChange(index, 'title', e.target.value)} placeholder="Title" className="w-full bg-gray-800 border-gray-600 rounded-md text-sm p-2" />
-                           <textarea value={binding.condition.description} onChange={(e) => handleConditionChange(index, 'description', e.target.value)} placeholder="Description" className="w-full bg-gray-800 border-gray-600 rounded-md text-sm p-2" rows={2} />
-                           <textarea value={binding.condition.expression} onChange={(e) => handleConditionChange(index, 'expression', e.target.value)} placeholder="CEL Expression, e.g., request.time < timestamp(...)" className="w-full bg-gray-800 border-gray-600 rounded-md text-sm p-2 font-mono" rows={3} />
+                           <input type="text" value={binding.condition.title} onChange={(e) => handleConditionChange(index, 'title', e.target.value)} placeholder="Title" className="w-full bg-gray-800 border-gray-600 rounded-md text-sm p-2 text-white" />
+                           <textarea value={binding.condition.description} onChange={(e) => handleConditionChange(index, 'description', e.target.value)} placeholder="Description" className="w-full bg-gray-800 border-gray-600 rounded-md text-sm p-2 text-white" rows={2} />
+                           <textarea value={binding.condition.expression} onChange={(e) => handleConditionChange(index, 'expression', e.target.value)} placeholder="CEL Expression, e.g., request.time < timestamp(...)" className="w-full bg-gray-800 border-gray-600 rounded-md text-sm p-2 font-mono text-white" rows={3} />
                            <button type="button" onClick={() => handleRemoveCondition(index)} className="text-xs text-red-400 hover:text-red-300">Remove Condition</button>
                        </div>
                     )}

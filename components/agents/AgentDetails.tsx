@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Agent, Config, DataStore } from '../../types';
 import * as api from '../../services/apiService';
@@ -33,6 +34,10 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
     const [policyError, setPolicyError] = useState<string | null>(null);
     const [isSetPolicyModalOpen, setIsSetPolicyModalOpen] = useState(false);
     const [policySuccess, setPolicySuccess] = useState<string | null>(null);
+    
+    // Sharing state
+    const [isSharing, setIsSharing] = useState(false);
+    const [shareError, setShareError] = useState<string | null>(null);
 
     // State for accessible data stores
     const [accessibleDataStores, setAccessibleDataStores] = useState<DataStore[] | null>(null);
@@ -60,6 +65,22 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
         }
     };
     
+    const handleShare = async () => {
+        setIsSharing(true);
+        setShareError(null);
+        try {
+            await api.shareAgent(agent.name, config);
+            // Refresh the page data by calling the back callback which usually triggers a list refresh or similar
+            // In a more complex app we might update the local agent state or call a refresh prop.
+            // For now, let's just go back to force a refresh of the list where this agent was selected.
+            onBack();
+        } catch (err: any) {
+            setShareError(err.message || 'Failed to share agent.');
+        } finally {
+            setIsSharing(false);
+        }
+    };
+
     const handleFetchAgentView = async () => {
         setIsFetchingView(true);
         setViewError(null);
@@ -151,6 +172,8 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
     const toolDescription = agent.adkAgentDefinition?.toolSettings?.toolDescription;
     
     let statusElement = null;
+    let isPrivate = false;
+
     if (agent.state === 'ENABLED' || agent.state === 'DISABLED') {
         const isEnabled = agent.state === 'ENABLED';
         const statusProps = {
@@ -179,6 +202,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
             </div>
         );
     } else {
+        isPrivate = true;
         statusElement = (
             <div className="py-2">
                 <dt className="text-sm font-medium text-gray-400">Status</dt>
@@ -230,6 +254,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
 
             {pageError && <p className="text-red-400 mt-4">{pageError}</p>}
             {deleteError && <p className="text-red-400 mt-4">{deleteError}</p>}
+            {shareError && <p className="text-red-400 mt-4">{shareError}</p>}
 
 
             <div className="mt-8 border-t border-gray-700 pt-6">
@@ -247,6 +272,23 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                                         className="px-5 py-2.5 bg-gray-600 text-white font-semibold rounded-md hover:bg-gray-700"
                                     >
                                         Update Agent
+                                    </button>
+                                )}
+                                {isPrivate && (
+                                    <button 
+                                        onClick={handleShare}
+                                        disabled={isSharing}
+                                        className="px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 disabled:bg-indigo-800 flex items-center gap-2"
+                                        title="Enable sharing for this private (no-code) agent"
+                                    >
+                                        {isSharing ? (
+                                             <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                                        ) : (
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                <path d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" />
+                                            </svg>
+                                        )}
+                                        Share Agent
                                     </button>
                                 )}
                                 {agent.a2aAgentDefinition?.jsonAgentCard && (
@@ -299,16 +341,14 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                 <div className="mt-6 border-t border-gray-700 pt-6">
                     <div className="flex items-center justify-between">
                         <h3 className="text-lg font-semibold text-white">IAM Policy</h3>
-                         {(agent.state === 'ENABLED' || agent.state === 'DISABLED') && (
-                            <button 
-                                onClick={() => setIsSetPolicyModalOpen(true)} 
-                                disabled={!iamPolicy || isFetchingPolicy} 
-                                className="px-3 py-1.5 text-xs bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 disabled:bg-indigo-800 disabled:cursor-not-allowed"
-                                title={!iamPolicy ? "Fetch the policy first to get the required ETag" : "Edit IAM Policy"}
-                            >
-                                Edit Policy
-                            </button>
-                         )}
+                        <button 
+                            onClick={() => setIsSetPolicyModalOpen(true)} 
+                            disabled={!iamPolicy || isFetchingPolicy} 
+                            className="px-3 py-1.5 text-xs bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 disabled:bg-indigo-800 disabled:cursor-not-allowed"
+                            title={!iamPolicy ? "Fetch the policy first to get the required ETag" : "Edit IAM Policy"}
+                        >
+                            Edit Policy
+                        </button>
                     </div>
                     {isFetchingPolicy && <Spinner />}
                     {policyError && <p className="text-red-400 mt-2">{policyError}</p>}

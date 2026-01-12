@@ -12,7 +12,7 @@ interface A2aDeployModalProps {
     serviceName: string;
     region: string;
     files: { name: string; content: string }[];
-    onBuildTriggered?: (buildId: string, name?: string) => void;
+    onBuildTriggered?: (buildId: string) => void;
 }
 
 const NodeIcon: React.FC<{ type: string }> = ({ type }) => {
@@ -204,7 +204,7 @@ This function is deployed using Google Cloud Build.
             const triggeredBuildId = buildOp.metadata?.build?.id || 'unknown';
             
             if (onBuildTriggered && triggeredBuildId !== 'unknown') {
-                onBuildTriggered(triggeredBuildId, serviceName);
+                onBuildTriggered(triggeredBuildId);
             }
 
             addLog(`Build triggered! ID: ${triggeredBuildId}`);

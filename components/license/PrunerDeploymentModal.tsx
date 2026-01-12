@@ -10,7 +10,7 @@ interface PrunerDeploymentModalProps {
   onClose: () => void;
   projectNumber: string;
   currentConfig: { appLocation: string; userStoreId: string; };
-    onBuildTriggered?: (buildId: string, name?: string) => void;
+  onBuildTriggered?: (buildId: string) => void;
 }
 
 const generateMainPy = (pruneDays: number, location: string, userStoreId: string) => `
@@ -541,7 +541,7 @@ const PrunerDeploymentModal: React.FC<PrunerDeploymentModalProps> = ({ isOpen, o
             const buildId = buildOp.metadata?.build?.id;
 
             if (onBuildTriggered && buildId) {
-                onBuildTriggered(buildId, 'License Pruner');
+                onBuildTriggered(buildId);
             }
             
             // Close modal after successful trigger

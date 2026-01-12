@@ -5,11 +5,10 @@ import * as api from '../../services/apiService';
 interface CloudBuildProgressProps {
     projectId: string;
     buildId: string;
-    displayName?: string;
     onClose?: () => void;
 }
 
-const CloudBuildProgress: React.FC<CloudBuildProgressProps> = ({ projectId, buildId, displayName, onClose }) => {
+const CloudBuildProgress: React.FC<CloudBuildProgressProps> = ({ projectId, buildId, onClose }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [status, setStatus] = useState<string>('QUEUED');
     const [logs, setLogs] = useState<string[]>([]);
@@ -95,14 +94,13 @@ const CloudBuildProgress: React.FC<CloudBuildProgressProps> = ({ projectId, buil
 
     if (isExpanded) {
         return (
-            <div className={`w-[600px] h-[400px] bg-gray-900 rounded-lg shadow-2xl border flex flex-col ${getBorderColor()}`}>
+            <div className={`fixed bottom-4 right-4 z-50 w-[600px] h-[400px] bg-gray-900 rounded-lg shadow-2xl border flex flex-col ${getBorderColor()}`}>
                 <div className="p-3 border-b border-gray-700 flex justify-between items-center bg-gray-800 rounded-t-lg">
                     <div className="flex items-center gap-2">
                         <span className={`font-bold ${getStatusColor()}`}>
                             {status}
                         </span>
-                        <span className="text-gray-200 font-semibold">{displayName || 'Cloud Build'}</span>
-                        <span className="text-xs text-gray-400 font-mono">({buildId.substring(0, 8)}...)</span>
+                        <span className="text-xs text-gray-400 font-mono">{buildId.substring(0, 8)}...</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <button onClick={() => setIsExpanded(false)} className="text-gray-400 hover:text-white" title="Minimize">
@@ -149,7 +147,7 @@ const CloudBuildProgress: React.FC<CloudBuildProgressProps> = ({ projectId, buil
                     </svg>
                 )}
                 <span className="text-sm font-medium text-white whitespace-nowrap">
-                    {displayName ? `${displayName}: ` : ''}{!isFinished ? 'Deploying...' : isSuccess ? 'Success' : 'Failed'}
+                    {!isFinished ? 'Deploying...' : isSuccess ? 'Success' : 'Failed'}
                 </span>
             </div>
             <button 

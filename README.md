@@ -19,10 +19,12 @@ It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates dir
     *   **Direct Query**: Test runtimes directly without going through the high-level Agent API.
 *   **Cloud Run Agents**: AI-powered analysis of Cloud Run services to detect if they are running agentic frameworks (LangChain, Genkit, etc.).
 *   **Dialogflow CX**: List and test Dialogflow CX agents within the same console.
+*   **MCP Servers**: Dedicated view for Model Context Protocol (MCP) servers deployed on Cloud Run.
 
 ### 🛠️ Builder & Catalog
 *   **Agent Builder**: A low-code tool to generate and deploy agents.
     *   **ADK Agents**: Generates Python code (`agent.py`, `requirements.txt`) for Vertex AI Reasoning Engines.
+        *   Supports **Google Search**, **Data Store**, **OAuth**, and **BigQuery** tools.
     *   **A2A Functions**: Generates Flask-based code for Cloud Run services implementing the A2A protocol.
     *   **Cloud Build Integration**: One-click deployment to Google Cloud.
 *   **Agent Catalog**: Browse sample agents from GitHub repositories and deploy them directly to your project.

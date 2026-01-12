@@ -274,6 +274,16 @@ export const enableAgent = async (name: string, config: Config) => {
     return getAgent(name, config);
 };
 
+export const shareAgent = async (name: string, config: Config) => {
+    const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+    // CRITICAL: The :share method on Agents in v1alpha often expects a flattened resource path 
+    // that omits the 'assistants/default_assistant' segment. 
+    // Example: projects/.../engines/ABC/agents/123:share
+    const flatName = name.replace('/assistants/default_assistant', '');
+    await gapiRequest(`${baseUrl}/${DISCOVERY_API_VERSION}/${flatName}:share`, 'POST', config.projectId);
+    return getAgent(name, config);
+};
+
 export const deleteResource = async (name: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
     return gapiRequest(`${baseUrl}/${DISCOVERY_API_VERSION}/${name}`, 'DELETE', config.projectId);
@@ -612,8 +622,6 @@ export const fetchBuildLogs = async (projectId: string, buildId: string): Promis
 
 // --- GCS ---
 
-// --- GCS ---
-
 export const listBuckets = async (projectId: string) => {
     return gapiRequest<{ items: GcsBucket[] }>(`https://storage.googleapis.com/storage/v1/b?project=${projectId}`, 'GET', projectId);
 };
@@ -624,28 +632,6 @@ export const listGcsObjects = async (bucket: string, prefix: string, projectId: 
         'GET',
         projectId
     );
-};
-
-export const deleteGcsObject = async (bucketName: string, objectName: string, projectId: string) => {
-    // Note: object name must be URL encoded
-    const encodedName = encodeURIComponent(objectName);
-    return gapiRequest(`https://storage.googleapis.com/storage/v1/b/${bucketName}/o/${encodedName}`, 'DELETE', projectId);
-};
-
-export const renameGcsObject = async (bucketName: string, oldName: string, newName: string, projectId: string) => {
-    // Rename is Copy + Delete
-    // 1. Copy (Rewrite)
-    const encodedOld = encodeURIComponent(oldName);
-    const encodedNew = encodeURIComponent(newName);
-
-    await gapiRequest(
-        `https://storage.googleapis.com/storage/v1/b/${bucketName}/o/${encodedOld}/rewriteTo/b/${bucketName}/o/${encodedNew}`,
-        'POST',
-        projectId
-    );
-
-    // 2. Delete old
-    await deleteGcsObject(bucketName, oldName, projectId);
 };
 
 export const uploadFileToGcs = async (bucket: string, objectName: string, file: File, projectId: string) => {
@@ -734,7 +720,8 @@ export const streamChat = async (
     sessionId: string | null,
     config: Config,
     accessToken: string,
-    onChunk: (chunk: any) => void
+    onChunk: (chunk: any) => void,
+    toolsSpec?: any
 ) => {
     const { projectId, appLocation, collectionId, appId, assistantId } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
@@ -748,10 +735,12 @@ export const streamChat = async (
     
     const payload: any = {
         query: { text: query },
-        // user_id: "test-user" // REMOVED: Causing issues with some endpoints/configs, matches working curl better without it.
     };
     if (sessionId) {
         payload.session = sessionId;
+    }
+    if (toolsSpec) {
+        payload.toolsSpec = toolsSpec;
     }
 
     const response = await fetch(url, {

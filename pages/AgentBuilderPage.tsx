@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Config, DataStore, CloudRunService, GcsBucket } from '../types';
 import * as api from '../services/apiService';
 import AgentDeploymentModal from '../components/agent-catalog/AgentDeploymentModal';
@@ -41,6 +41,11 @@ interface AdkAgentConfig {
     useGoogleSearch: boolean;
     enableOAuth: boolean;
     authId: string;
+    enableBigQuery: boolean;
+    bigQueryWriteMode: 'BLOCKED' | 'ALLOWED';
+    enableBqAnalytics: boolean;
+    bqDatasetId: string;
+    bqTableId: string;
 }
 
 // --- Tab Definitions ---
@@ -455,21 +460,19 @@ const generateAdkPythonCode = (config: AdkAgentConfig): string => {
     const toolImports = new Set<string>();
     const toolInitializations: string[] = [];
     const toolListForAgent: string[] = [];
-    let a2aClassCode = '';
-    let datastoreConfig = '';
+    const pluginsImports = new Set<string>();
+    const pluginInitializations: string[] = [];
+    const pluginList: string[] = [];
     
-    // Core imports always needed
-    const imports = [
-        'import os',
-        'from typing import Dict, Any',
-        'from dotenv import load_dotenv',
-        '',
-        'from google.adk.agents import Agent',
-        'from google.adk.models.google_llm import Gemini',
-        'from google.genai import Client',
-        'from vertexai.preview import reasoning_engines',
-        'import vertexai',
-    ];
+    let oauthToolCodeBlock = '';
+    let a2aClassCode = '';
+    
+    const agentClass = 'Agent';
+    const agentImport = 'from google.adk.agents import Agent';
+    const appImport = 'from google.adk.apps import App';
+
+    // Ensure google.auth is imported for credentials
+    toolImports.add('import google.auth');
 
     // Inject A2A Helper Function if needed
     if (config.tools.some(t => t.type === 'A2AClientTool')) {
@@ -525,12 +528,9 @@ def create_a2a_tool(url: str, tool_name: str):
 
     config.tools.forEach(tool => {
         if (tool.type === 'VertexAiSearchTool' && tool.dataStoreId) {
-            toolImports.add('from google.adk.tools.vertex_ai_search_tool import VertexAiSearchTool');
-            // We define DATA_STORE_ID constant for clarity if there is one, though we support multiple technically
-            // For this generator, we'll just inline or define constants if simple.
-            // Let's use the constant pattern from the user request if it's a single one, or inline if multiple.
+            toolImports.add('from google.adk.tools import VertexAiSearchTool');
             toolInitializations.push(
-                 `${tool.variableName} = VertexAiSearchTool(\n    data_store_id="${tool.dataStoreId}",\n    bypass_multi_tools_limit=True\n)`
+                `${tool.variableName} = VertexAiSearchTool(\n    data_store_id="${tool.dataStoreId}"\n)`
             );
             toolListForAgent.push(tool.variableName);
         } else if (tool.type === 'A2AClientTool' && tool.url) {
@@ -544,22 +544,75 @@ def create_a2a_tool(url: str, tool_name: str):
 
     if (config.useGoogleSearch) {
         toolImports.add('from google.adk.tools import google_search');
-        toolImports.add('from google.adk.tools.google_search_tool import GoogleSearchTool');
-        toolInitializations.push('google_search_tool = GoogleSearchTool(bypass_multi_tools_limit=True)');
-        toolListForAgent.push('google_search_tool');
+        toolListForAgent.push('google_search');
     }
     
-    // Add OAuth tools if needed (Simplified as per user request to focus on structure, but keeping capability)
+    if (config.enableBigQuery) {
+        toolImports.add('from google.adk.tools.bigquery import BigQueryCredentialsConfig, BigQueryToolset');
+        toolImports.add('from google.adk.tools.bigquery.config import BigQueryToolConfig, WriteMode');
+        
+        toolInitializations.push(`# BigQuery Tool Configuration
+credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+bq_tool_config = BigQueryToolConfig(write_mode=WriteMode.${config.bigQueryWriteMode})
+bq_creds_config = BigQueryCredentialsConfig(credentials=credentials)
+bigquery_toolset = BigQueryToolset(credentials_config=bq_creds_config, bigquery_tool_config=bq_tool_config)`);
+        toolListForAgent.push('bigquery_toolset');
+    }
+    
+    if (config.enableBqAnalytics) {
+        pluginsImports.add('from google.adk.plugins.bigquery_agent_analytics_plugin import BigQueryAgentAnalyticsPlugin');
+        pluginInitializations.push(`# BigQuery Analytics Plugin
+bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
+    project_id=os.environ.get("GOOGLE_CLOUD_PROJECT"),
+    dataset_id="${config.bqDatasetId}",
+    table_id="${config.bqTableId || 'agent_events'}"
+)`);
+        pluginList.push('bq_logging_plugin');
+    }
+    
     if (config.enableOAuth) {
         toolImports.add('from google.adk.tools import ToolContext');
-        // ... (rest of OAuth logic if we needed to keep it, assuming we do for feature parity)
-        // For now, let's keep the user's requested structure as primary.
-        // If OAuth was critical, we'd add it back. The user request didn't explicitly remove it, but showed a clean example.
-        // We will preserve the capability if enabled.
         toolImports.add('from google.oauth2.credentials import Credentials');
         toolImports.add('from googleapiclient.discovery import build');
-        // We need to re-add the helper functions for OAuth if enabled.
-        // (Re-using the previous logic for OAuth imports/functions)
+        oauthToolCodeBlock = `
+def get_email_from_token(access_token):
+    """Get user info from access token"""
+    credentials = Credentials(token=access_token)
+    service = build('oauth2', 'v2', credentials=credentials)
+    user_info = service.userinfo().get().execute()
+    user_email = user_info.get('email')
+    
+    return user_email
+
+def lazy_mask_token(access_token):
+    """Mask access token for printing"""
+    start_mask = access_token[:4]
+    end_mask = access_token[-4:]
+    
+    return f"{start_mask}...{end_mask}"
+
+def print_tool_context(tool_context: ToolContext):
+    """ADK Tool to get email and masked token from Gemini Enterprise"""
+    auth_id = os.getenv("AUTH_ID")
+    
+    # get access token using tool context
+    access_token = tool_context.state[f"temp:{auth_id}"]
+    
+    # mask the token to be returned to the agent
+    masked_token = lazy_mask_token(access_token)
+
+    # get the user email using the token
+    user_email = get_email_from_token(access_token)
+    
+    # store email in tool context in case you want to keep referring to it
+    tool_context.state["user_email"] = user_email
+    
+    return {
+        f"temp:{auth_id}"] = lazy_mask_token(access_token),
+        "user_email": user_email
+    }
+`;
+        toolListForAgent.push('print_tool_context');
     }
 
     const formatPythonString = (str: string) => {
@@ -571,82 +624,47 @@ def create_a2a_tool(url: str, tool_name: str):
         return `"${str.replace(/"/g, '\\"')}"`;
     };
 
-    // Combine imports
-    const allImports = [
-        ...imports,
-        ...Array.from(toolImports)
+    const imports = [
+        'import os',
+        'from dotenv import load_dotenv',
+        agentImport,
+        appImport,
+        'try:',
+        '    from vertexai.agent_engines import AdkApp',
+        'except ImportError:',
+        '    from vertexai.preview.reasoning_engines import AdkApp',
+        ...Array.from(toolImports),
+        ...Array.from(pluginsImports),
     ].join('\n');
 
-    let oauthCode = '';
-    if (config.enableOAuth) {
-        oauthCode = `
-def get_email_from_token(access_token):
-    """Get user info from access token"""
-    credentials = Credentials(token=access_token)
-    service = build('oauth2', 'v2', credentials=credentials)
-    user_info = service.userinfo().get().execute()
-    user_email = user_info.get('email')
-    return user_email
-
-def lazy_mask_token(access_token):
-    start_mask = access_token[:4]
-    end_mask = access_token[-4:]
-    return f"{start_mask}...{end_mask}"
-
-def print_tool_context(tool_context: ToolContext):
-    """ADK Tool to get email and masked token from Gemini Enterprise"""
-    auth_id = os.getenv("AUTH_ID")
-    access_token = tool_context.state[f"temp:{auth_id}"]
-    user_email = get_email_from_token(access_token)
-    tool_context.state["user_email"] = user_email
-    return {
-        f"temp:{auth_id}": lazy_mask_token(access_token),
-        "user_email": user_email
-    }
-`;
-        toolListForAgent.push('print_tool_context');
-    }
-
     return `
-${allImports}
+${imports}
 
 load_dotenv()
 
-# --- Configuration ---
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
-LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION")
-
-# --- Agent Setup ---
-
-# Explicitly configure Gemini model to use Vertex AI backend
-model = Gemini(
-    model=os.getenv("MODEL", ${formatPythonString(config.model)}),
-    vertexai=True,
-    project=PROJECT_ID,
-    location=LOCATION
-)
-
 ${a2aClassCode}
 
-${oauthCode}
-
+${oauthToolCodeBlock}
 # Initialize Tools
 ${toolInitializations.length > 0 ? toolInitializations.join('\n\n') : '# No additional tools defined'}
 
-INSTRUCTION = ${formatPythonString(config.instruction)}
+# Initialize Plugins
+${pluginInitializations.length > 0 ? pluginInitializations.join('\n\n') : '# No plugins defined'}
 
-root_agent = Agent(
+# Define the root agent
+root_agent = ${agentClass}(
     name=${formatPythonString(config.name)},
-    model=model,
-    instruction=INSTRUCTION,
     description=${formatPythonString(config.description)},
-    tools=[${toolListForAgent.join(', ')}]
+    model=os.getenv("MODEL", ${formatPythonString(config.model)}),
+    instruction=${formatPythonString(config.instruction)},
+    tools=[${toolListForAgent.join(', ')}],
 )
 
-# App wrapper for Agent Engine deployment
-app = reasoning_engines.AdkApp(
-    agent=root_agent,
-    enable_tracing=True,
+# Define the App
+app = App(
+    name=${formatPythonString(config.name)},
+    root_agent=root_agent,
+    plugins=[${pluginList.join(', ')}],
 )
 `.trim();
 };
@@ -669,7 +687,15 @@ vertexai.init(project=project_id, location=location, staging_bucket=staging_buck
 
 try:
     import agent
-    root_agent = agent.root_agent
+    if hasattr(agent, 'app'):
+        # If the user defined an App (e.g. for plugins), use it.
+        app_obj = agent.app
+        logger.info("Imported 'app' from agent.py")
+    else:
+        # Fallback to root_agent
+        logger.info("Imported 'root_agent' from agent.py")
+        app_obj = agent.root_agent
+        
     logger.info("Agent imported successfully.")
 except ImportError as e:
     logger.error(f"Failed to import agent: {e}")
@@ -687,12 +713,17 @@ reqs = list(set(reqs))
 
 try:
     from vertexai import agent_engines
-    # Create the App
-    app = agent_engines.AdkApp(agent=root_agent, enable_tracing=True)
+    
+    # We must ensure the agent object is wrapped in the Vertex AI AdkApp class.
+    # Even if it is a google.adk.apps.App, we need to wrap it to provide the required interface.
+    if isinstance(app_obj, agent_engines.AdkApp):
+         app_to_deploy = app_obj
+    else:
+         app_to_deploy = agent_engines.AdkApp(agent=app_obj, enable_tracing=True)
 
     logger.info("Creating Agent Engine...")
     remote_app = agent_engines.create(
-        agent_engine=app,
+        agent_engine=app_to_deploy,
         requirements=reqs,
         display_name=os.getenv("AGENT_DISPLAY_NAME", "${config.name || 'my-agent'}")
     )
@@ -700,10 +731,14 @@ try:
 except ImportError:
     logger.warning("Fallback to preview namespace.")
     from vertexai.preview import reasoning_engines
-    app = reasoning_engines.AdkApp(agent=root_agent)
+    
+    if isinstance(app_obj, reasoning_engines.AdkApp):
+         app_to_deploy = app_obj
+    else:
+         app_to_deploy = reasoning_engines.AdkApp(agent=app_obj)
 
     remote_app = reasoning_engines.ReasoningEngine.create(
-        app,
+        app_to_deploy,
         requirements=reqs,
         display_name=os.getenv("AGENT_DISPLAY_NAME", "${config.name || 'my-agent'}"),
     )
@@ -725,6 +760,10 @@ AGENT_DISPLAY_NAME="${config.name}"`;
         content += `\nAUTH_ID="${config.authId}"`;
     }
     
+    if (config.enableBqAnalytics) {
+        content += `\nBIG_QUERY_DATASET_ID="${config.bqDatasetId}"`;
+    }
+    
     return content.trim();
 };
 
@@ -740,6 +779,11 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
     }
     if (config.tools.some(t => t.type === 'A2AClientTool')) {
         requirements.add('requests');
+    }
+    if (config.enableBigQuery || config.enableBqAnalytics) {
+        requirements.add('google-cloud-bigquery');
+        requirements.add('google-auth');
+        requirements.add('db-dtypes'); // Often needed for BigQuery pandas integration
     }
     return Array.from(requirements).join('\n');
 };
@@ -777,13 +821,12 @@ interface AgentBuilderPageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
   context?: any;
-    onBuildTriggered?: (buildId: string, name?: string) => void;
+  onBuildTriggered?: (buildId: string) => void;
 }
 
 const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setProjectNumber, context, onBuildTriggered }) => {
     const [builderTab, setBuilderTab] = useState<'a2a' | 'adk'>('adk');
     
-
     // --- A2A State ---
     const [a2aConfig, setA2aConfig] = useState<A2aConfig>({
         serviceName: 'my-a2a-function',
@@ -825,6 +868,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         useGoogleSearch: false,
         enableOAuth: false,
         authId: '',
+        enableBigQuery: false,
+        bigQueryWriteMode: 'BLOCKED',
+        enableBqAnalytics: false,
+        bqDatasetId: '',
+        bqTableId: '' // Change default to empty so datalist works properly
     });
     const [vertexLocation, setVertexLocation] = useState('us-central1');
     const [adkGeneratedCode, setAdkGeneratedCode] = useState({ agent: '', env: '', requirements: '', readme: '', deploy_re: '' });
@@ -845,6 +893,13 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
 
     const [isAdkDeployModalOpen, setIsAdkDeployModalOpen] = useState(false);
     const [rewritingField, setRewritingField] = useState<string | null>(null);
+
+    // BigQuery State
+    const [bqDatasets, setBqDatasets] = useState<any[]>([]);
+    const [bqTables, setBqTables] = useState<any[]>([]);
+    const [isLoadingBqDatasets, setIsLoadingBqDatasets] = useState(false);
+    const [isLoadingBqTables, setIsLoadingBqTables] = useState(false);
+    const [bqTablesError, setBqTablesError] = useState<string | null>(null);
     
     // --- Common Logic ---
     const fetchProjectId = async () => {
@@ -980,6 +1035,50 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
       
       fetchData();
     }, [projectNumber]);
+
+    // BigQuery Fetching
+    const fetchBqDatasets = useCallback(async () => {
+        if (!deployProjectId) return;
+        setIsLoadingBqDatasets(true);
+        try {
+            const res = await api.listBigQueryDatasets(deployProjectId);
+            setBqDatasets(res.datasets || []);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setIsLoadingBqDatasets(false);
+        }
+    }, [deployProjectId]);
+
+    const fetchBqTables = useCallback(async () => {
+        if (!deployProjectId || !adkConfig.bqDatasetId) return;
+        setIsLoadingBqTables(true);
+        setBqTablesError(null);
+        try {
+            const res = await api.listBigQueryTables(deployProjectId, adkConfig.bqDatasetId);
+            setBqTables(res.tables || []);
+        } catch (e: any) {
+            console.error(e);
+            setBqTablesError(e.message || "Failed to load tables");
+        } finally {
+            setIsLoadingBqTables(false);
+        }
+    }, [deployProjectId, adkConfig.bqDatasetId]);
+
+    useEffect(() => {
+        if (adkConfig.enableBqAnalytics) {
+            fetchBqDatasets();
+        }
+    }, [adkConfig.enableBqAnalytics, fetchBqDatasets]);
+
+    useEffect(() => {
+        if (adkConfig.enableBqAnalytics && adkConfig.bqDatasetId) {
+            fetchBqTables();
+        } else {
+            setBqTables([]);
+        }
+    }, [adkConfig.enableBqAnalytics, adkConfig.bqDatasetId, fetchBqTables]);
+
 
     // --- Handlers ---
     const handleA2aConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -1126,8 +1225,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         { name: 'env.yaml', content: a2aGeneratedCode.yaml }
     ];
 
-    const handleBuildTriggered = (id: string, name?: string) => {
-        if (onBuildTriggered) onBuildTriggered(id, name);
+    const handleBuildTriggered = (id: string) => {
+        if (onBuildTriggered) onBuildTriggered(id);
         setIsA2aDeployModalOpen(false);
         setIsAdkDeployModalOpen(false);
     };
@@ -1195,6 +1294,63 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                     <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="enableOAuth" checked={adkConfig.enableOAuth} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable OAuth (User Context)</span></label>
                                     {adkConfig.enableOAuth && (
                                         <div className="pl-7"><input type="text" name="authId" value={adkConfig.authId} onChange={handleAdkConfigChange} placeholder="Authorization Resource ID" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" /></div>
+                                    )}
+                                    <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="enableBigQuery" checked={adkConfig.enableBigQuery} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable BigQuery Tool</span></label>
+                                    {adkConfig.enableBigQuery && (
+                                        <div className="pl-7">
+                                            <label className="block text-xs font-medium text-gray-400 mb-1">Write Mode</label>
+                                            <select name="bigQueryWriteMode" value={adkConfig.bigQueryWriteMode} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full">
+                                                <option value="BLOCKED">BLOCKED (Read-only)</option>
+                                                <option value="ALLOWED">ALLOWED (Read/Write)</option>
+                                            </select>
+                                        </div>
+                                    )}
+                                    <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="enableBqAnalytics" checked={adkConfig.enableBqAnalytics} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable BigQuery Analytics Plugin</span></label>
+                                    {adkConfig.enableBqAnalytics && (
+                                        <div className="pl-7 space-y-2">
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-400 mb-1">Dataset ID</label>
+                                                <div className="flex gap-2">
+                                                    <select 
+                                                        name="bqDatasetId" 
+                                                        value={adkConfig.bqDatasetId} 
+                                                        onChange={handleAdkConfigChange} 
+                                                        className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full"
+                                                        disabled={isLoadingBqDatasets}
+                                                    >
+                                                        <option value="">-- Select Dataset --</option>
+                                                        {bqDatasets.map(d => (
+                                                            <option key={d.datasetReference.datasetId} value={d.datasetReference.datasetId}>
+                                                                {d.datasetReference.datasetId}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    <button onClick={fetchBqDatasets} className="px-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-xs text-white" disabled={isLoadingBqDatasets}>↻</button>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-400 mb-1">Table ID</label>
+                                                <div className="flex gap-2">
+                                                    <input 
+                                                        type="text" 
+                                                        name="bqTableId" 
+                                                        value={adkConfig.bqTableId} 
+                                                        onChange={handleAdkConfigChange} 
+                                                        list="bq-tables-list"
+                                                        placeholder="agent_events (type to create new)" 
+                                                        className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" 
+                                                        disabled={!adkConfig.bqDatasetId}
+                                                    />
+                                                    <datalist id="bq-tables-list">
+                                                        {bqTables.map(t => (
+                                                            <option key={t.tableReference.tableId} value={t.tableReference.tableId} />
+                                                        ))}
+                                                    </datalist>
+                                                    <button onClick={fetchBqTables} className="px-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-xs text-white" disabled={isLoadingBqTables || !adkConfig.bqDatasetId}>↻</button>
+                                                </div>
+                                                {bqTablesError && <p className="text-xs text-red-400 mt-1">{bqTablesError}</p>}
+                                            </div>
+                                        </div>
                                     )}
                                 </div>
                             </>
