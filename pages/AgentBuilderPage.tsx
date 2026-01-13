@@ -535,9 +535,9 @@ def create_a2a_tool(url: str, tool_name: str):
         toolImports.add('from google.adk.tools.bigquery.config import BigQueryToolConfig, WriteMode');
         
         toolInitializations.push(`# BigQuery Tool Configuration
-credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
 bq_tool_config = BigQueryToolConfig(write_mode=WriteMode.${config.bigQueryWriteMode})
-bq_creds_config = BigQueryCredentialsConfig(credentials=credentials)
+# Use default runtime credentials (ADC) to avoid pickling build-time credentials
+bq_creds_config = BigQueryCredentialsConfig() 
 bigquery_toolset = BigQueryToolset(credentials_config=bq_creds_config, bigquery_tool_config=bq_tool_config)`);
         toolListForAgent.push('bigquery_toolset');
     }
@@ -693,11 +693,17 @@ if os.path.exists("requirements.txt"):
 reqs = list(set(reqs))
 
 # --- CRITICAL FIX FOR Pydantic ValidationError ---
-# We check if the app_obj is already an AdkApp instance by checking for the 'agent' attribute.
+# We check if the app_obj is already an AdkApp instance by checking key attributes or class name.
 # This prevents 'double-wrapping' which causes the 'Input should be a valid dictionary or instance of BaseAgent' error.
-if hasattr(app_obj, 'agent'):
+is_already_adk_app = (
+    hasattr(app_obj, 'agent') or
+    hasattr(app_obj, '_agent') or
+    app_obj.__class__.__name__ == 'AdkApp'
+)
+
+if is_already_adk_app:
      app_to_deploy = app_obj
-     logger.info("App is already an AdkApp-compatible instance. Proceeding to deploy...")
+     logger.info(f"App is already an AdkApp instance ({type(app_obj).__name__}). Proceeding to deploy...")
 else:
      logger.info("Wrapping agent in AdkApp for deployment...")
      app_to_deploy = reasoning_engines.AdkApp(agent=app_obj, enable_tracing=False)

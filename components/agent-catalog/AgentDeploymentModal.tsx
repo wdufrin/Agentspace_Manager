@@ -339,7 +339,7 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
              buildSteps.push({
                 name: 'python:3.10',
                 entrypoint: 'bash',
-                args: ['-c', 'pip install --upgrade pip && pip install -r requirements.txt && pip install "google-cloud-aiplatform[adk,agent_engines]>=1.111" && python deploy_re.py'],
+                 args: ['-c', 'pip install --upgrade pip && pip install -r requirements.txt && pip install "google-cloud-aiplatform[adk,agent_engines]>=1.75.0" && python deploy_re.py'],
                 env: envStrings
             });
         }
@@ -412,7 +412,7 @@ echo "Deployment Complete."`;
 
         // Ensure google-adk is present with updated version
         if (!reqsContent.includes('google-cloud-aiplatform')) { 
-            reqsContent += '\ngoogle-cloud-aiplatform[adk,agent_engines]>=1.111'; 
+            reqsContent += '\ngoogle-cloud-aiplatform[adk,agent_engines]>=1.75.0'; 
             reqsUpdated = true; 
         }
         
@@ -462,7 +462,7 @@ try:
     logger.info("Successfully imported to_a2a.")
 except ImportError as e:
     logger.error(f"Failed to import to_a2a: {e}")
-    logger.error("Please ensure 'google-cloud-aiplatform[adk,agent_engines]>=1.111' is in requirements.txt")
+    logger.error("Please ensure 'google-cloud-aiplatform[adk,agent_engines]>=1.75.0' is in requirements.txt")
     # Don't raise, just log. We'll fallback later.
     to_a2a = None
 
@@ -570,7 +570,7 @@ except Exception as e:
     logger.error(f"Failed to import agent: {e}")
     raise
 
-reqs = ["google-cloud-aiplatform[adk,agent_engines]>=1.111", "python-dotenv"]
+reqs = ["google-cloud-aiplatform[adk,agent_engines]>=1.75.0", "python-dotenv"]
 if os.path.exists("requirements.txt"):
     with open("requirements.txt", "r") as f:
         for line in f:
@@ -584,11 +584,21 @@ try:
     from vertexai import agent_engines
     
     # Check if app_obj is already an AdkApp-compatible object or needs wrapping
-    if isinstance(app_obj, agent_engines.AdkApp):
+    # CRITICAL FIX: Robust detection to avoid double-wrapping AdkApp
+    is_already_adk_app = (
+        hasattr(app_obj, 'agent') or 
+        hasattr(app_obj, '_agent') or 
+        app_obj.__class__.__name__ == 'AdkApp'
+    )
+    
+    if is_already_adk_app:
          app_to_deploy = app_obj
+         logger.info(f"App is already an AdkApp instance ({type(app_obj).__name__}). Proceeding to deploy...")
     else:
          # Wrap it. app_obj can be Agent or App.
-         app_to_deploy = agent_engines.AdkApp(agent=app_obj, enable_tracing=True)
+         # This is the ONLY place where enable_tracing should be set
+         app_to_deploy = agent_engines.AdkApp(agent=app_obj, enable_tracing=False)
+         logger.info("Wrapping agent in AdkApp for deployment...")
 
     logger.info("Creating Agent Engine...")
     remote_app = agent_engines.create(
@@ -601,8 +611,7 @@ except ImportError:
     logger.warning("Fallback to preview namespace.")
     from vertexai.preview import reasoning_engines
     
-    # Similar check for preview namespace
-    if isinstance(app_obj, reasoning_engines.AdkApp):
+    if hasattr(app_obj, 'agent'):
          app_to_deploy = app_obj
     else:
          app_to_deploy = reasoning_engines.AdkApp(agent=app_obj)
@@ -676,7 +685,7 @@ print(f"Resource Name: {remote_app.resource_name}")
                 buildConfig.steps.push({
                     name: 'python:3.10',
                     entrypoint: 'bash',
-                    args: ['-c', 'pip install --upgrade pip && pip install -r requirements.txt && pip install "google-cloud-aiplatform[adk,agent_engines]>=1.111" && python deploy_re.py'],
+                    args: ['-c', 'pip install --upgrade pip && pip install -r requirements.txt && pip install "google-cloud-aiplatform[adk,agent_engines]>=1.75.0" && python deploy_re.py'],
                     env: envStrings
                 });
             }
