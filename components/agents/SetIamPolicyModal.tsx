@@ -134,14 +134,14 @@ const SetIamPolicyModal: React.FC<SetIamPolicyModalProps> = ({ isOpen, onClose, 
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4" aria-modal="true" role="dialog">
-      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col border border-gray-700">
-        <form onSubmit={handleSubmit} className="flex flex-col h-full">
-            <header className="p-4 border-b border-gray-700">
+      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[85vh] flex flex-col border border-gray-700">
+        <form onSubmit={handleSubmit} className="flex flex-col h-full overflow-hidden">
+          <header className="p-4 border-b border-gray-700 shrink-0">
               <h2 className="text-xl font-bold text-white">Edit IAM Policy for Agent</h2>
               <p className="text-sm text-gray-400 mt-1">{agent.displayName}</p>
             </header>
 
-            <main className="p-6 space-y-4 overflow-y-auto flex-1">
+          <main className="p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
               <div className="bg-blue-900/20 border border-blue-800 p-3 rounded-md text-xs text-blue-300 mb-4">
                   <p className="font-bold mb-1 uppercase tracking-wider">Supported Principal Formats:</p>
                   <ul className="list-disc list-inside space-y-1">
