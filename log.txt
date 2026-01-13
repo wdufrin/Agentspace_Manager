@@ -1,0 +1,15 @@
+File /usr/local/google/home/wdufrin/Documents/Code/Agentspace_Manager/vite.config.ts
+
+
+Warnings :
+1 : the definition is not identified
+2 : the definition is not identified
+4 : the definition is not identified
+5 : the definition is not identified
+6 : the definition is not identified
+7 : the definition is not identified
+8 : the definition is not identified
+9 : the definition is not identified
+10 : the definition is not identified
+
+Your trace has 0 errors and 9 warnings.
