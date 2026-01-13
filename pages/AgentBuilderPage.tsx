@@ -41,11 +41,7 @@ interface AdkAgentConfig {
     useGoogleSearch: boolean;
     enableOAuth: boolean;
     authId: string;
-    enableBigQuery: boolean;
-    bigQueryWriteMode: 'BLOCKED' | 'ALLOWED';
-    enableBqAnalytics: boolean;
-    bqDatasetId: string;
-    bqTableId: string;
+
 }
 
 // --- Tab Definitions ---
@@ -529,18 +525,8 @@ def create_a2a_tool(url: str, tool_name: str):
         toolImports.add('from google.adk.tools import google_search');
         toolListForAgent.push('google_search');
     }
-    
-    if (config.enableBigQuery) {
-        toolImports.add('from google.adk.tools.bigquery import BigQueryCredentialsConfig, BigQueryToolset');
-        toolImports.add('from google.adk.tools.bigquery.config import BigQueryToolConfig, WriteMode');
-        
-        toolInitializations.push(`# BigQuery Tool Configuration
-bq_tool_config = BigQueryToolConfig(write_mode=WriteMode.${config.bigQueryWriteMode})
-# Use default runtime credentials (ADC) to avoid pickling build-time credentials
-bq_creds_config = BigQueryCredentialsConfig() 
-bigquery_toolset = BigQueryToolset(credentials_config=bq_creds_config, bigquery_tool_config=bq_tool_config)`);
-        toolListForAgent.push('bigquery_toolset');
-    }
+
+
     
     if (config.enableBqAnalytics) {
         pluginsImports.add('from google.adk.plugins.bigquery_agent_analytics_plugin import BigQueryAgentAnalyticsPlugin');
@@ -758,9 +744,7 @@ AGENT_DISPLAY_NAME="${config.name}"`;
         content += `\nAUTH_ID="${config.authId}"`;
     }
     
-    if (config.enableBqAnalytics) {
-        content += `\nBIG_QUERY_DATASET_ID="${config.bqDatasetId}"`;
-    }
+
     
     return content.trim();
 };
@@ -778,11 +762,7 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
     if (config.tools.some(t => t.type === 'A2AClientTool')) {
         requirements.add('requests');
     }
-    if (config.enableBigQuery || config.enableBqAnalytics) {
-        requirements.add('google-cloud-bigquery');
-        requirements.add('google-auth');
-        requirements.add('db-dtypes'); 
-    }
+
     return Array.from(requirements).join('\n');
 };
 
@@ -866,11 +846,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         useGoogleSearch: false,
         enableOAuth: false,
         authId: '',
-        enableBigQuery: false,
-        bigQueryWriteMode: 'BLOCKED',
-        enableBqAnalytics: false,
-        bqDatasetId: '',
-        bqTableId: '' 
+
     });
     const [vertexLocation, setVertexLocation] = useState('us-central1');
     const [adkGeneratedCode, setAdkGeneratedCode] = useState({ agent: '', env: '', requirements: '', readme: '', deploy_re: '' });
@@ -897,12 +873,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     const [isAdkDeployModalOpen, setIsAdkDeployModalOpen] = useState(false);
     const [rewritingField, setRewritingField] = useState<string | null>(null);
 
-    // BigQuery State
-    const [bqDatasets, setBqDatasets] = useState<any[]>([]);
-    const [bqTables, setBqTables] = useState<any[]>([]);
-    const [isLoadingBqDatasets, setIsLoadingBqDatasets] = useState(false);
-    const [isLoadingBqTables, setIsLoadingBqTables] = useState(false);
-    const [bqTablesError, setBqTablesError] = useState<string | null>(null);
+
     
     // --- Common Logic ---
     const fetchProjectId = async () => {
@@ -1053,48 +1024,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
       fetchData();
     }, [projectNumber]);
 
-    // BigQuery Fetching
-    const fetchBqDatasets = useCallback(async () => {
-        if (!deployProjectId) return;
-        setIsLoadingBqDatasets(true);
-        try {
-            const res = await api.listBigQueryDatasets(deployProjectId);
-            setBqDatasets(res.datasets || []);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setIsLoadingBqDatasets(false);
-        }
-    }, [deployProjectId]);
 
-    const fetchBqTables = useCallback(async () => {
-        if (!deployProjectId || !adkConfig.bqDatasetId) return;
-        setIsLoadingBqTables(true);
-        setBqTablesError(null);
-        try {
-            const res = await api.listBigQueryTables(deployProjectId, adkConfig.bqDatasetId);
-            setBqTables(res.tables || []);
-        } catch (e: any) {
-            console.error(e);
-            setBqTablesError(e.message || "Failed to load tables");
-        } finally {
-            setIsLoadingBqTables(false);
-        }
-    }, [deployProjectId, adkConfig.bqDatasetId]);
-
-    useEffect(() => {
-        if (adkConfig.enableBqAnalytics) {
-            fetchBqDatasets();
-        }
-    }, [adkConfig.enableBqAnalytics, fetchBqDatasets]);
-
-    useEffect(() => {
-        if (adkConfig.enableBqAnalytics && adkConfig.bqDatasetId) {
-            fetchBqTables();
-        } else {
-            setBqTables([]);
-        }
-    }, [adkConfig.enableBqAnalytics, adkConfig.bqDatasetId, fetchBqTables]);
 
 
     // --- Handlers ---
@@ -1308,62 +1238,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                     {adkConfig.enableOAuth && (
                                         <div className="pl-7"><input type="text" name="authId" value={adkConfig.authId} onChange={handleAdkConfigChange} placeholder="Authorization Resource ID" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" /></div>
                                     )}
-                                    <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="enableBigQuery" checked={adkConfig.enableBigQuery} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable BigQuery Tool</span></label>
-                                    {adkConfig.enableBigQuery && (
-                                        <div className="pl-7">
-                                            <label className="block text-xs font-medium text-gray-400 mb-1">Write Mode</label>
-                                            <select name="bigQueryWriteMode" value={adkConfig.bigQueryWriteMode} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full">
-                                                <option value="BLOCKED">BLOCKED (Read-only)</option>
-                                                <option value="ALLOWED">ALLOWED (Read/Write)</option>
-                                            </select>
-                                        </div>
-                                    )}
-                                    <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="enableBqAnalytics" checked={adkConfig.enableBqAnalytics} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable BigQuery Analytics Plugin</span></label>
-                                    {adkConfig.enableBqAnalytics && (
-                                        <div className="pl-7 space-y-2">
-                                            <div>
-                                                <label className="block text-xs font-medium text-gray-400 mb-1">Dataset ID</label>
-                                                <div className="flex gap-2">
-                                                    <select 
-                                                        name="bqDatasetId" 
-                                                        value={adkConfig.bqDatasetId} 
-                                                        onChange={handleAdkConfigChange} 
-                                                        className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full"
-                                                        disabled={isLoadingBqDatasets}
-                                                    >
-                                                        <option value="">-- Select Dataset --</option>
-                                                        {bqDatasets.map(d => (
-                                                            <option key={d.datasetReference.datasetId} value={d.datasetReference.datasetId}>
-                                                                {d.datasetReference.datasetId}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                    <button onClick={fetchBqDatasets} className="px-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-xs text-white" disabled={isLoadingBqDatasets}>↻</button>
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-medium text-gray-400 mb-1">Table ID</label>
-                                                <div className="flex gap-2">
-                                                    <input 
-                                                        type="text" 
-                                                        name="bqTableId" 
-                                                        value={adkConfig.bqTableId} 
-                                                        onChange={handleAdkConfigChange} 
-                                                        list="bq-tables-list"
-                                                        placeholder="agent_events" 
-                                                        className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" 
-                                                        disabled={!adkConfig.bqDatasetId}
-                                                    />
-                                                    <datalist id="bq-tables-list">
-                                                        {bqTables.map(t => (
-                                                            <option key={t.tableReference.tableId} value={t.tableReference.tableId} />
-                                                        ))}
-                                                    </datalist>
-                                                    <button onClick={fetchBqTables} className="px-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-xs text-white" disabled={isLoadingBqTables || !adkConfig.bqDatasetId}>↻</button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
+
                                 </div>
                             </>
                         ) : (
@@ -1519,36 +1394,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                             </div>
 
                             {/* Staging Bucket */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-1">Staging Bucket</label>
-                                <div className="flex gap-2">
-                                    <select
-                                        value={stagingBucket}
-                                        onChange={(e) => setStagingBucket(e.target.value)}
-                                        className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full focus:ring-teal-500 focus:border-teal-500"
-                                    >
-                                        <option value="">-- Select Bucket --</option>
-                                        {buckets.map(b => (
-                                            <option key={b.name} value={`gs://${b.name}`}>gs://{b.name}</option>
-                                        ))}
-                                    </select>
-                                    <button
-                                        onClick={() => {
-                                            setIsLoadingBuckets(true);
-                                            api.listBuckets(projectNumber).then(res => {
-                                                setBuckets(res.items || []);
-                                                setIsLoadingBuckets(false);
-                                            });
-                                        }}
-                                        disabled={isLoadingBuckets}
-                                        className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 disabled:opacity-50"
-                                        title="Refresh Buckets"
-                                    >
-                                        &#x21bb;
-                                    </button>
-                                </div>
-                                {!stagingBucket && <p className="text-xs text-yellow-500 mt-1">Required for deployment.</p>}
-                            </div>
+
 
                             {/* Location */}
                             <button 
