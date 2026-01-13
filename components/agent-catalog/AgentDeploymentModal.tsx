@@ -656,7 +656,7 @@ print(f"Deployment finished!")
 print(f"Resource Name: {remote_app.resource_name}")
 `;
                 zip.file('deploy_re.py', deployScript);
-                addLog('Generated deploy_re.py for Reasoning Engine deployment.');
+                addLog('Generated deploy_re.py for Agent Engine deployment.');
             }
 
             // Generate .env file from envVars state to ensure UI values are used
@@ -716,7 +716,7 @@ print(f"Resource Name: {remote_app.resource_name}")
                     args: ['-c', deployScript]
                 });
             } else {
-                // Reasoning Engine
+                // Agent Engine (Reasoning Engine API)
                 buildConfig.steps.push({
                     name: 'python:3.10',
                     entrypoint: 'bash',
@@ -889,7 +889,7 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                                     </label>
                                     <label className={`cursor-pointer p-4 rounded-lg border-2 transition-all ${target === 'reasoning_engine' ? 'border-red-500 bg-red-900/20' : 'border-gray-600 bg-gray-700/30 hover:border-gray-500'}`}>
                                         <input type="radio" name="target" value="reasoning_engine" checked={target === 'reasoning_engine'} onChange={() => setTarget('reasoning_engine')} className="hidden" />
-                                        <div className="font-bold text-white mb-1">Reasoning Engine</div>
+                                        <div className="font-bold text-white mb-1">Agent Engine</div>
                                         <div className="text-xs text-gray-400">Deploy to Vertex AI runtime.</div>
                                     </label>
                                 </div>
@@ -1059,7 +1059,7 @@ gcloud projects add-iam-policy-binding ${projectId} \\
                                     {isRePermissionsExpanded && (
                                         <div className="mt-3">
                                             <p className="text-xs text-yellow-100 mb-2">
-                                                Cloud Build needs <strong>Vertex AI User</strong> role to create Reasoning Engines. Run this once:
+                                                Cloud Build needs <strong>Vertex AI User</strong> role to create Agent Engines. Run this once:
                                             </p>
                                             <div className="bg-black/50 p-2 rounded border border-yellow-900/50 relative group">
                                                  <pre className="text-[10px] text-yellow-50 whitespace-pre-wrap font-mono">

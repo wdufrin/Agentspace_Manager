@@ -364,7 +364,7 @@ const PolicyGenerator: React.FC<{ projectId: string }> = ({ projectId }) => {
                         {generatedCommand}
                     </div>
                     <p className="text-xs text-gray-500 mt-4">
-                        Run this command in your terminal to create the template. Once created, attach it to your Reasoning Engine or Chat App.
+                        Run this command in your terminal to create the template. Once created, attach it to your Agent Engine or Chat App.
                     </p>
                 </div>
             </div>

@@ -138,10 +138,10 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
         ]
     },
     [Page.AGENT_ENGINES]: {
-        description: "These are the underlying REST API calls for discovering available agent backends (Reasoning Engines, Cloud Run Services, and Dialogflow Agents).",
+      description: "These are the underlying REST API calls for discovering available agent backends (Agent Engines, Cloud Run Services, and Dialogflow Agents).",
         commands: [
             {
-                title: 'List Reasoning Engines',
+            title: 'List Agent Engines',
                 command: `curl -X GET \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
@@ -327,7 +327,7 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
         commands: [{ title: 'Create Authorization', command: `curl -X POST -H "Authorization: Bearer [TOKEN]" -H "Content-Type: application/json" -d '{ "serverSideOauth2": { ... } }' "https://discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/global/authorizations?authorizationId=[AUTH_ID]"` }]
     },
     'ArchitectureScan': {
-        description: "The architecture scan performs a series of 'list' operations across multiple regions and resource types to discover all connected components. It starts by listing global resources like Authorizations, then scans all regions for Reasoning Engines, and finally explores Discovery Engine locations to find Engines, Assistants, and Agents recursively.",
+      description: "The architecture scan performs a series of 'list' operations across multiple regions and resource types to discover all connected components. It starts by listing global resources like Authorizations, then scans all regions for Agent Engines, and finally explores Discovery Engine locations to find Engines, Assistants, and Agents recursively.",
         commands: [
             {
                 title: 'List Authorizations (Global)',
@@ -337,7 +337,7 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
   "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/global/authorizations"`
             },
             {
-                title: 'List Reasoning Engines (Per-Region)',
+              title: 'List Agent Engines (Per-Region)',
                 command: `# The scan iterates over locations like us-central1, europe-west1, etc.
 curl -X GET \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\

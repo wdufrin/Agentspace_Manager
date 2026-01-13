@@ -362,20 +362,20 @@ const App: React.FC = () => {
             const projectNodeId = `projects/${projectNumber}`;
             addNode({ id: projectNodeId, type: 'Project', label: `Project (${projectNumber})`, data: { name: projectNodeId } });
 
-            addLog("Fetching all Authorizations and Reasoning Engines...");
+            addLog("Fetching all Authorizations and Agent Engines...");
             const [authResponse, allReasoningEngines] = await Promise.all([
                 api.listAuthorizations(apiConfig).catch(e => { addLog(`WARNING: Could not fetch authorizations: ${e.message}`); return { authorizations: [] }; }),
                 Promise.all(ALL_REASONING_ENGINE_LOCATIONS.map(loc =>
                     api.listReasoningEngines({ ...apiConfig, reasoningEngineLocation: loc })
                         .then(res => res.reasoningEngines || [])
-                        .catch(e => { addLog(`NOTE: Could not scan Reasoning Engines in ${loc}: ${e.message}`); return []; })
+                        .catch(e => { addLog(`NOTE: Could not scan Agent Engines in ${loc}: ${e.message}`); return []; })
                 )).then(results => results.flat())
             ]);
 
             const authorizations = authResponse.authorizations || [];
             authorizations.forEach(auth => addNode({ id: auth.name, type: 'Authorization', label: auth.name.split('/').pop()!, data: auth }));
             allReasoningEngines.forEach(re => addNode({ id: re.name, type: 'ReasoningEngine', label: re.displayName, data: re }));
-            addLog(`Found ${authorizations.length} authorizations and ${allReasoningEngines.length} reasoning engines across all locations.`);
+            addLog(`Found ${authorizations.length} authorizations and ${allReasoningEngines.length} agent engines across all locations.`);
 
             // Scan Cloud Run Services
             addLog("Scanning Cloud Run Services across all regions...");

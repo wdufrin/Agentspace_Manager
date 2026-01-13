@@ -689,7 +689,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                                 className={`px-3 py-1 text-xs font-medium rounded-sm transition-colors ${agentType === 'reasoning_engine' ? 'bg-gray-600 text-white shadow' : 'text-gray-400 hover:text-white'} ${agentToEdit ? 'cursor-not-allowed opacity-70' : ''}`}
                                 disabled={!!agentToEdit}
                             >
-                                Reasoning Engine
+                                      Agent Engine
                             </button>
                             <button
                                 type="button"

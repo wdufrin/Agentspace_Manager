@@ -21,7 +21,7 @@ interface DeployModalProps {
 const Instructions: React.FC = () => (
     <div className="space-y-3 text-xs text-gray-400 bg-gray-900/50 p-3 rounded-md border border-gray-700">
         <p className="font-bold text-sm text-yellow-300">Action Required: Prepare and Upload Agent Package</p>
-        <p>The Reasoning Engine requires a Python "pickle" file (`agent.pkl`) to deploy. This file must be created locally and uploaded to Google Cloud Storage (GCS).</p>
+        <p>The Agent Engine requires a Python "pickle" file (`agent.pkl`) to deploy. This file must be created locally and uploaded to Google Cloud Storage (GCS).</p>
         <ol className="list-decimal list-inside space-y-2">
             <li>
                 <strong>Download and Unzip:</strong> Use the "Download" button on the main page to get a <code>.zip</code> file. Unzip it into a new folder on your local machine. It contains all the necessary source code, including the <code>create_pickle.py</code> script.
@@ -103,10 +103,10 @@ const DeployModal: React.FC<DeployModalProps> = ({ isOpen, onClose, onDeploy, co
             const res = await api.listReasoningEngines(apiConfig);
             setEngines(res.reasoningEngines || []);
             if (!res.reasoningEngines || res.reasoningEngines.length === 0) {
-                setEngineLoadError(`No reasoning engines found in ${location}. Consider creating a new one.`);
+                setEngineLoadError(`No agent engines found in ${location}. Consider creating a new one.`);
             }
         } catch (err: any) {
-            setEngineLoadError(err.message || 'Failed to load reasoning engines.');
+            setEngineLoadError(err.message || 'Failed to load agent engines.');
         } finally {
             setIsLoadingEngines(false);
         }

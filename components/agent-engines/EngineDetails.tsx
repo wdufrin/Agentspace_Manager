@@ -36,7 +36,7 @@ const ModelArmorModal: React.FC<{ isOpen: boolean; onClose: () => void; command:
                 </header>
                 <main className="p-6">
                     <p className="text-sm text-gray-300 mb-4">
-                        To enable Model Armor for this Reasoning Engine, run the following command in your terminal.
+                        To enable Model Armor for this Agent Engine, run the following command in your terminal.
                         This registers the <code>:query</code> method with the Model Armor service.
                     </p>
                     <div className="bg-gray-900 rounded-lg overflow-hidden relative group">

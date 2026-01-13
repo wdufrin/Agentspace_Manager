@@ -58,7 +58,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         setAgentConfigs(assistant.vertexAiAgentConfigs ? JSON.parse(JSON.stringify(assistant.vertexAiAgentConfigs)) : []);
     }, [assistant]);
     
-    // Fetch available reasoning engines
+    // Fetch available agent engines
     useEffect(() => {
         const fetchEngines = async () => {
             if (!config.projectId) return;
@@ -76,7 +76,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                 const allEngines = (await Promise.all(enginePromises)).flat();
                 setAvailableEngines(allEngines);
             } catch (err: any) {
-                setEngineError('Failed to load available reasoning engines.');
+                setEngineError('Failed to load available agent engines.');
             } finally {
                 setIsLoadingEngines(false);
             }
@@ -166,7 +166,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
             if (originalConfigsString !== currentConfigsString) {
                 for (const cfg of agentConfigs) {
                     if (!cfg.name || !cfg.displayName || !cfg.toolDescription) {
-                        throw new Error("All fields for each Vertex AI Agent Config (Reasoning Engine, Display Name, Tool Description) are required.");
+                        throw new Error("All fields for each Vertex AI Agent Config (Agent Engine, Display Name, Tool Description) are required.");
                     }
                 }
                 payload.vertexAiAgentConfigs = agentConfigs;
@@ -231,7 +231,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                                     <button type="button" onClick={() => handleRemoveAgentConfig(index)} className="text-sm text-red-400 hover:text-red-300">Remove</button>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-medium text-gray-400">Reasoning Engine</label>
+                                    <label className="block text-xs font-medium text-gray-400">Agent Engine</label>
                                     <select
                                         value={cfg.name}
                                         onChange={(e) => handleAgentConfigChange(index, 'name', e.target.value)}

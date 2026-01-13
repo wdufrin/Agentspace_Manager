@@ -14,7 +14,7 @@ interface AgentEnginesPageProps {
   onDirectQuery: (engine: ReasoningEngine) => void;
 }
 
-type ResourceType = 'Reasoning Engine' | 'Cloud Run (A2A)' | 'Cloud Run (Agent)' | 'Cloud Run Service';
+type ResourceType = 'Agent Engine' | 'Cloud Run (A2A)' | 'Cloud Run (Agent)' | 'Cloud Run Service';
 
 interface UnifiedResource {
     id: string; // Full resource name
@@ -23,7 +23,7 @@ interface UnifiedResource {
     type: ResourceType;
     location: string;
     data: ReasoningEngine | CloudRunService;
-    sessionCount?: number; // Only for RE
+    sessionCount?: number; // Only for Agent Engine
     uri?: string; // Only for Cloud Run
 }
 
@@ -136,7 +136,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                         id: engine.name,
                         shortId: engine.name.split('/').pop()!,
                         displayName: engine.displayName,
-                        type: 'Reasoning Engine',
+                        type: 'Agent Engine',
                         location: location,
                         data: engine,
                         sessionCount: countMap.get(engine.name)
@@ -144,7 +144,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                 });
             }
         } catch (e: any) {
-            errors.push(`Reasoning Engines: ${e.message}`);
+            errors.push(`Agent Engines: ${e.message}`);
         }
 
         try {
@@ -238,7 +238,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
 
     for (const res of resourcesToDelete) {
         try {
-            if (res.type === 'Reasoning Engine') {
+            if (res.type === 'Agent Engine') {
                 // Proactively terminate all sessions before deletion
                 try {
                     const sessionRes = await api.listReasoningEngineSessions(res.id, apiConfig);
@@ -293,7 +293,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
     if (isLoading && viewMode === 'list') return <Spinner />;
     
     if (viewMode === 'details' && selectedResource) {
-        if (selectedResource.type === 'Reasoning Engine') {
+        if (selectedResource.type === 'Agent Engine') {
             return (
                 <EngineDetails 
                     engine={selectedResource.data as ReasoningEngine} 
@@ -367,7 +367,7 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                             {resources.map((res) => {
                                 const isSelected = selectedIds.has(res.id);
                                 const usingAgents = agentsByResource[res.id] || [];
-                                const isRE = res.type === 'Reasoning Engine';
+                                const isRE = res.type === 'Agent Engine';
                                 let badgeClass = isRE ? 'bg-purple-900 text-purple-200' : 'bg-teal-900 text-teal-200';
 
                                 return (

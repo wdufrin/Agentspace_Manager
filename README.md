@@ -1,7 +1,6 @@
-
 # Gemini Enterprise Manager
 
-A comprehensive web interface to manage Google Cloud Gemini Enterprise resources. This application provides a unified console to manage Agents, Reasoning Engines, Data Stores, Authorizations, and more, effectively acting as a GUI for the Discovery Engine and Vertex AI APIs.
+A comprehensive web interface to manage Google Cloud Gemini Enterprise resources. This application provides a unified console to manage Agents, Agent Engines, Data Stores, Authorizations, and more, effectively acting as a GUI for the Discovery Engine and Vertex AI APIs.
 
 It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates directly with Google Cloud APIs using the **Google API JavaScript Client (`gapi`)**.
 
@@ -14,7 +13,7 @@ It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates dir
 
 ### 🏭 Agent Engines & Runtimes
 *   **Available Agents**: Discover and manage backend runtimes:
-    *   **Reasoning Engines (Vertex AI)**: View active sessions, terminate sessions, and perform direct queries.
+    *   **Agent Engines (Vertex AI)**: View active sessions, terminate sessions, and perform direct queries.
     *   **Cloud Run Services**: Identify services acting as A2A agents or MCP Servers.
     *   **Direct Query**: Test runtimes directly without going through the high-level Agent API.
 *   **Cloud Run Agents**: AI-powered analysis of Cloud Run services to detect if they are running agentic frameworks (LangChain, Genkit, etc.).
@@ -23,7 +22,7 @@ It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates dir
 
 ### 🛠️ Builder & Catalog
 *   **Agent Builder**: A low-code tool to generate and deploy agents.
-    *   **ADK Agents**: Generates Python code (`agent.py`, `requirements.txt`) for Vertex AI Reasoning Engines.
+    *   **ADK Agents**: Generates Python code (`agent.py`, `requirements.txt`) for Vertex AI Agent Engines.
         *   Supports **Google Search**, **Data Store**, **OAuth**, and **BigQuery** tools.
     *   **A2A Functions**: Generates Flask-based code for Cloud Run services implementing the A2A protocol.
     *   **Cloud Build Integration**: One-click deployment to Google Cloud.
@@ -46,7 +45,7 @@ It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates dir
 *   **Architecture Visualizer**: An interactive node-graph visualizing the relationships between your Project, Engines, Assistants, Agents, Data Stores, and Backends.
 *   **Backup & Recovery**:
     *   Full backup of Discovery Engine resources (Collections, Engines, Agents) to GCS.
-    *   Granular backup/restore for specific Agents, Data Stores, or Reasoning Engines.
+    *   Granular backup/restore for specific Agents, Data Stores, or Agent Engines.
 *   **Licenses**: Monitor user license assignments and prune inactive users.
     *   **Auto-Pruner**: Deploy a serverless job to automatically revoke licenses for users who haven't logged in for $N days.
 

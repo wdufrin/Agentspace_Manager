@@ -640,7 +640,7 @@ adk_app = App(
 )
 ` : ''}
 
-# Define the App for Vertex AI Reasoning Engine
+# Define the App for Vertex AI Agent Engine
 # Note: Root agent is wrapped in AdkApp as requested.
 app = reasoning_engines.AdkApp(
     agent=${hasPlugins ? 'adk_app' : 'root_agent'},
@@ -733,7 +733,7 @@ else:
      logger.info("Wrapping agent in AdkApp for deployment...")
      app_to_deploy = reasoning_engines.AdkApp(agent=app_obj, enable_tracing=False)
 
-logger.info("Creating Reasoning Engine...")
+logger.info("Creating Agent Engine...")
 remote_app = reasoning_engines.ReasoningEngine.create(
     app_to_deploy,
     requirements=reqs,
