@@ -13,6 +13,7 @@ interface AgentDeploymentModalProps {
     files: { name: string; content: string }[];
     projectNumber: string;
     onBuildTriggered?: (buildId: string) => void;
+    initialBucket?: string;
 }
 
 interface EnvVar {
@@ -31,7 +32,7 @@ const NodeIcon: React.FC<{ type: string }> = ({ type }) => {
     }
 }
 
-const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onClose, agentName, files, projectNumber, onBuildTriggered }) => {
+const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onClose, agentName, files, projectNumber, onBuildTriggered, initialBucket }) => {
     const [envVars, setEnvVars] = useState<EnvVar[]>([]);
     const [target, setTarget] = useState<'cloud_run' | 'reasoning_engine'>('reasoning_engine');
     const [region, setRegion] = useState('us-central1');
@@ -257,9 +258,10 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
                 const items = res.items || [];
                 setBuckets(items);
                 if (items.length > 0) {
-                    // Only set default if not already set or invalid
+                    // Use initialBucket if it exists and matches one of the buckets, otherwise default to first
                     setSelectedBucket(prev => {
-                        if (items.some(b => b.name === prev)) return prev;
+                        if (prev) return prev; // Already selected
+                        if (initialBucket && items.some(b => b.name === initialBucket)) return initialBucket;
                         return items[0].name;
                     });
                 }
@@ -580,6 +582,32 @@ if os.path.exists("requirements.txt"):
 reqs = list(set(reqs))
 logger.info(f"Using requirements: {reqs}")
 
+# Parse .env for deploymentSpec
+env_vars = []
+if os.path.exists(".env"):
+    try:
+        with open(".env", "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
+                    # Handle quotes if present
+                    if value.startswith('"') and value.endswith('"'):
+                        value = value[1:-1]
+                    elif value.startswith("'") and value.endswith("'"):
+                        value = value[1:-1]
+                    
+                    # Update os.environ so the SDK can pick it up locally
+                    os.environ[key] = value
+                    
+                    # Append strictly non-reserved keys to env_vars list for deployment
+                    # GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are reserved by Vertex AI
+                    if key not in ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"]:
+                        env_vars.append(key)
+        logger.info(f"Parsed {len(env_vars)} environment variables for deploymentSpec.")
+    except Exception as e:
+        logger.warning(f"Failed to parse .env file: {e}")
+
 try:
     from vertexai import agent_engines
     
@@ -604,6 +632,7 @@ try:
     remote_app = agent_engines.create(
         agent_engine=app_to_deploy,
         requirements=reqs,
+        env_vars=env_vars,
         display_name="${agentName}"
     )
 
@@ -619,6 +648,7 @@ except ImportError:
     remote_app = reasoning_engines.ReasoningEngine.create(
         app_to_deploy,
         requirements=reqs,
+        env_vars=env_vars,
         display_name="${agentName}",
     )
 
@@ -628,6 +658,11 @@ print(f"Resource Name: {remote_app.resource_name}")
                 zip.file('deploy_re.py', deployScript);
                 addLog('Generated deploy_re.py for Reasoning Engine deployment.');
             }
+
+            // Generate .env file from envVars state to ensure UI values are used
+            const envContent = envVars.map(e => `${e.key}=${e.value}`).join('\n');
+            zip.file('.env', envContent);
+            addLog('Generated .env file from metadata.');
 
             const blob = await zip.generateAsync({ type: 'blob' });
             

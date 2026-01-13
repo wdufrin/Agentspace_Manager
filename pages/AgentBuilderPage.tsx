@@ -692,6 +692,31 @@ if os.path.exists("requirements.txt"):
                 reqs.append(line)
 reqs = list(set(reqs))
 
+# Parse .env for deploymentSpec
+env_vars = []
+if os.path.exists(".env"):
+    try:
+        with open(".env", "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
+                    # Handle quotes if present
+                    if value.startswith('"') and value.endswith('"'):
+                        value = value[1:-1]
+                    elif value.startswith("'") and value.endswith("'"):
+                        value = value[1:-1]
+
+                    # Update os.environ so the SDK can pick it up
+                    os.environ[key] = value
+
+                    # Append strictly non-reserved keys to env_vars list for deployment
+                    if key not in ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"]:
+                        env_vars.append(key)
+        logger.info(f"Parsed {len(env_vars)} environment variables for deploymentSpec.")
+    except Exception as e:
+        logger.warning(f"Failed to parse .env file: {e}")
+
 # --- CRITICAL FIX FOR Pydantic ValidationError ---
 # We check if the app_obj is already an AdkApp instance by checking key attributes or class name.
 # This prevents 'double-wrapping' which causes the 'Input should be a valid dictionary or instance of BaseAgent' error.
@@ -712,6 +737,7 @@ logger.info("Creating Reasoning Engine...")
 remote_app = reasoning_engines.ReasoningEngine.create(
     app_to_deploy,
     requirements=reqs,
+    env_vars=env_vars,
     display_name=os.getenv("AGENT_DISPLAY_NAME", "${config.name || 'my-agent'}"),
 )
 
@@ -720,12 +746,12 @@ print(f"Resource Name: {remote_app.resource_name}")
 `.trim();
 };
 
-const generateAdkEnvFile = (config: AdkAgentConfig, projectNumber: string, location: string): string => {
+const generateAdkEnvFile = (config: AdkAgentConfig, projectNumber: string, location: string, stagingBucket: string): string => {
     let content = `GOOGLE_GENAI_USE_VERTEXAI=TRUE
 MODEL="${config.model}"
 GOOGLE_CLOUD_PROJECT="${projectNumber}"
 GOOGLE_CLOUD_LOCATION="${location}"
-STAGING_BUCKET="gs://YOUR_BUCKET_NAME"
+STAGING_BUCKET="${stagingBucket || 'gs://YOUR_BUCKET_NAME'}"
 AGENT_DISPLAY_NAME="${config.name}"`;
 
     if (config.enableOAuth && config.authId) {
@@ -856,7 +882,12 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     const [dataStores, setDataStores] = useState<(DataStore & { location: string })[]>([]);
     const [isLoadingDataStores, setIsLoadingDataStores] = useState(false);
     const [dataStoreSearchTerm, setDataStoreSearchTerm] = useState('');
-    
+
+    // Staging Bucket State
+    const [stagingBucket, setStagingBucket] = useState('');
+    const [buckets, setBuckets] = useState<GcsBucket[]>([]);
+    const [isLoadingBuckets, setIsLoadingBuckets] = useState(false);
+
     // A2A Tool State
     const [cloudRunServices, setCloudRunServices] = useState<CloudRunService[]>([]);
     const [isLoadingServices, setIsLoadingServices] = useState(false);
@@ -930,12 +961,12 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     // ADK Code Generation
     useEffect(() => {
         const agentCode = generateAdkPythonCode(adkConfig);
-        const envCode = generateAdkEnvFile(adkConfig, projectNumber, vertexLocation);
+        const envCode = generateAdkEnvFile(adkConfig, projectNumber, vertexLocation, stagingBucket);
         const reqsCode = generateAdkRequirementsFile(adkConfig);
         const readmeCode = generateAdkReadmeFile(adkConfig);
         const deployCode = generateAdkDeployScript(adkConfig);
         setAdkGeneratedCode({ agent: agentCode, env: envCode, requirements: reqsCode, readme: readmeCode, deploy_re: deployCode });
-    }, [adkConfig, projectNumber, vertexLocation]);
+    }, [adkConfig, projectNumber, vertexLocation, stagingBucket]);
 
     // ADK Data Store & Buckets Fetching
     const apiConfig = useMemo(() => ({
@@ -998,6 +1029,25 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         
         setCloudRunServices(a2a);
         setIsLoadingServices(false);
+
+          // Fetch Buckets
+          setIsLoadingBuckets(true);
+          try {
+              // We need to resolve the project string first if currently a number, 
+              // but here we just try api.listBuckets which likely expects an ID string or number.
+              // If projectNumber is actually a number, listBuckets usually works if valid.
+              // Best effort:
+              const b = await api.listBuckets(projectNumber);
+              const items = b.items || [];
+              setBuckets(items);
+              if (items.length > 0 && !stagingBucket) {
+                  setStagingBucket(`gs://${items[0].name}`);
+              }
+          } catch (e) {
+              console.error("Failed to fetch buckets", e);
+          } finally {
+              setIsLoadingBuckets(false);
+          }
       };
       
       fetchData();
@@ -1205,7 +1255,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
             </div>
             
             {/* Deploy Modals */}
-            <AgentDeploymentModal isOpen={isAdkDeployModalOpen} onClose={() => setIsAdkDeployModalOpen(false)} agentName={adkConfig.name || 'my-agent'} files={adkFilesForBuild} projectNumber={projectNumber} onBuildTriggered={handleBuildTriggered} />
+            <AgentDeploymentModal isOpen={isAdkDeployModalOpen} onClose={() => setIsAdkDeployModalOpen(false)} agentName={adkConfig.name || 'my-agent'} files={adkFilesForBuild} projectNumber={projectNumber} onBuildTriggered={handleBuildTriggered} initialBucket={stagingBucket ? stagingBucket.replace('gs://', '') : undefined} />
             <A2aDeployModal isOpen={isA2aDeployModalOpen} onClose={() => setIsA2aDeployModalOpen(false)} projectNumber={projectNumber} serviceName={a2aConfig.serviceName} region={a2aConfig.region} files={a2aFilesForBuild} onBuildTriggered={handleBuildTriggered} />
             
             {isFixMode && builderTab === 'a2a' && (
@@ -1467,6 +1517,40 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                     </button>
                                 ))}
                             </div>
+
+                            {/* Staging Bucket */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Staging Bucket</label>
+                                <div className="flex gap-2">
+                                    <select
+                                        value={stagingBucket}
+                                        onChange={(e) => setStagingBucket(e.target.value)}
+                                        className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full focus:ring-teal-500 focus:border-teal-500"
+                                    >
+                                        <option value="">-- Select Bucket --</option>
+                                        {buckets.map(b => (
+                                            <option key={b.name} value={`gs://${b.name}`}>gs://{b.name}</option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        onClick={() => {
+                                            setIsLoadingBuckets(true);
+                                            api.listBuckets(projectNumber).then(res => {
+                                                setBuckets(res.items || []);
+                                                setIsLoadingBuckets(false);
+                                            });
+                                        }}
+                                        disabled={isLoadingBuckets}
+                                        className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 disabled:opacity-50"
+                                        title="Refresh Buckets"
+                                    >
+                                        &#x21bb;
+                                    </button>
+                                </div>
+                                {!stagingBucket && <p className="text-xs text-yellow-500 mt-1">Required for deployment.</p>}
+                            </div>
+
+                            {/* Location */}
                             <button 
                                 onClick={() => handleCopy(builderTab === 'adk' ? adkCodeDisplay : a2aCodeDisplay, builderTab === 'adk' ? setAdkCopySuccess : setA2aCopySuccess)} 
                                 className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500"
