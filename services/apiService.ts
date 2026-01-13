@@ -738,7 +738,7 @@ export const detectDialogflowIntent = async (agentName: string, query: string, s
 export const getAgentIamPolicy = async (name: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
     const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}:getIamPolicy`;
-    return gapiRequest<any>(url, 'POST', config.projectId);
+    return gapiRequest<any>(url, 'GET', config.projectId);
 };
 
 export const setAgentIamPolicy = async (name: string, policy: any, config: Config) => {
