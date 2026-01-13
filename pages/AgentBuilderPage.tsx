@@ -1225,12 +1225,46 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                         <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
                                     </select>
                                 </div>
+
+                                {/* Staging Bucket - Moved here for ADK */}
+                                <div className="mt-2">
+                                    <label className="block text-sm font-medium text-gray-400 mb-1">Staging Bucket</label>
+                                    <div className="flex gap-2">
+                                        <select
+                                            value={stagingBucket}
+                                            onChange={(e) => setStagingBucket(e.target.value)}
+                                            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full focus:ring-teal-500 focus:border-teal-500"
+                                        >
+                                            <option value="">-- Select Bucket --</option>
+                                            {buckets.map(b => (
+                                                <option key={b.name} value={`gs://${b.name}`}>gs://{b.name}</option>
+                                            ))}
+                                        </select>
+                                        <button
+                                            onClick={() => {
+                                                setIsLoadingBuckets(true);
+                                                api.listBuckets(projectNumber).then(res => {
+                                                    setBuckets(res.items || []);
+                                                    setIsLoadingBuckets(false);
+                                                });
+                                            }}
+                                            disabled={isLoadingBuckets}
+                                            className="px-3 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 disabled:opacity-50"
+                                            title="Refresh Buckets"
+                                        >
+                                            &#x21bb;
+                                        </button>
+                                    </div>
+                                    {!stagingBucket && <p className="text-xs text-yellow-500 mt-1">Required for deployment.</p>}
+                                </div>
                                 <div>
                                     <div className="flex justify-between items-center mb-1">
                                         <label className="block text-sm font-medium text-gray-400">Instruction</label>
                                         <button onClick={() => handleRewrite('instruction')} disabled={rewritingField === 'instruction'} className="text-xs text-blue-400 hover:text-blue-300">{rewritingField === 'instruction' ? '...' : 'AI Rewrite'}</button>
                                     </div>
-                                    <textarea name="instruction" value={adkConfig.instruction} onChange={handleAdkConfigChange} rows={4} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full" />
+
+
+                                    <textarea name="instruction" value={adkConfig.instruction} onChange={handleAdkConfigChange} rows={4} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full mt-2" />
                                 </div>
                                 <div className="space-y-2 pt-2 border-t border-gray-600">
                                     <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="useGoogleSearch" checked={adkConfig.useGoogleSearch} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable Google Search Tool</span></label>
@@ -1260,6 +1294,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                         <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
                                     </select>
                                 </div>
+
                                 <div><label className="block text-sm font-medium text-gray-400 mb-1">Region</label><select name="region" value={a2aConfig.region} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]"><option value="us-central1">us-central1</option><option value="europe-west1">europe-west1</option><option value="asia-east1">asia-east1</option></select></div>
                                 <div>
                                     <div className="flex justify-between items-center mb-1">
@@ -1393,7 +1428,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                 ))}
                             </div>
 
-                            {/* Staging Bucket */}
 
 
                             {/* Location */}
