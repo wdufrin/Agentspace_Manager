@@ -174,6 +174,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
                 toolsSpec
             );
         } catch (err: any) {
+            console.error("Chat Error Details:", err);
             const errorMessage = `Error: ${err.message || "Failed to get response from agent."}`;
             setError(errorMessage);
             setMessages(prev => {
