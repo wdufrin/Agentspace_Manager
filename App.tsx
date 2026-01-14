@@ -49,6 +49,7 @@ const GOOGLE_CLIENT_ID = '180054373655-2b600fnjissdmll4ipj2ndhr0i2h03fj.apps.goo
 const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>(Page.AGENTS);
   const [pageContext, setPageContext] = useState<any>(null);
+    const [refreshKey, setRefreshKey] = useState(0);
   
   const [accessToken, setAccessToken] = useState<string>(() => sessionStorage.getItem('agentspace-accessToken') || '');
   const [projectNumber, setProjectNumber] = useState<string>(() => sessionStorage.getItem('agentspace-projectNumber') || '');
@@ -308,6 +309,17 @@ const App: React.FC = () => {
     setCurrentPage(page);
     setPageContext(context);
   };
+
+    const handleMenuClick = (page: Page) => {
+        if (page === currentPage) {
+            // Force remount to reset state
+            setRefreshKey(prev => prev + 1);
+            setPageContext(null);
+        } else {
+            setCurrentPage(page);
+            setPageContext(null);
+        }
+    };
   
   const handleDirectQuery = (engine: ReasoningEngine) => {
     setDirectQueryEngine(engine);
@@ -805,7 +817,7 @@ const App: React.FC = () => {
   return (
     <>
       <div className="flex h-screen bg-gray-900 text-gray-100 font-sans">
-        <Sidebar currentPage={currentPage} setCurrentPage={setCurrentPage} onShowInfo={handleShowInfo} />
+              <Sidebar currentPage={currentPage} setCurrentPage={handleMenuClick} onShowInfo={handleShowInfo} />
         <main className="flex-1 flex flex-col overflow-hidden">
           <header className="bg-gray-800 border-b border-gray-700 p-4 flex flex-col gap-4 md:flex-row md:justify-between md:items-center">
             <h1 className="text-xl font-bold text-white text-center md:text-left">Gemini Enterprise Manager</h1>
@@ -816,7 +828,7 @@ const App: React.FC = () => {
                 onSignOut={handleSignOut}
             />
           </header>
-          <div className="flex-1 overflow-y-auto p-6 relative">
+                  <div key={`${currentPage}-${refreshKey}`} className="flex-1 overflow-y-auto p-6 relative">
             {renderPage()}
           </div>
         </main>
