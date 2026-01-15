@@ -8,23 +8,22 @@ It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates dir
 
 ### 🤖 Agent Management
 *   **Agents Manager**: List, create, update, and delete agents. Supports toggling agent status (Enable/Disable).
-*   **Agent Registration**: A guided flow to register deployed **Agent-to-Agent (A2A)** services as discoverable tools within Gemini Enterprise.
 *   **Chat Testing**: Built-in chat interface to test agents and assistants with streaming responses, tool visualization, and grounding metadata inspection.
+*   **Project Context**: smart header with Breadcrumbs and quick project switching (Project ID/Number).
+
+### 📚 Documentation & Help
+*   **User Manual**: built-in help system with detailed feature guides and API info.
+*   **API Reference**: Clear documentation of underlying API calls for each feature.
 
 ### 🏭 Agent Engines & Runtimes
 *   **Available Agents**: Discover and manage backend runtimes:
     *   **Agent Engines (Vertex AI)**: View active sessions, terminate sessions, and perform direct queries.
-    *   **Cloud Run Services**: Identify services acting as A2A agents or MCP Servers.
     *   **Direct Query**: Test runtimes directly without going through the high-level Agent API.
-*   **Cloud Run Agents**: AI-powered analysis of Cloud Run services to detect if they are running agentic frameworks (LangChain, Genkit, etc.).
-*   **Dialogflow CX**: List and test Dialogflow CX agents within the same console.
-*   **MCP Servers**: Dedicated view for Model Context Protocol (MCP) servers deployed on Cloud Run.
 
 ### 🛠️ Builder & Catalog
 *   **Agent Builder**: A low-code tool to generate and deploy agents.
     *   **ADK Agents**: Generates Python code (`agent.py`, `requirements.txt`) for Vertex AI Agent Engines.
         *   Supports **Google Search**, **Data Store**, **OAuth**, and **BigQuery** tools.
-    *   **A2A Functions**: Generates Flask-based code for Cloud Run services implementing the A2A protocol.
     *   **Cloud Build Integration**: One-click deployment to Google Cloud.
 *   **Agent Catalog**: Browse sample agents from GitHub repositories and deploy them directly to your project.
 
@@ -104,3 +103,24 @@ gcloud run deploy gemini-manager \
 *   **State Management**: React Hooks + Session Storage
 *   **Visualization**: React Flow (Architecture Graph)
 *   **API Client**: `window.gapi` (Google API Client Library for JavaScript)
+
+## API Reference
+
+The application communicates with several Google Cloud APIs. Below is a reference of the key resources and methods used:
+
+### Discovery Engine API (`discoveryengine.googleapis.com`)
+*   **Engines**: `GET /v1alpha/projects/{project}/locations/{location}/collections/{collection}/engines`
+*   **Assistants**: `GET /v1alpha/projects/{project}/locations/{location}/collections/{collection}/engines/{engine}/assistants`
+*   **Data Stores**: `GET /v1beta/projects/{project}/locations/{location}/collections/{collection}/dataStores`
+*   **Conversations**: `POST /v1beta/projects/{project}/locations/{location}/collections/{collection}/dataStores/{dataStore}/conversations`
+
+### Vertex AI API (`aiplatform.googleapis.com`)
+*   **Reasoning Engines**: `GET /v1beta1/projects/{project}/locations/{location}/reasoningEngines`
+*   **Chat Completions**: `POST /v1beta1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent` (for Gemini models)
+
+### Service Usage API (`serviceusage.googleapis.com`)
+*   **Services**: `GET /v1/projects/{project}/services` (Used to validate enabled APIs on startup)
+
+### IAM API (`iam.googleapis.com`)
+*   **Permissions**: `POST /v1/projects/{project}:testIamPermissions` (Used to check service account permissions)
+

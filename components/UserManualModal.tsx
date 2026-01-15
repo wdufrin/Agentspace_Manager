@@ -12,12 +12,14 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
 
     const sections = [
         { id: 'overview', title: 'Overview' },
-        { id: 'agents', title: 'Agents' },
-        { id: 'builder', title: 'Agent Builder' },
-        { id: 'engines', title: 'Engines & Assistants' },
-        { id: 'dataStores', title: 'Data Stores' },
-        { id: 'architecture', title: 'Architecture' },
-        { id: 'security', title: 'Security' },
+        { id: 'agents', title: 'Agent Management' },
+        { id: 'engines', title: 'Agent Engines' },
+        { id: 'builder', title: 'Builder & Catalog' },
+        { id: 'dataStores', title: 'Knowledge & Data' },
+        { id: 'security', title: 'Security & Governance' },
+        { id: 'operations', title: 'Operations' },
+        { id: 'setup', title: 'Setup & Configuration' },
+        { id: 'api', title: 'API Reference' },
     ];
 
     const renderContent = () => {
@@ -26,16 +28,12 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                 return (
                     <div className="space-y-4">
                         <section>
-                            <h3 className="text-lg font-bold text-white mb-2">Welcome to Agentspace Manager</h3>
-                            <p>This centralized console allows you to manage the entire lifecycle of your Gemini Enterprise agents, from creation and configuration to deployment and monitoring.</p>
+                            <h3 className="text-lg font-bold text-white mb-2">Gemini Enterprise Manager</h3>
+                            <p>A comprehensive web interface to manage Google Cloud Gemini Enterprise resources. This application provides a unified console to manage Agents, Agent Engines, Data Stores, Authorizations, and more, effectively acting as a GUI for the Discovery Engine and Vertex AI APIs.</p>
                         </section>
                         <section>
-                            <h4 className="text-md font-semibold text-blue-300 mb-2">Key Concepts</h4>
-                            <ul className="list-disc pl-5 space-y-1 text-gray-300">
-                                <li><strong>Agents:</strong> The core AI entities that interact with users. Can be built on Vertex AI or Dialogflow.</li>
-                                <li><strong>Engines:</strong> The backend reasoning runtimes that power your agents (Discovery Engine).</li>
-                                <li><strong>Data Stores:</strong> The knowledge bases (websites, documents) that ground your agents' responses.</li>
-                            </ul>
+                            <h4 className="text-md font-semibold text-blue-300 mb-2">Features Overview</h4>
+                            <p>It is built with <strong>React</strong>, <strong>Vite</strong>, and <strong>Tailwind CSS</strong>, and communicates directly with Google Cloud APIs using the <strong>Google API JavaScript Client (<code>gapi</code>)</strong>.</p>
                         </section>
                     </div>
                 );
@@ -44,37 +42,10 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                     <div className="space-y-4">
                         <section>
                             <h3 className="text-lg font-bold text-white mb-2">Agent Management</h3>
-                            <p>View, filter, and interact with all deployed agents. This view consolidates agents from Vertex AI Agent Engine and Dialogflow CX.</p>
-                        </section>
-                        <section className="bg-gray-900/50 p-3 rounded-md border border-gray-700">
-                            <h4 className="text-xs font-mono font-bold text-gray-400 mb-2 uppercase">Underlying APIs</h4>
-                            <ul className="text-xs font-mono text-green-400 space-y-1">
-                                <li>GET /v1beta1/projects/*/locations/*/reasoningEngines</li>
-                                <li>GET /v3/projects/*/locations/*/agents (Dialogflow)</li>
-                            </ul>
-                        </section>
-                    </div>
-                );
-            case 'builder':
-                return (
-                    <div className="space-y-4">
-                        <section>
-                            <h3 className="text-lg font-bold text-white mb-2">Agent Builder</h3>
-                            <p>A drag-and-drop interface to create new agents. You can configure models (Gemini Pro/Flash), set system instructions, and attach tools (Data Stores, Open API tools).</p>
-                        </section>
-                        <section>
-                            <h4 className="text-md font-semibold text-blue-300 mb-1">Features</h4>
                             <ul className="list-disc pl-5 space-y-1 text-gray-300">
-                                <li>Multi-step reasoning engine creation.</li>
-                                <li>Automatic Cloud Build triggering for deployment.</li>
-                                <li>"AI Rewrite" helper to optimize system instructions.</li>
-                            </ul>
-                        </section>
-                        <section className="bg-gray-900/50 p-3 rounded-md border border-gray-700">
-                            <h4 className="text-xs font-mono font-bold text-gray-400 mb-2 uppercase">Underlying APIs</h4>
-                            <ul className="text-xs font-mono text-green-400 space-y-1">
-                                <li>POST /v1/projects/*/locations/*/reasoningEngines</li>
-                                <li>POST /v1/projects/*/locations/*/builds (Cloud Build)</li>
+                                <li><strong>Agents Manager</strong>: List, create, update, and delete agents. Supports toggling agent status (Enable/Disable).</li>
+                                <li><strong>Chat Testing</strong>: Built-in chat interface to test agents and assistants with streaming responses, tool visualization, and grounding metadata inspection.</li>
+                                <li><strong>Project Context</strong>: Smart header with Breadcrumbs and quick project switching (Project ID/Number).</li>
                             </ul>
                         </section>
                     </div>
@@ -83,22 +54,33 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                 return (
                     <div className="space-y-4">
                         <section>
-                            <h3 className="text-lg font-bold text-white mb-2">Engines & Assistants</h3>
-                            <p>Manage the high-level application containers (Engines) and their configurations (Assistants). This is where you configure "Web Grounding," "Style Instructions," and enable/disable specific tools.</p>
-                        </section>
-                        <section>
-                            <h4 className="text-md font-semibold text-blue-300 mb-1">Capabilities</h4>
+                            <h3 className="text-lg font-bold text-white mb-2">Agent Engines & Runtimes</h3>
                             <ul className="list-disc pl-5 space-y-1 text-gray-300">
-                                <li><strong>Feature Flags:</strong> Toggle features like "End User Agent Creation" or location context.</li>
-                                <li><strong>Model Configs:</strong> Enable/Disable specific models available to the engine.</li>
-                                <li><strong>Analytics:</strong> View BigQuery export metrics for agent performance.</li>
+                                <li>
+                                    <strong>Available Agents</strong>: Discover and manage backend runtimes:
+                                    <ul className="list-disc pl-5 mt-1 space-y-1 text-gray-400">
+                                        <li><strong>Agent Engines (Vertex AI)</strong>: View active sessions, terminate sessions, and perform direct queries.</li>
+                                        <li><strong>Direct Query</strong>: Test runtimes directly without going through the high-level Agent API.</li>
+                                    </ul>
+                                </li>
                             </ul>
                         </section>
-                        <section className="bg-gray-900/50 p-3 rounded-md border border-gray-700">
-                            <h4 className="text-xs font-mono font-bold text-gray-400 mb-2 uppercase">Underlying APIs</h4>
-                            <ul className="text-xs font-mono text-green-400 space-y-1">
-                                <li>GET/PATCH /v1alpha/projects/*/locations/*/collections/*/engines/*</li>
-                                <li>GET/PATCH /v1alpha/.../assistants/*</li>
+                    </div>
+                );
+            case 'builder':
+                return (
+                    <div className="space-y-4">
+                        <section>
+                            <h3 className="text-lg font-bold text-white mb-2">Builder & Catalog</h3>
+                            <ul className="list-disc pl-5 space-y-1 text-gray-300">
+                                <li>
+                                    <strong>Agent Builder</strong>: A low-code tool to generate and deploy agents.
+                                    <ul className="list-disc pl-5 mt-1 space-y-1 text-gray-400">
+                                        <li><strong>ADK Agents</strong>: Generates Python code (<code>agent.py</code>, <code>requirements.txt</code>) for Vertex AI Agent Engines. Supports <strong>Google Search</strong>, <strong>Data Store</strong>, <strong>OAuth</strong>, and <strong>BigQuery</strong> tools.</li>
+                                        <li><strong>Cloud Build Integration</strong>: One-click deployment to Google Cloud.</li>
+                                    </ul>
+                                </li>
+                                <li><strong>Agent Catalog</strong>: Browse sample agents from GitHub repositories and deploy them directly to your project.</li>
                             </ul>
                         </section>
                     </div>
@@ -107,30 +89,16 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                 return (
                     <div className="space-y-4">
                         <section>
-                            <h3 className="text-lg font-bold text-white mb-2">Data Stores</h3>
-                            <p>Manage the knowledge bases that your agents use to answer questions. You can link websites, upload documents (PDF, HTML), or connect to BigQuery tables.</p>
-                        </section>
-                        <section className="bg-gray-900/50 p-3 rounded-md border border-gray-700">
-                            <h4 className="text-xs font-mono font-bold text-gray-400 mb-2 uppercase">Underlying APIs</h4>
-                            <ul className="text-xs font-mono text-green-400 space-y-1">
-                                <li>GET /v1beta/projects/*/locations/*/collections/*/dataStores</li>
-                                <li>POST /v1beta/.../branches/0/documents:import</li>
-                            </ul>
-                        </section>
-                    </div>
-                );
-            case 'architecture':
-                return (
-                    <div className="space-y-4">
-                        <section>
-                            <h3 className="text-lg font-bold text-white mb-2">Architecture View</h3>
-                            <p>A visual graph representation of your cloud resources. It automatically scans your project to show relationships between Agents, Engines, Data Stores, and underlying Compute (Cloud Run).</p>
-                        </section>
-                        <section className="bg-gray-900/50 p-3 rounded-md border border-gray-700">
-                            <h4 className="text-xs font-mono font-bold text-gray-400 mb-2 uppercase">Underlying APIs</h4>
-                            <p className="text-xs text-gray-500 mb-1">This view aggregates data from all other APIs, plus:</p>
-                            <ul className="text-xs font-mono text-green-400 space-y-1">
-                                <li>GET /v2/projects/*/locations/*/services (Cloud Run)</li>
+                            <h3 className="text-lg font-bold text-white mb-2">Knowledge & Data</h3>
+                            <ul className="list-disc pl-5 space-y-1 text-gray-300">
+                                <li>
+                                    <strong>Data Stores</strong>: Manage Vertex AI Search data stores.
+                                    <ul className="list-disc pl-5 mt-1 space-y-1 text-gray-400">
+                                        <li>Create and Edit data stores with advanced parsing configuration (Digital, OCR, Layout).</li>
+                                        <li><strong>Document Management</strong>: List documents and import new files directly from your computer or Google Cloud Storage (GCS).</li>
+                                    </ul>
+                                </li>
+                                <li><strong>Assistant Configuration</strong>: Manage the default assistant's system instructions, grounding settings (Google Search), and enabled tools/actions.</li>
                             </ul>
                         </section>
                     </div>
@@ -139,14 +107,96 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                 return (
                     <div className="space-y-4">
                         <section>
-                            <h3 className="text-lg font-bold text-white mb-2">Security & Access</h3>
-                            <p>Manage IAM policies and access controls. Ensure that only authorized users and service accounts can invoke your agents or modify configurations.</p>
+                            <h3 className="text-lg font-bold text-white mb-2">Security & Governance</h3>
+                            <ul className="list-disc pl-5 space-y-1 text-gray-300">
+                                <li><strong>Authorizations</strong>: Manage OAuth2 configurations for agents.</li>
+                                <li>
+                                    <strong>Model Armor</strong>:
+                                    <ul className="list-disc pl-5 mt-1 space-y-1 text-gray-400">
+                                        <li><strong>Log Viewer</strong>: Inspect sanitization logs to see what content was blocked or modified.</li>
+                                        <li><strong>Policy Generator</strong>: Create Model Armor templates to filter Hate Speech, PII, and Prompt Injection.</li>
+                                    </ul>
+                                </li>
+                                <li><strong>IAM Policies</strong>: View and edit IAM policies for specific agents directly from the UI.</li>
+                            </ul>
+                        </section>
+                    </div>
+                );
+            case 'operations':
+                return (
+                    <div className="space-y-4">
+                        <section>
+                            <h3 className="text-lg font-bold text-white mb-2">Operations</h3>
+                            <ul className="list-disc pl-5 space-y-1 text-gray-300">
+                                <li><strong>Architecture Visualizer</strong>: An interactive node-graph visualizing the relationships between your Project, Engines, Assistants, Agents, Data Stores, and Backends.</li>
+                                <li>
+                                    <strong>Backup & Recovery</strong>:
+                                    <ul className="list-disc pl-5 mt-1 space-y-1 text-gray-400">
+                                        <li>Full backup of Discovery Engine resources (Collections, Engines, Agents) to GCS.</li>
+                                        <li>Granular backup/restore for specific Agents, Data Stores, or Agent Engines.</li>
+                                    </ul>
+                                </li>
+                                <li>
+                                    <strong>Licenses</strong>: Monitor user license assignments and prune inactive users.
+                                    <ul className="list-disc pl-5 mt-1 space-y-1 text-gray-400">
+                                        <li><strong>Auto-Pruner</strong>: Deploy a serverless job to automatically revoke licenses for users who haven't logged in for $N days.</li>
+                                    </ul>
+                                </li>
+                            </ul>
+                        </section>
+                    </div>
+                );
+            case 'setup':
+                return (
+                    <div className="space-y-4">
+                        <section>
+                            <h3 className="text-lg font-bold text-white mb-2">Setup & Configuration</h3>
+                            <h4 className="text-md font-semibold text-blue-300 mb-1">Prerequisites</h4>
+                            <ul className="list-disc pl-5 space-y-1 text-gray-300">
+                                <li>A Google Cloud Project.</li>
+                                <li>Required APIs enabled (Discovery Engine, Vertex AI, Cloud Run, Cloud Build, Storage, Service Usage).</li>
+                            </ul>
+                        </section>
+                        <section>
+                            <h4 className="text-md font-semibold text-blue-300 mb-1">Usage Tips</h4>
+                            <ul className="list-disc pl-5 space-y-1 text-gray-300">
+                                <li><strong>API Validation</strong>: On first load, the app checks if required APIs are enabled. Use the "Enable APIs" button to fix missing dependencies.</li>
+                                <li><strong>Access Token</strong>: If you cannot use Google Sign-In, you can manually paste a token generated via <code>gcloud auth print-access-token</code>.</li>
+                                <li><strong>Region Selection</strong>: Ensure you select the correct location (Global, US, EU) in the configuration bar.</li>
+                            </ul>
+                        </section>
+                    </div>
+                );
+            case 'api':
+                return (
+                    <div className="space-y-4">
+                        <section>
+                            <h3 className="text-lg font-bold text-white mb-2">API Reference</h3>
+                            <p className="mb-2">The application communicates with several Google Cloud APIs. Below is a reference of the key resources and methods used:</p>
                         </section>
                         <section className="bg-gray-900/50 p-3 rounded-md border border-gray-700">
-                            <h4 className="text-xs font-mono font-bold text-gray-400 mb-2 uppercase">Underlying APIs</h4>
-                            <ul className="text-xs font-mono text-green-400 space-y-1">
-                                <li>POST /v1/projects/*:testIamPermissions</li>
-                                <li>GET /v1/projects/*/serviceAccounts</li>
+                            <h4 className="text-md font-semibold text-blue-300 mb-2">Discovery Engine API</h4>
+                            <code className="text-xs text-green-400 block mb-1">discoveryengine.googleapis.com</code>
+                            <ul className="text-xs font-mono text-gray-300 space-y-1">
+                                <li><strong>Engines</strong>: GET /v1alpha/projects/&#123;project&#125;/locations/&#123;location&#125;/collections/&#123;collection&#125;/engines</li>
+                                <li><strong>Assistants</strong>: GET /v1alpha/projects/.../engines/&#123;engine&#125;/assistants</li>
+                                <li><strong>Data Stores</strong>: GET /v1beta/projects/.../dataStores</li>
+                                <li><strong>Conversations</strong>: POST /v1beta/projects/.../conversations</li>
+                            </ul>
+                        </section>
+                        <section className="bg-gray-900/50 p-3 rounded-md border border-gray-700">
+                            <h4 className="text-md font-semibold text-blue-300 mb-2">Vertex AI API</h4>
+                            <code className="text-xs text-green-400 block mb-1">aiplatform.googleapis.com</code>
+                            <ul className="text-xs font-mono text-gray-300 space-y-1">
+                                <li><strong>Reasoning Engines</strong>: GET /v1beta1/projects/&#123;project&#125;/locations/&#123;location&#125;/reasoningEngines</li>
+                                <li><strong>Chat Completions</strong>: POST /v1beta1/projects/.../models/&#123;model&#125;:generateContent</li>
+                            </ul>
+                        </section>
+                        <section className="bg-gray-900/50 p-3 rounded-md border border-gray-700">
+                            <h4 className="text-md font-semibold text-blue-300 mb-2">IAM & Service Usage</h4>
+                            <ul className="text-xs font-mono text-gray-300 space-y-1">
+                                <li><strong>Service Usage</strong>: GET /v1/projects/&#123;project&#125;/services</li>
+                                <li><strong>IAM Permissions</strong>: POST /v1/projects/&#123;project&#125;:testIamPermissions</li>
                             </ul>
                         </section>
                     </div>
