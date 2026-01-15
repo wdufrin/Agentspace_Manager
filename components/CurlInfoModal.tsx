@@ -106,6 +106,31 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
         "query": { "text": "Hello, what can you do?" }
       }' \\
   "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/default_assistant:streamAssist"`
+          },
+          {
+            title: 'List Engines (Configuration)',
+            command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/default_collection/engines"`
+          },
+          {
+            title: 'Update Engine Configuration',
+            command: `curl -X PATCH \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "displayName": "Updated Engine Name",
+        "features": {
+            "model-selector": "FEATURE_STATE_ON",
+            "people-search": "FEATURE_STATE_OFF"
+        },
+        "modelConfigs": {
+            "gemini-2.5-pro": "MODEL_ENABLED"
+        }
+      }' \\
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/default_collection/engines/[ENGINE_ID]?updateMask=display_name,features,model_configs"`
             }
         ]
     },

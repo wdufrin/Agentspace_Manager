@@ -92,10 +92,16 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
   const [config, setConfig] = useState(getInitialConfig);
   
   // List View State
+    const [allEngines, setAllEngines] = useState<AppEngine[]>([]);
   const [rows, setRows] = useState<AssistantRowData[]>([]);
   const [isListLoading, setIsListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
-  
+
+    // Pagination & Search State
+    const [searchQuery, setSearchQuery] = useState('');
+    const [page, setPage] = useState(1);
+    const pageSize = 10;
+
   // Sorting State
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'displayName', direction: 'asc' });
 
@@ -124,7 +130,10 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
     const { name, value } = e.target;
     setConfig(prev => ({ ...prev, [name]: value }));
     setRows([]); // Clear list on location change
+      setAllEngines([]);
     setSelectedRow(null);
+      setPage(1);
+      setSearchQuery('');
   };
 
   const handleSort = (key: SortKey) => {
@@ -183,8 +192,8 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
       });
   }, [rows, sortConfig]);
 
-  // Fetch All Engines and their Assistants
-  const fetchList = useCallback(async () => {
+    // 1. Fetch ALL Engines first (Cheap)
+    const fetchEngines = useCallback(async () => {
     if (!projectNumber) {
         setListError("Project Number is required.");
         return;
@@ -192,48 +201,76 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
     setIsListLoading(true);
     setListError(null);
     setRows([]);
+        setAllEngines([]);
 
-    try {
-        // 1. List Engines
+        try {
         const enginesRes = await api.listResources('engines', { ...baseApiConfig, appId: '' });
         const engines: AppEngine[] = enginesRes.engines || [];
-
-        if (engines.length === 0) {
-            setRows([]);
+            setAllEngines(engines);
+        } catch (err: any) {
+            setListError(err.message || "Failed to fetch engines list.");
+        } finally {
             setIsListLoading(false);
-            return;
         }
+    }, [baseApiConfig, projectNumber]);
 
-        // 2. Fetch Default Assistant for each Engine (Parallel)
-        const rowPromises = engines.map(async (engine) => {
-            const appId = engine.name.split('/').pop()!;
-            // Suppress error log because 404 is expected for some engines (e.g. Chat)
-            const assistantConfig = { ...baseApiConfig, appId, suppressErrorLog: true };
-            const assistantName = `projects/${baseApiConfig.projectId}/locations/${baseApiConfig.appLocation}/collections/default_collection/engines/${appId}/assistants/default_assistant`;
-            
-            try {
-                const assistant = await api.getAssistant(assistantName, assistantConfig);
-                return { engine, assistant };
-            } catch (e: any) {
-                // If assistant doesn't exist (e.g. Chat app), return null assistant
-                return { engine, assistant: null, error: e.message };
+    // Auto-refresh when config changes
+    useEffect(() => {
+        fetchEngines();
+    }, [fetchEngines]);
+
+    // Derived: Filtered Engines
+    const filteredEngines = useMemo(() => {
+        if (!searchQuery) return allEngines;
+        const lowerQ = searchQuery.toLowerCase();
+        return allEngines.filter(e =>
+            e.displayName.toLowerCase().includes(lowerQ) ||
+            e.name.split('/').pop()?.toLowerCase().includes(lowerQ)
+        );
+    }, [allEngines, searchQuery]);
+
+    // Derived: Paginated Slice of Engines (we only fetch details for these)
+    const paginatedEngines = useMemo(() => {
+        const start = (page - 1) * pageSize;
+        const end = start + pageSize;
+        return filteredEngines.slice(start, end);
+    }, [filteredEngines, page]);
+
+    // 2. Fetch Assistants for Current Page ONLY (Active Slice)
+    useEffect(() => {
+        const fetchPageDetails = async () => {
+            if (paginatedEngines.length === 0) {
+                setRows([]);
+                return;
             }
-        });
 
-        const results = await Promise.all(rowPromises);
-        setRows(results);
+            setIsListLoading(true); // Show loading indicator while fetching slice details
 
-    } catch (err: any) {
-        setListError(err.message || "Failed to fetch engines list.");
-    } finally {
-        setIsListLoading(false);
-    }
-  }, [baseApiConfig, projectNumber]);
+            const rowPromises = paginatedEngines.map(async (engine) => {
+                const appId = engine.name.split('/').pop()!;
+                const assistantConfig = { ...baseApiConfig, appId, suppressErrorLog: true };
+                const assistantName = `projects/${baseApiConfig.projectId}/locations/${baseApiConfig.appLocation}/collections/default_collection/engines/${appId}/assistants/default_assistant`;
 
-  // Auto-refresh when config changes
+                try {
+                    const assistant = await api.getAssistant(assistantName, assistantConfig);
+                    return { engine, assistant };
+                } catch (e: any) {
+                    return { engine, assistant: null, error: e.message };
+                }
+            });
+
+            const results = await Promise.all(rowPromises);
+            setRows(results);
+            setIsListLoading(false);
+        };
+
+        fetchPageDetails();
+    }, [paginatedEngines, baseApiConfig]);
+
+    // Reset page when search or location changes
   useEffect(() => {
-      fetchList();
-  }, [fetchList]);
+      setPage(1);
+  }, [searchQuery, config.appLocation]);
 
   // Fetch Agents for a specific Assistant (Detail View)
   const fetchAgentsForAssistant = useCallback(async (appId: string) => {
@@ -294,7 +331,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
       setSelectedRow(null);
       setAgents([]);
       // Refresh list to show updated data
-      fetchList(); 
+      fetchEngines(); 
   };
 
   const handleUpdateSuccess = (updatedAssistant: Assistant) => {
@@ -332,14 +369,31 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
   // --- Render List View ---
   const renderList = () => (
       <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden border border-gray-700">
-          <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+          <div className="p-4 border-b border-gray-700 flex flex-col sm:flex-row justify-between items-center gap-4">
               <h3 className="text-lg font-bold text-white">Gemini Enterprise Engines</h3>
+
+              {/* Search Control */}
+              <div className="relative flex-1 max-w-sm">
+                  <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                      <svg className="w-5 h-5 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd"></path>
+                      </svg>
+                  </div>
+                  <input
+                      type="text"
+                      className="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 p-2.5"
+                      placeholder="Filter Engines..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+              </div>
+
               <button 
-                  onClick={fetchList} 
+                  onClick={fetchEngines} 
                   disabled={isListLoading}
-                  className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500"
+                  className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 min-w-fit"
               >
-                  {isListLoading ? 'Scanning...' : 'Refresh List'}
+                  Refresh
               </button>
           </div>
           
@@ -446,6 +500,33 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
                   </tbody>
               </table>
           </div>
+
+          {/* Pagination Controls */}
+          {
+              filteredEngines.length > 0 && (
+                  <div className="p-4 border-t border-gray-700 bg-gray-800 flex justify-between items-center">
+                      <div className="text-sm text-gray-400">
+                          Showing <span className="font-semibold text-white">{(page - 1) * pageSize + 1}</span> to <span className="font-semibold text-white">{Math.min(page * pageSize, filteredEngines.length)}</span> of <span className="font-semibold text-white">{filteredEngines.length}</span> engines
+                      </div>
+                      <div className="flex gap-2">
+                          <button
+                              onClick={() => setPage(p => Math.max(1, p - 1))}
+                              disabled={page === 1 || isListLoading}
+                              className="px-3 py-1 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                              Previous
+                          </button>
+                          <button
+                              onClick={() => setPage(p => Math.min(Math.ceil(filteredEngines.length / pageSize), p + 1))}
+                              disabled={page * pageSize >= filteredEngines.length || isListLoading}
+                              className="px-3 py-1 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                              Next
+                          </button>
+                      </div>
+                  </div>
+              )
+          }
       </div>
   );
 
