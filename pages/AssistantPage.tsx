@@ -23,7 +23,7 @@ interface AssistantRowData {
     error?: string;
 }
 
-type SortKey = 'displayName' | 'engineId' | 'solutionType' | 'webGrounding' | 'instructions' | 'policy' | 'vertexAgents' | 'tools' | 'actions';
+type SortKey = 'displayName' | 'engineId' | 'solutionType' | 'webGrounding' | 'instructions' | 'policy' | 'vertexAgents';
 type SortDirection = 'asc' | 'desc';
 
 interface SortConfig {
@@ -158,10 +158,6 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
               return !!(row.assistant.customerPolicy && Object.keys(row.assistant.customerPolicy).length > 0);
           case 'vertexAgents':
               return row.assistant.vertexAiAgentConfigs?.length || 0;
-          case 'tools':
-              return Object.keys(row.assistant.enabledTools || {}).length;
-          case 'actions':
-              return Object.keys(row.assistant.enabledActions || {}).length;
           default:
               return '';
       }
@@ -360,15 +356,13 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
                           <SortHeader label="System Instructions" sortKey="instructions" />
                           <SortHeader label="Customer Policy" sortKey="policy" />
                           <SortHeader label="Vertex Agents" sortKey="vertexAgents" align="center" />
-                          <SortHeader label="Tools" sortKey="tools" align="center" />
-                          <SortHeader label="Actions" sortKey="actions" align="center" />
                           <th scope="col" className="relative px-6 py-3"><span className="sr-only">Edit</span></th>
                       </tr>
                   </thead>
                   <tbody className="bg-gray-800 divide-y divide-gray-700">
                       {sortedRows.length === 0 && !isListLoading && (
                           <tr>
-                              <td colSpan={10} className="px-6 py-8 text-center text-sm text-gray-500">
+                              <td colSpan={8} className="px-6 py-8 text-center text-sm text-gray-500">
                                   No engines found in this location.
                               </td>
                           </tr>
@@ -419,12 +413,6 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
                                           <td className="px-6 py-4 whitespace-nowrap text-center">
                                               <CountBadge count={vertexAgentsCount} />
                                           </td>
-                                          <td className="px-6 py-4 whitespace-nowrap text-center">
-                                              <CountBadge count={toolsCount} />
-                                          </td>
-                                          <td className="px-6 py-4 whitespace-nowrap text-center">
-                                              <CountBadge count={actionsCount} />
-                                          </td>
                                           <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                               <div className="flex items-center justify-end gap-3">
                                                   <button 
@@ -444,7 +432,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
                                       </>
                                   ) : (
                                       <>
-                                          <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500 italic">
+                                              <td colSpan={4} className="px-6 py-4 text-center text-sm text-gray-500 italic">
                                               No Default Assistant Configured
                                           </td>
                                           <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">

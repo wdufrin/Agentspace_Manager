@@ -375,23 +375,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                 </div>
             </form>
 
-            <div className="mt-6 space-y-4">
-                {assistant.enabledTools && Object.keys(assistant.enabledTools).length > 0 && (
-                     <CollapsibleSection title="Read-Only: Enabled Tools">
-                         <pre className="text-xs bg-gray-900 p-2 rounded-md overflow-x-auto">
-                             <code>{JSON.stringify(assistant.enabledTools, null, 2)}</code>
-                         </pre>
-                    </CollapsibleSection>
-                )}
 
-                {assistant.enabledActions && Object.keys(assistant.enabledActions).length > 0 && (
-                     <CollapsibleSection title="Read-Only: Enabled Actions">
-                         <pre className="text-xs bg-gray-900 p-2 rounded-md overflow-x-auto">
-                             <code>{JSON.stringify(assistant.enabledActions, null, 2)}</code>
-                         </pre>
-                    </CollapsibleSection>
-                )}
-            </div>
         </div>
     );
 };

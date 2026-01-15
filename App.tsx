@@ -25,6 +25,9 @@ import DirectQueryChatWindow from './components/agent-engines/DirectQueryChatWin
 import AssistantPage from './pages/AssistantPage';
 import LicensePage from './pages/LicensePage';
 import CloudBuildProgress from './components/agent-builder/CloudBuildProgress';
+import Breadcrumbs from './components/Breadcrumbs';
+import HeaderProjectInput from './components/HeaderProjectInput';
+import HelpButton from './components/HelpButton';
 
 declare global {
     interface Window {
@@ -53,6 +56,7 @@ const App: React.FC = () => {
   
   const [accessToken, setAccessToken] = useState<string>(() => sessionStorage.getItem('agentspace-accessToken') || '');
   const [projectNumber, setProjectNumber] = useState<string>(() => sessionStorage.getItem('agentspace-projectNumber') || '');
+    const [projectId, setProjectId] = useState<string>(() => sessionStorage.getItem('agentspace-projectId') || '');
   
   // SSO State
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -199,15 +203,58 @@ const App: React.FC = () => {
       setIsGapiReady(false);
   };
   
-  const handleSetProjectNumber = (projectNum: string) => {
-    sessionStorage.setItem('agentspace-projectNumber', projectNum);
-    setProjectNumber(projectNum);
-    // Also reset any results that depend on the project number
-    setApiValidationResult(null);
-    // Invalidate architecture cache on project change
-    setArchitectureNodes([]);
-    setArchitectureEdges([]);
-    setArchitectureLogs([]);
+    const handleSetProjectNumber = async (identifier: string) => {
+        // If identifier is empty, clear everything
+        if (!identifier) {
+            sessionStorage.removeItem('agentspace-projectNumber');
+            sessionStorage.removeItem('agentspace-projectId');
+            setProjectNumber('');
+            setProjectId('');
+            setApiValidationResult(null);
+            setArchitectureNodes([]);
+            setArchitectureEdges([]);
+            setArchitectureLogs([]);
+            return;
+        }
+
+        // Check if we already have this identifier stored as number or ID to avoid refetching if possible
+        // But since we want to ensure we have both, it's safer to just fetch if it looks like a change.
+
+        // Optimistic update if it looks like a number
+        if (/^\d+$/.test(identifier)) {
+            sessionStorage.setItem('agentspace-projectNumber', identifier);
+            setProjectNumber(identifier);
+        } else {
+            // Optimistic update if it looks like an ID
+            sessionStorage.setItem('agentspace-projectId', identifier);
+            setProjectId(identifier);
+        }
+
+        try {
+            const projectDetails = await api.getProject(identifier);
+
+            // Update state with canonical values
+            setProjectNumber(projectDetails.projectNumber);
+            setProjectId(projectDetails.projectId);
+
+            sessionStorage.setItem('agentspace-projectNumber', projectDetails.projectNumber);
+            sessionStorage.setItem('agentspace-projectId', projectDetails.projectId);
+
+            // Reset dependent states
+            setApiValidationResult(null);
+            setArchitectureNodes([]);
+            setArchitectureEdges([]);
+            setArchitectureLogs([]);
+        } catch (e) {
+            console.error("Failed to resolve project details", e);
+            // Fallback: Use whatever we have
+            if (/^\d+$/.test(identifier)) {
+                setProjectNumber(identifier);
+            } else {
+                // If we failed to resolve an ID, we might not have a number, which breaks API calls.
+                // But we can let the user try.
+            }
+        }
   };
   
   const handleValidateApis = async () => {
@@ -819,14 +866,22 @@ const App: React.FC = () => {
       <div className="flex h-screen bg-gray-900 text-gray-100 font-sans">
               <Sidebar currentPage={currentPage} setCurrentPage={handleMenuClick} onShowInfo={handleShowInfo} />
         <main className="flex-1 flex flex-col overflow-hidden">
-          <header className="bg-gray-800 border-b border-gray-700 p-4 flex flex-col gap-4 md:flex-row md:justify-between md:items-center">
-            <h1 className="text-xl font-bold text-white text-center md:text-left">Gemini Enterprise Manager</h1>
-            <AccessTokenInput 
-                accessToken={accessToken} 
-                setAccessToken={handleSetAccessToken} 
-                userProfile={userProfile} 
-                onSignOut={handleSignOut}
-            />
+                  <header className="bg-gray-800 border-b border-gray-700 p-4 flex flex-col gap-4 md:flex-row md:justify-between md:items-center">
+                      <div className="flex flex-col gap-1">
+                          <Breadcrumbs currentPage={currentPage} context={pageContext} />
+                          <HeaderProjectInput projectId={projectId} projectNumber={projectNumber} onChange={handleSetProjectNumber} />
+                      </div>
+
+                      <div className="flex items-center gap-4">
+                          <HelpButton />
+                          <div className="h-8 w-px bg-gray-700 mx-2 hidden md:block"></div>
+                          <AccessTokenInput
+                              accessToken={accessToken}
+                              setAccessToken={handleSetAccessToken}
+                              userProfile={userProfile}
+                              onSignOut={handleSignOut}
+                          />
+                      </div>
           </header>
                   <div key={`${currentPage}-${refreshKey}`} className="flex-1 overflow-y-auto p-6 relative">
             {renderPage()}
