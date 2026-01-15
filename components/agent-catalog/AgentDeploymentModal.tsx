@@ -629,10 +629,21 @@ try:
          logger.info("Wrapping agent in AdkApp for deployment...")
 
     logger.info("Creating Agent Engine...")
+    
+    # Detect extra packages (like auth_utils.py)
+    extra_packages = []
+    for f in os.listdir("."):
+        if f.endswith(".py") and f not in ["deploy_re.py", ".env", "requirements.txt"]:
+             # Simple heuristic: include all other python files as extra_packages
+             extra_packages.append(f)
+    
+    logger.info(f"Extra packages detected: {extra_packages}")
+
     remote_app = agent_engines.create(
         agent_engine=app_to_deploy,
         requirements=reqs,
         env_vars=env_vars,
+        extra_packages=extra_packages,
         display_name="${agentName}"
     )
 
@@ -649,6 +660,7 @@ except ImportError:
         app_to_deploy,
         requirements=reqs,
         env_vars=env_vars,
+        extra_packages=extra_packages,
         display_name="${agentName}",
     )
 

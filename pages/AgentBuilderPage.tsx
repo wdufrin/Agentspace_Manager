@@ -50,7 +50,8 @@ const ADK_TABS = [
     { id: 'deploy_re', label: 'deploy_re.py' },
     { id: 'env', label: '.env' },
     { id: 'requirements', label: 'requirements.txt' },
-    { id: 'readme', label: 'README.md' }
+    { id: 'readme', label: 'README.md' },
+    { id: 'auth_utils', label: 'auth_utils.py' }
 ] as const;
 
 const A2A_TABS = [
@@ -438,6 +439,37 @@ echo "Your A2A function is now available at: $SERVICE_URL"
 
 // --- ADK Generators ---
 
+const generateAuthUtils = (): string => {
+    return `import os
+import logging
+from typing import Optional
+from google.oauth2.credentials import Credentials
+from google.adk.tools import ToolContext
+
+logger = logging.getLogger(__name__)
+
+def get_user_credentials(tool_context: ToolContext) -> Optional[Credentials]:
+    """
+    Extracts user OAuth2 credentials from the ToolContext state using the configured AUTH_ID.
+    
+    Args:
+        tool_context: The context provided by the ADK runtime.
+        
+    Returns:
+        google.oauth2.credentials.Credentials if token is found, else None.
+    """
+    # Try to find credentials in context first (injected by Agent Engine)
+    auth_id = os.getenv("AUTH_ID", "temp_oauth")
+    if auth_id and tool_context.state:
+        access_token = tool_context.state.get(auth_id)
+        if access_token:
+            logger.info(f"Successfully retrieved access token for AUTH_ID: {auth_id}")
+            return Credentials(token=access_token)
+            
+    return None
+`;
+};
+
 const generateAdkPythonCode = (config: AdkAgentConfig): string => {
     const toolImports = new Set<string>();
     const toolInitializations: string[] = [];
@@ -538,37 +570,14 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
 )`);
         pluginList.push('bq_logging_plugin');
     }
-    
+
+
+
     if (config.enableOAuth) {
-        toolImports.add('from google.adk.tools import ToolContext');
-        toolImports.add('from google.oauth2.credentials import Credentials');
-        toolImports.add('from googleapiclient.discovery import build');
-        oauthToolCodeBlock = `
-def get_email_from_token(access_token):
-    """Get user info from access token"""
-    credentials = Credentials(token=access_token)
-    service = build('oauth2', 'v2', credentials=credentials)
-    user_info = service.userinfo().get().execute()
-    user_email = user_info.get('email')
-    return user_email
-
-def lazy_mask_token(access_token):
-    """Mask access token for printing"""
-    return f"{access_token[:4]}...{access_token[-4:]}"
-
-def print_tool_context(tool_context: ToolContext):
-    """ADK Tool to get email and masked token from Gemini Enterprise"""
-    auth_id = os.getenv("AUTH_ID")
-    access_token = tool_context.state[f"temp:{auth_id}"]
-    user_email = get_email_from_token(access_token)
-    tool_context.state["user_email"] = user_email
-    
-    return {
-        f"temp:{auth_id}": lazy_mask_token(access_token),
-        "user_email": user_email
-    }
-`;
-        toolListForAgent.push('print_tool_context');
+        toolImports.add('from auth_utils import get_user_credentials');
+    // NOTE: We do NOT add get_user_credentials to toolListForAgent because it returns a Credentials object
+    // which is not JSON-serializable and causes the Agent Engine to crash during schema generation.
+    // It is intended as a helper for other tools.
     }
 
     const formatPythonString = (str: string) => {
@@ -720,10 +729,21 @@ else:
      app_to_deploy = reasoning_engines.AdkApp(agent=app_obj, enable_tracing=False)
 
 logger.info("Creating Agent Engine...")
+
+# Detect extra packages (like auth_utils.py)
+extra_packages = []
+for f in os.listdir("."):
+    if f.endswith(".py") and f not in ["deploy_re.py", ".env", "requirements.txt"]:
+            # Simple heuristic: include all other python files as extra_packages
+            extra_packages.append(f)
+
+logger.info(f"Extra packages detected: {extra_packages}")
+
 remote_app = reasoning_engines.ReasoningEngine.create(
     app_to_deploy,
     requirements=reqs,
     env_vars=env_vars,
+    extra_packages=extra_packages,
     display_name=os.getenv("AGENT_DISPLAY_NAME", "${config.name || 'my-agent'}"),
 )
 
@@ -849,8 +869,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
 
     });
     const [vertexLocation, setVertexLocation] = useState('us-central1');
-    const [adkGeneratedCode, setAdkGeneratedCode] = useState({ agent: '', env: '', requirements: '', readme: '', deploy_re: '' });
-    const [adkActiveTab, setAdkActiveTab] = useState<'agent' | 'env' | 'requirements' | 'readme' | 'deploy_re'>('agent');
+    const [adkGeneratedCode, setAdkGeneratedCode] = useState({ agent: '', env: '', requirements: '', readme: '', deploy_re: '', auth_utils: '' });
+    const [adkActiveTab, setAdkActiveTab] = useState<'agent' | 'env' | 'requirements' | 'readme' | 'deploy_re' | 'auth_utils'>('agent');
     const [adkCopySuccess, setAdkCopySuccess] = useState('');
     
     // Data Store Tool State
@@ -936,7 +956,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         const reqsCode = generateAdkRequirementsFile(adkConfig);
         const readmeCode = generateAdkReadmeFile(adkConfig);
         const deployCode = generateAdkDeployScript(adkConfig);
-        setAdkGeneratedCode({ agent: agentCode, env: envCode, requirements: reqsCode, readme: readmeCode, deploy_re: deployCode });
+        const authUtilsCode = generateAuthUtils();
+        setAdkGeneratedCode({ agent: agentCode, env: envCode, requirements: reqsCode, readme: readmeCode, deploy_re: deployCode, auth_utils: authUtilsCode });
     }, [adkConfig, projectNumber, vertexLocation, stagingBucket]);
 
     // ADK Data Store & Buckets Fetching
@@ -1126,6 +1147,9 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         zip.file('requirements.txt', adkGeneratedCode.requirements);
         zip.file('README.md', adkGeneratedCode.readme);
         zip.file('deploy_re.py', adkGeneratedCode.deploy_re);
+        if (adkConfig.enableOAuth) {
+            zip.file('auth_utils.py', adkGeneratedCode.auth_utils);
+        }
         const blob = await zip.generateAsync({ type: 'blob' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1142,7 +1166,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         env: adkGeneratedCode.env, 
         requirements: adkGeneratedCode.requirements, 
         readme: adkGeneratedCode.readme,
-        deploy_re: adkGeneratedCode.deploy_re
+        deploy_re: adkGeneratedCode.deploy_re,
+        auth_utils: adkGeneratedCode.auth_utils
     }[adkActiveTab];
 
     const a2aCodeDisplay = { 
@@ -1159,6 +1184,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         { name: 'README.md', content: adkGeneratedCode.readme },
         { name: 'deploy_re.py', content: adkGeneratedCode.deploy_re }
     ];
+
+    if (adkConfig.enableOAuth) {
+        adkFilesForBuild.push({ name: 'auth_utils.py', content: adkGeneratedCode.auth_utils });
+    }
 
     const a2aFilesForBuild = [
         { name: 'main.py', content: a2aGeneratedCode.main },
@@ -1268,7 +1297,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                 </div>
                                 <div className="space-y-2 pt-2 border-t border-gray-600">
                                     <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="useGoogleSearch" checked={adkConfig.useGoogleSearch} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable Google Search Tool</span></label>
-                                    <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="enableOAuth" checked={adkConfig.enableOAuth} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable OAuth (User Context)</span></label>
+                                    <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="enableOAuth" checked={adkConfig.enableOAuth} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable OAuth (For Reference)</span></label>
                                     {adkConfig.enableOAuth && (
                                         <div className="pl-7"><input type="text" name="authId" value={adkConfig.authId} onChange={handleAdkConfigChange} placeholder="Authorization Resource ID" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" /></div>
                                     )}
@@ -1413,7 +1442,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                         <h2 className="text-lg font-semibold text-white mb-3 shrink-0">2. Generated Source Code</h2>
                         <div className="flex justify-between items-center mb-2 shrink-0">
                             <div className="flex border-b border-gray-700">
-                                {(builderTab === 'adk' ? ADK_TABS : A2A_TABS).map(tab => (
+                                {(builderTab === 'adk' ? ADK_TABS.filter(t => t.id !== 'auth_utils' || adkConfig.enableOAuth) : A2A_TABS).map(tab => (
                                     <button 
                                         key={tab.id} 
                                         onClick={() => builderTab === 'adk' ? setAdkActiveTab(tab.id as any) : setA2aActiveTab(tab.id as any)} 

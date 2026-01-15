@@ -203,6 +203,13 @@ export const createEngine = async (engineId: string, payload: any, config: Confi
     return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
 };
 
+export const updateEngine = async (name: string, payload: any, updateMask: string[], config: Config) => {
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}?updateMask=${updateMask.join(',')}`;
+    return gapiRequest<AppEngine>(url, 'PATCH', projectId, undefined, payload);
+};
+
 // Assistants
 export const getAssistant = async (name: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
@@ -564,7 +571,7 @@ export const streamQueryReasoningEngine = async (engineName: string, query: stri
     }
 };
 
-// Generate Vertex Content (AI Helpers)
+// Generate Vertex Content (AI Helpers) with robust stream parsing
 export const generateVertexContent = async (config: Config, prompt: string, model: string = 'gemini-2.5-flash') => {
     const location = 'us-central1';
     const url = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${config.projectId}/locations/${location}/publishers/google/models/${model}:streamGenerateContent`;
@@ -595,20 +602,66 @@ export const generateVertexContent = async (config: Config, prompt: string, mode
 
     const decoder = new TextDecoder();
     let fullText = '';
+    let buffer = '';
+    let braceBalance = 0;
+    let inString = false;
+    let isEscaped = false;
 
     while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
-        const chunkStr = decoder.decode(value);
-        try {
-            const json = JSON.parse(chunkStr.startsWith('[') ? chunkStr : `[${chunkStr.replace(/}\n{/g, '},{')}]`);
-            json.forEach((c: any) => {
-                const part = c.candidates?.[0]?.content?.parts?.[0];
-                if (part?.text) fullText += part.text;
-            });
-        } catch (e) {
-            console.warn("Vertex Stream Error", e);
+        const chunk = decoder.decode(value || new Uint8Array(), { stream: !done });
+
+        for (const char of chunk) {
+            buffer += char;
+
+            if (isEscaped) {
+                isEscaped = false;
+                continue;
+            }
+            if (char === '\\') {
+                isEscaped = true;
+                continue;
+            }
+            if (char === '"') {
+                inString = !inString;
+                continue;
+            }
+
+            if (!inString) {
+                if (char === '{') {
+                    braceBalance++;
+                } else if (char === '}') {
+                    braceBalance--;
+                    if (braceBalance === 0) {
+                        // Potential complete object found at top level (chunks are usually arrays of objects, but here we might get individual objects or the array wrapper)
+                        // Vertex streamGenerateContent returns a stream of Parseable JSON objects like [{...}] or just {...} depending on API version/format.
+                        // Actually, Vertex returns an array structure `[`, then Objects `{...},`, then `]`.
+                        // But brace counting logic is mainly for finding the `{...}` objects.
+
+                        try {
+                            const trimmed = buffer.trim();
+                            // If it starts with ',' or '[' we might need to be careful.
+                            // Simple heuristic: Try to find the first '{'
+                            const firstBrace = trimmed.indexOf('{');
+                            if (firstBrace !== -1) {
+                                const candidate = trimmed.substring(firstBrace);
+                                if (candidate.endsWith('}')) {
+                                    const json = JSON.parse(candidate);
+                                    // Extract text from the candidate object
+                                    const part = json.candidates?.[0]?.content?.parts?.[0];
+                                    if (part?.text) fullText += part.text;
+
+                                    buffer = ''; // Reset buffer on success
+                                }
+                            }
+                        } catch (e) {
+                            // Keep buffering if parse fails
+                        }
+                    }
+                }
+            }
         }
+        if (done) break;
     }
     return fullText;
 };

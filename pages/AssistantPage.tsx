@@ -5,6 +5,7 @@ import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
 import Spinner from '../components/Spinner';
 import AssistantDetailsForm from '../components/assistants/AssistantDetailsForm';
+import EngineDetailsForm from '../components/assistants/EngineDetailsForm';
 import AgentListForAssistant from '../components/assistants/AgentListForAssistant';
 import ExportMetricsModal from '../components/assistants/ExportMetricsModal';
 import AnalyticsMetricsViewer from '../components/assistants/AnalyticsMetricsViewer';
@@ -306,6 +307,14 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
       }
   };
 
+    const handleEngineUpdateSuccess = (updatedEngine: AppEngine) => {
+        if (selectedRow) {
+            setSelectedRow({ ...selectedRow, engine: updatedEngine });
+        }
+        // Also update the list row in background
+        setRows(prev => prev.map(r => r.engine.name === updatedEngine.name ? { ...r, engine: updatedEngine } : r));
+    };
+
   const SortHeader: React.FC<{ label: string; sortKey: SortKey; align?: 'left' | 'center' | 'right' }> = ({ label, sortKey, align = 'left' }) => {
       const isSorted = sortConfig.key === sortKey;
       return (
@@ -487,6 +496,12 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
                 <Spinner />
             ) : (
                 <>
+                          <EngineDetailsForm
+                              engine={selectedRow.engine}
+                              config={currentConfig}
+                              onUpdateSuccess={handleEngineUpdateSuccess}
+                          />
+
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                         <AssistantDetailsForm 
                             assistant={selectedRow.assistant}
