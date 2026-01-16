@@ -90,13 +90,19 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
       
       const usageMap: Record<string, Agent[]> = {};
       for (const agent of allAgents) {
+        const usedAuths = new Set<string>();
           if (agent.authorizations) {
-              for (const authName of agent.authorizations) {
-                  if (!usageMap[authName]) {
-                      usageMap[authName] = [];
-                  }
-                  usageMap[authName].push(agent);
-              }
+          agent.authorizations.forEach(a => usedAuths.add(a));
+        }
+        if (agent.authorizationConfig?.toolAuthorizations) {
+          agent.authorizationConfig.toolAuthorizations.forEach(a => usedAuths.add(a));
+        }
+
+        for (const authName of usedAuths) {
+          if (!usageMap[authName]) {
+            usageMap[authName] = [];
+          }
+          usageMap[authName].push(agent);
           }
       }
       setAuthUsage(usageMap);

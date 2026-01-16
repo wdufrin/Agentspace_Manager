@@ -158,9 +158,9 @@ Created By: ${formData.createdBy || 'N/A'}
 Agent Engine: ${reasoningEnginePath}
 Additional Info: ${formData.additionalInfo || 'None'}`;
             agentDefinitionPayload = {
-                adk_agent_definition: {
-                    tool_settings: { tool_description: newToolDescription },
-                    provisioned_reasoning_engine: { reasoning_engine: reasoningEnginePath }
+                adkAgentDefinition: {
+                    toolSettings: { toolDescription: newToolDescription },
+                    provisionedReasoningEngine: { reasoningEngine: reasoningEnginePath }
                 }
             };
         } else {
@@ -182,8 +182,8 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                 version: "1.0.0"
             };
             agentDefinitionPayload = {
-                a2a_agent_definition: {
-                    json_agent_card: JSON.stringify(cardObject)
+                a2aAgentDefinition: {
+                    jsonAgentCard: JSON.stringify(cardObject)
                 }
             };
         }
@@ -219,10 +219,10 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
             if (agentType === 'reasoning_engine') {
                  // Check if it's worth updating definition
                  updateMask.push('adk_agent_definition');
-                 payload.adkAgentDefinition = agentDefinitionPayload.adk_agent_definition;
+                payload.adkAgentDefinition = agentDefinitionPayload.adkAgentDefinition;
             } else {
                  updateMask.push('a2a_agent_definition');
-                 payload.a2aAgentDefinition = agentDefinitionPayload.a2a_agent_definition;
+                payload.a2aAgentDefinition = agentDefinitionPayload.a2aAgentDefinition;
             }
 
             if (updateMask.length === 0) {
@@ -259,9 +259,11 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
         
             const finalAuthId = formData.authId?.split('/').pop()?.trim();
             if (finalAuthId) {
-                createPayload.authorizations = [
-                    `projects/${projectId}/locations/global/authorizations/${finalAuthId}`
-                ];
+                createPayload.authorizationConfig = {
+                    toolAuthorizations: [
+                        `projects/${projectId}/locations/global/authorizations/${finalAuthId}`
+                    ]
+                };
             }
 
             const payloadString = JSON.stringify(createPayload, null, 2);
@@ -527,11 +529,12 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
     
         const finalAuthId = formData.authId?.split('/').pop()?.trim();
         if (finalAuthId) {
-            // Use the 'authorizations' field with the full resource name.
-            // This is more reliable than the problematic 'authorizationConfig' object.
-            createPayload.authorizations = [
-                `projects/${config.projectId}/locations/global/authorizations/${finalAuthId}`
-            ];
+            // Updated to use authorizationConfig structure
+            createPayload.authorizationConfig = {
+                toolAuthorizations: [
+                    `projects/${config.projectId}/locations/global/authorizations/${finalAuthId}`
+                ]
+            };
         }
         
         // The agentId is passed as a query parameter via the apiService, not in the request body.

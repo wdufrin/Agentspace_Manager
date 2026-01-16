@@ -554,7 +554,8 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
           description: currentAgent.description || '',
           icon: currentAgent.icon || undefined,
           starterPrompts: finalStarterPrompts.length > 0 ? finalStarterPrompts : undefined,
-          authorizations: currentAgent.authorizations || undefined,
+          authorizationConfig: currentAgent.authorizationConfig,
+          authorizations: !currentAgent.authorizationConfig ? currentAgent.authorizations : undefined,
         };
 
         if (currentAgent.managedAgentDefinition) {
@@ -579,7 +580,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       } catch (err: any) {
         if (err.message && err.message.includes("is used by another agent")) {
           addLog(`      - WARNING: Authorization is in use. Attempting to create a new one.`);
-          const originalAuthName = agent.authorizations?.[0];
+          const originalAuthName = agent.authorizationConfig?.toolAuthorizations?.[0] || agent.authorizations?.[0];
           if (!originalAuthName) {
             addLog(`      - ERROR: Cannot resolve authorization conflict. Agent in backup has no authorization specified. Skipping agent.`);
             continue;
@@ -607,7 +608,8 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
             addLog(`        - CREATED: New authorization created: ${newAuthorization.name}`);
             
             addLog(`        - Retrying agent creation with new authorization...`);
-            createPayload.authorizations = [newAuthorization.name];
+            createPayload.authorizationConfig = { toolAuthorizations: [newAuthorization.name] };
+            delete createPayload.authorizations; // Ensure legacy field is removed if present
             const newAgent = await api.createAgent(createPayload, restoreConfig);
             const newAgentId = newAgent.name.split('/').pop()!;
             addLog(`      - CREATED: Agent '${agent.displayName}' created successfully with new ID '${newAgentId}' and new authorization.`);

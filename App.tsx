@@ -557,7 +557,7 @@ const App: React.FC = () => {
                                 const reName = agent.adkAgentDefinition?.provisionedReasoningEngine?.reasoningEngine;
                                 if (reName) addEdge(agent.name, reName);
 
-                                (agent.authorizations || []).forEach(authName => addEdge(agent.name, authName));
+                                (agent.authorizationConfig?.toolAuthorizations || agent.authorizations || []).forEach(authName => addEdge(agent.name, authName));
 
                                 try {
                                     const assistantConfig = { ...locationConfig, appId: engine.name.split('/').pop()!, assistantId: assistant.name.split('/').pop()! };

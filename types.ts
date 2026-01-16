@@ -50,7 +50,8 @@ export interface StarterPrompt {
 }
 
 export interface AuthorizationConfig {
-  oauth2ClientId: string;
+  oauth2ClientId?: string; // Made optional as it might be replaced by toolAuthorizations
+  toolAuthorizations?: string[];
 }
 
 export interface Agent {

@@ -236,7 +236,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                 <DetailItem label="Last Modified" value={agent.updateTime ? new Date(agent.updateTime).toLocaleString() : undefined} />
                 {reasoningEngine && <DetailItem label="Agent Engine" value={reasoningEngine} />}
                 {toolDescription && <DetailItem label="Tool Description" value={toolDescription} />}
-                <DetailItem label="Authorizations" value={agent.authorizations?.join(', ')} />
+                <DetailItem label="Authorizations" value={agent.authorizationConfig?.toolAuthorizations?.join(', ') || agent.authorizations?.join(', ')} />
             </dl>
             
             {agent.starterPrompts && agent.starterPrompts.length > 0 && (
