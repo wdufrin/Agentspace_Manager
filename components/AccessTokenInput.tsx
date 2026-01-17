@@ -29,7 +29,7 @@ const AccessTokenInput: React.FC<AccessTokenInputProps> = ({ accessToken, setAcc
                 <img src={userProfile.picture} alt="Avatar" className="w-8 h-8 rounded-full border border-gray-500" />
             ) : (
                 <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold">
-                    {userProfile.name.charAt(0)}
+                {(userProfile.name || userProfile.email || '?').charAt(0).toUpperCase()}
                 </div>
             )}
             <div className="hidden md:block">
