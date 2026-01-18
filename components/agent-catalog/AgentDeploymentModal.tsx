@@ -173,7 +173,7 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
             rawTools.forEach(t => {
                 const cleanName = t.replace(/_tool$/, '').replace(/_/g, ' ');
                 if (!detectedTools.has('Google Search') && !detectedTools.has('Vertex AI Search')) {
-                     detectedTools.add(cleanName.charAt(0).toUpperCase() + cleanName.slice(1));
+                    if (cleanName) detectedTools.add(cleanName.charAt(0).toUpperCase() + cleanName.slice(1));
                 }
             });
         }
