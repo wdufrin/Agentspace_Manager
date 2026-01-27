@@ -12,6 +12,34 @@ const getDiscoveryEngineUrl = (location: string) => {
     : `https://${location}-discoveryengine.googleapis.com`;
 };
 
+// Debug Logger Callback Type
+type DebugLogger = (log: { method: string, url: string, headers: any, body: any, curlCommand: string }) => void;
+
+let debugLogger: DebugLogger | null = null;
+
+export const setDebugLogger = (logger: DebugLogger | null) => {
+    debugLogger = logger;
+};
+
+// Helper to generate cURL command
+const generateCurlCommand = (url: string, method: string, headers: any, body: any): string => {
+    let command = `curl -X ${method} \\\n  "${url}"`;
+
+    Object.keys(headers).forEach(key => {
+        command += ` \\\n  -H "${key}: ${headers[key]}"`;
+    });
+
+    if (body) {
+        // Ensure body is stringified if it's an object
+        const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+        // Escape single quotes (basic escaping)
+        const escapedBody = bodyStr.replace(/'/g, "'\\''");
+        command += ` \\\n  -d '${escapedBody}'`;
+    }
+
+    return command;
+};
+
 // Generic gapi request wrapper
 const gapiRequest = async <T>(
     path: string, 
@@ -23,17 +51,38 @@ const gapiRequest = async <T>(
     suppressErrorLog: boolean = false
 ): Promise<T> => {
   const client = await getGapiClient();
+    const requestHeaders = headers || {};
+
+    if (projectId) {
+        requestHeaders['X-Goog-User-Project'] = projectId;
+    }
+
+    // Basic cURL logging
+    if (debugLogger) {
+        // Ensure we have the token for the curl command
+        const token = client.getToken()?.access_token;
+        const logHeaders = { ...requestHeaders };
+        if (token) {
+            logHeaders['Authorization'] = `Bearer $(gcloud auth print-access-token)`; // Use placeholder for cleaner display
+        }
+
+        const curlCommand = generateCurlCommand(path, method, logHeaders, body);
+        debugLogger({
+            method,
+            url: path,
+            headers: logHeaders,
+            body,
+            curlCommand
+        });
+    }
+
   const requestOptions: any = {
     path,
     method,
     params,
     body,
-    headers: headers || {}
+      headers: requestHeaders
   };
-  
-  if (projectId) {
-      requestOptions.headers['X-Goog-User-Project'] = projectId;
-  }
 
   try {
     const response = await client.request(requestOptions);

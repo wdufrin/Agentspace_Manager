@@ -1,5 +1,5 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { GlobalDebugProvider } from './context/GlobalDebugContext';
 import Sidebar from './components/Sidebar';
 import AgentsPage from './pages/AgentsPage';
 import AuthorizationsPage from './pages/AuthorizationsPage';
@@ -49,7 +49,7 @@ const ALL_CLOUD_RUN_LOCATIONS = [
 
 const GOOGLE_CLIENT_ID = '180054373655-2b600fnjissdmll4ipj2ndhr0i2h03fj.apps.googleusercontent.com';
 
-const App: React.FC = () => {
+const InnerApp: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>(Page.AGENTS);
   const [pageContext, setPageContext] = useState<any>(null);
     const [refreshKey, setRefreshKey] = useState(0);
@@ -924,4 +924,14 @@ const App: React.FC = () => {
   );
 };
 
+
+const App: React.FC = () => {
+    return (
+        <GlobalDebugProvider>
+            <InnerApp />
+        </GlobalDebugProvider>
+    );
+};
+
 export default App;
+

@@ -1,6 +1,8 @@
-
 import React, { useState } from 'react';
 import { Page } from '../types';
+import { useGlobalDebug, ApiHistoryItem } from '../context/GlobalDebugContext';
+import CurlDetailsModal from './CurlDetailsModal';
+// ... imports
 
 interface SidebarProps {
   currentPage: Page;
@@ -51,7 +53,9 @@ const NavItem: React.FC<{
 };
 
 const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowInfo }) => {
-  // Navigation Categories Configuration
+  const { showCurlPreview, setShowCurlPreview, apiHistory, clearHistory } = useGlobalDebug();
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState<ApiHistoryItem | null>(null);
+
   const navCategories = [
     {
       title: "Agent Management",
@@ -128,9 +132,86 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
           </div>
         ))}
 
+        {/* Debug Settings Section */}
+        <div className="pt-4 border-t border-gray-800 mt-4">
+          <h3 className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+            Settings & Debug
+          </h3>
+          <div className="px-3">
+            <label className="flex items-center space-x-3 cursor-pointer group">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={showCurlPreview}
+                  onChange={(e) => setShowCurlPreview(e.target.checked)}
+                />
+                <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+              </div>
+              <span className="text-sm font-medium text-gray-400 group-hover:text-gray-300">
+                Show Interaction Details
+              </span>
+            </label>
+            <p className="text-[10px] text-gray-600 mt-1 ml-1 mb-2">
+              Intercepts save actions to show cURL commands.
+            </p>
+          </div>
+
+          {/* API History List */}
+          {showCurlPreview && apiHistory.length > 0 && (
+            <div className="mt-4 px-3">
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  API History ({apiHistory.length})
+                </h4>
+                <button
+                  onClick={clearHistory}
+                  className="text-[10px] text-red-400 hover:text-red-300 uppercase"
+                >
+                  Clear
+                </button>
+              </div>
+              <div className="space-y-1 max-h-60 overflow-y-auto custom-scrollbar pr-1">
+                {apiHistory.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => setSelectedHistoryItem(item)}
+                    className="w-full text-left p-2 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 transition-colors group"
+                  >
+                    <div className="flex justify-between items-start">
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${item.method === 'GET' ? 'bg-blue-900 text-blue-200' :
+                        item.method === 'POST' ? 'bg-green-900 text-green-200' :
+                          item.method === 'PATCH' ? 'bg-yellow-900 text-yellow-200' :
+                            item.method === 'DELETE' ? 'bg-red-900 text-red-200' :
+                              'bg-gray-700 text-gray-300'
+                        }`}>
+                        {item.method}
+                      </span>
+                      <span className="text-[10px] text-gray-500">
+                        {item.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-gray-300 truncate font-mono" title={item.url}>
+                      {item.url.split('/').pop()?.split('?')[0] || item.url}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+
         {/* Footer padding to ensure last items are clickable */}
         <div className="h-4"></div>
       </div>
+
+      <CurlDetailsModal
+        isOpen={!!selectedHistoryItem}
+        onClose={() => setSelectedHistoryItem(null)}
+        curlCommand={selectedHistoryItem?.curlCommand || ''}
+        title={`API Details: ${selectedHistoryItem?.method} ${selectedHistoryItem?.url.split('/').pop()?.split('?')[0]}`}
+      />
 
     </aside>
   );

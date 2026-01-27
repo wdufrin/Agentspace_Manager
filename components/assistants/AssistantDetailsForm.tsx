@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Assistant, VertexAiAgentConfig, Config, EnabledAction, EnabledTool, ReasoningEngine } from '../../types';
 import * as api from '../../services/apiService';
 import InfoTooltip from '../InfoTooltip';
+import { useGlobalDebug } from '../../context/GlobalDebugContext';
 
 interface AssistantDetailsFormProps {
     assistant: Assistant;
@@ -31,6 +32,7 @@ const CollapsibleSection: React.FC<React.PropsWithChildren<{ title: string }>> =
 };
 
 const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, config, onUpdateSuccess }) => {
+    const { showCurlPreview } = useGlobalDebug();
     const [formData, setFormData] = useState({
         displayName: '',
         styleAndFormattingInstructions: '',
@@ -66,7 +68,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         });
         setAgentConfigs(assistant.vertexAiAgentConfigs ? JSON.parse(JSON.stringify(assistant.vertexAiAgentConfigs)) : []);
     }, [assistant]);
-    
+
     // Fetch available agent engines
     useEffect(() => {
         const fetchEngines = async () => {
@@ -126,8 +128,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         setAgentConfigs(agentConfigs.filter((_, i) => i !== index));
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const performUpdate = async () => {
         setIsSubmitting(true);
         setError(null);
         setSuccess(null);
@@ -152,7 +153,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                 payload.webGroundingType = formData.webGroundingType;
                 updateMask.push('webGroundingType');
             }
-            
+
             let policyObj;
             try {
                 policyObj = JSON.parse(formData.customerPolicy);
@@ -230,12 +231,108 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         } finally {
             setIsSubmitting(false);
         }
+    }
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        await performUpdate();
     };
+
+    // Dynamic cURL Command Generation
+    const curlCommand = React.useMemo(() => {
+        const payload: any = {};
+        const updateMask: string[] = [];
+
+        // Logic mirrors handleSubmit
+        if (formData.styleAndFormattingInstructions !== (assistant.styleAndFormattingInstructions || '')) {
+            payload.styleAndFormattingInstructions = formData.styleAndFormattingInstructions;
+            updateMask.push('styleAndFormattingInstructions');
+        }
+        if (formData.additionalSystemInstruction !== (assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '')) {
+            payload.generationConfig = {
+                systemInstruction: {
+                    additionalSystemInstruction: formData.additionalSystemInstruction
+                }
+            };
+            updateMask.push('generationConfig.systemInstruction');
+        }
+        if (formData.webGroundingType !== (assistant.webGroundingType || 'WEB_GROUNDING_TYPE_DISABLED')) {
+            payload.webGroundingType = formData.webGroundingType;
+            updateMask.push('webGroundingType');
+        }
+
+        let policyObj;
+        try {
+            policyObj = JSON.parse(formData.customerPolicy);
+        } catch (e) {
+            // Ignore parse errors for preview
+        }
+
+        const originalPolicyString = assistant.customerPolicy ? JSON.stringify(assistant.customerPolicy) : '{}';
+        const currentPolicyString = JSON.stringify(policyObj);
+
+        if (policyObj && currentPolicyString !== originalPolicyString) {
+            payload.customerPolicy = policyObj;
+            updateMask.push('customerPolicy');
+        }
+
+        if (formData.enableEndUserAgentCreation !== (assistant.enableEndUserAgentCreation || false)) {
+            payload.enableEndUserAgentCreation = formData.enableEndUserAgentCreation;
+            updateMask.push('enableEndUserAgentCreation');
+        }
+        if (formData.disableLocationContext !== (assistant.disableLocationContext || false)) {
+            payload.disableLocationContext = formData.disableLocationContext;
+            updateMask.push('disableLocationContext');
+        }
+        if (formData.defaultWebGroundingToggleOff !== (assistant.defaultWebGroundingToggleOff || false)) {
+            payload.defaultWebGroundingToggleOff = formData.defaultWebGroundingToggleOff;
+            updateMask.push('defaultWebGroundingToggleOff');
+        }
+
+        let searchToolConfigObj;
+        try {
+            searchToolConfigObj = JSON.parse(formData.vertexAiSearchToolConfig);
+        } catch (e) {
+            // Ignore
+        }
+        const originalSearchToolConfigString = assistant.vertexAiSearchToolConfig ? JSON.stringify(assistant.vertexAiSearchToolConfig) : '{}';
+        const currentSearchToolConfigString = JSON.stringify(searchToolConfigObj);
+
+        if (searchToolConfigObj && currentSearchToolConfigString !== originalSearchToolConfigString) {
+            payload.vertexAiSearchToolConfig = searchToolConfigObj;
+            updateMask.push('vertexAiSearchToolConfig');
+        }
+
+        const originalConfigsString = JSON.stringify(assistant.vertexAiAgentConfigs || []);
+        const currentConfigsString = JSON.stringify(agentConfigs);
+
+        if (originalConfigsString !== currentConfigsString) {
+            // We won't validate everything hard here, just include if changed
+            payload.vertexAiAgentConfigs = agentConfigs;
+            updateMask.push('vertexAiAgentConfigs');
+        }
+
+        if (updateMask.length === 0) return null;
+
+        const baseUrl = config.appLocation === 'global'
+            ? 'https://discoveryengine.googleapis.com'
+            : `https://${config.appLocation}-discoveryengine.googleapis.com`;
+
+        const url = `${baseUrl}/v1alpha/${assistant.name}?updateMask=${updateMask.join(',')}`;
+
+        return `curl -X PATCH \\
+  "${url}" \\
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: ${config.projectId}" \\
+  -d '${JSON.stringify(payload, null, 2)}'`;
+    }, [formData, agentConfigs, assistant, config]);
 
     return (
         <div className="bg-gray-800 shadow-xl rounded-lg p-6">
             <h2 className="text-xl font-bold text-white mb-4">Assistant Editor</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
+                {/* ... (rest of form fields) ... */}
                 <div>
                     <label htmlFor="displayName" className="flex items-center text-sm font-medium text-gray-300">
                         Display Name (Read-only)
@@ -243,7 +340,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                     </label>
                     <input type="text" name="displayName" value={formData.displayName} className="mt-1 block w-full bg-gray-700/50 border-gray-600 rounded-md shadow-sm text-gray-400 cursor-not-allowed" required disabled />
                 </div>
-                 <div>
+                <div>
                     <label htmlFor="webGroundingType" className="flex items-center text-sm font-medium text-gray-300">
                         Web Grounding Type
                         <InfoTooltip text="Enables the assistant to use Google Search for grounding its responses." />
@@ -267,7 +364,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                     </label>
                     <textarea name="additionalSystemInstruction" value={formData.additionalSystemInstruction} onChange={handleChange} rows={6} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" />
                 </div>
-                 <div>
+                <div>
                     <label htmlFor="customerPolicy" className="flex items-center text-sm font-medium text-gray-300">
                         Customer Policy (JSON)
                         <InfoTooltip text="JSON configuration for defining customer-specific policies." />
@@ -364,9 +461,36 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                         + Add Vertex AI Agent Config
                     </button>
                 </div>
-                
+
                 {error && <p className="text-red-400 text-sm">{error}</p>}
                 {success && <p className="text-green-400 text-sm">{success}</p>}
+
+                {/* API Command Preview (Only show if debug mode is active OR keep enabling it? User said "checkbox.. if checked, popup". The previous simple list is nice to have. I'll hide it if debug mode is ON, to avoid redundancy with the modal?) 
+                    Actually, if debug mode is ON, seeing it inline is still useful. I'll leave it.
+                */}
+                {curlCommand && (
+                    <div className="border-t border-gray-700 pt-4 mt-4">
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                            API Command Preview (Pending Changes)
+                        </label>
+                        <div className="bg-gray-950 p-3 rounded-lg border border-gray-700 relative group overflow-hidden">
+                            <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap break-all overflow-x-auto p-2">
+                                {curlCommand}
+                            </pre>
+                            <button
+                                type="button"
+                                onClick={() => navigator.clipboard.writeText(curlCommand)}
+                                className="absolute top-2 right-2 p-1.5 bg-gray-800 text-gray-400 rounded hover:text-white hover:bg-gray-700 opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="Copy to clipboard"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                            </button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">This command reflects the changes you are about to save.</p>
+                    </div>
+                )}
 
                 <div className="flex justify-end pt-4 border-t border-gray-700">
                     <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 disabled:bg-blue-800">
@@ -374,6 +498,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                     </button>
                 </div>
             </form>
+
 
 
         </div>
