@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 scripts/
+
+# Application Demo Guide
+docs/Gemini_Enterprise_Demo_Guide.md
