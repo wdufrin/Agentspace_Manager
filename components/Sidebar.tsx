@@ -55,6 +55,9 @@ const NavItem: React.FC<{
 const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowInfo }) => {
   const { showCurlPreview, setShowCurlPreview, apiHistory, clearHistory } = useGlobalDebug();
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<ApiHistoryItem | null>(null);
+  const [filterGet, setFilterGet] = useState(false);
+
+  const filteredHistory = apiHistory.filter(item => !filterGet || item.method !== 'GET');
 
   const navCategories = [
     {
@@ -161,9 +164,21 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
           {showCurlPreview && apiHistory.length > 0 && (
             <div className="mt-4 px-3">
               <div className="flex justify-between items-center mb-2">
-                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  API History ({apiHistory.length})
-                </h4>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    History ({filteredHistory.length})
+                  </h4>
+                  <button
+                    onClick={() => setFilterGet(!filterGet)}
+                    className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${filterGet
+                      ? 'bg-blue-900/50 text-blue-300 border-blue-800'
+                      : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'
+                      }`}
+                    title="Toggle GET requests"
+                  >
+                    {filterGet ? 'No GET' : 'All'}
+                  </button>
+                </div>
                 <button
                   onClick={clearHistory}
                   className="text-[10px] text-red-400 hover:text-red-300 uppercase"
@@ -172,12 +187,14 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
                 </button>
               </div>
               <div className="space-y-1 max-h-60 overflow-y-auto custom-scrollbar pr-1">
-                {apiHistory.map((item) => (
+                {filteredHistory.map((item) => (
                   <button
                     key={item.id}
                     onClick={() => setSelectedHistoryItem(item)}
                     className="w-full text-left p-2 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 transition-colors group"
                   >
+
+
                     <div className="flex justify-between items-start">
                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${item.method === 'GET' ? 'bg-blue-900 text-blue-200' :
                         item.method === 'POST' ? 'bg-green-900 text-green-200' :
