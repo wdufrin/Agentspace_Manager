@@ -17,9 +17,7 @@ const JiraVerification: React.FC<JiraVerificationProps> = ({ dataMode }) => {
     };
 
     const getClassicReadScopes = () => {
-        return dataMode === 'INGESTION'
-            ? ['read:jira-work']
-            : ['read:jira-user', 'read:jira-work'];
+        return ['read:jira-user', 'read:jira-work'];
     };
 
     const getClassicActionScopes = () => {
@@ -34,9 +32,14 @@ const JiraVerification: React.FC<JiraVerificationProps> = ({ dataMode }) => {
                 'read:avatar:jira',
                 'read:issue-security-level:jira',
                 'read:issue-security-scheme:jira',
-                'read:audit-log:jira'
+                'read:audit-log:jira',
+                'read:board-scope.admin:jira-software',
+                'read:board-scope:jira-software',
+                'read:issue-details:jira',
+                'read:jql:jira',
+                'read:project:jira'
             ]
-            : []; // Federated search only has no granular read scopes listed in docs
+            : [];
     };
 
     const getGranularActionScopes = () => {
