@@ -198,8 +198,36 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   "https://discoveryengine.googleapis.com/v1beta/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores"`
             },
-        ]
-    },
+
+    ]
+  },
+  [Page.CONNECTORS]: {
+    description: "These are the underlying REST API calls for managing Discovery Engine Connectors (Data Connectors). A Data Connector is a singleton resource within a Collection that manages extracting data from a third-party source.",
+    commands: [
+      {
+        title: 'List Collections',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections"`
+      },
+      {
+        title: 'Get Data Connector',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataConnector"`
+      },
+      {
+        title: 'List Connector Operations',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataConnector/operations"`
+      }
+    ]
+  },
+
     [Page.CHAT]: {
         description: "This is the underlying REST API call for testing a Gemini Enterprise (G.E.) assistant. It sends a prompt and receives a streaming response.",
         commands: [

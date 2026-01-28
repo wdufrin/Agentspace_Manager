@@ -17,6 +17,7 @@ export enum Page {
   BACKUP_RECOVERY = 'Backup & Recovery',
   ARCHITECTURE = 'Architecture',
   LICENSE = 'Licenses',
+  CONNECTORS = 'Connectors',
 }
 
 export type SortableAgentKey = 'displayName' | 'state' | 'name' | 'updateTime' | 'agentType';

@@ -15,6 +15,7 @@ import McpServersPage from './pages/McpServersPage';
 import AgentCatalogPage from './pages/AgentCatalogPage';
 import CloudRunAgentsPage from './pages/CloudRunAgentsPage';
 import DialogflowAgentsPage from './pages/DialogflowAgentsPage';
+import ConnectorsPage from './pages/ConnectorsPage';
 import ProjectInput from './components/ProjectInput';
 import { initGapiClient, getGapiClient } from './services/gapiService';
 import * as api from './services/apiService';
@@ -652,6 +653,8 @@ const InnerApp: React.FC = () => {
         return <BackupPage {...projectProps} accessToken={accessToken} />;
       case Page.LICENSE:
         return <LicensePage {...projectProps} onBuildTriggered={handleBuildTriggered} />;
+        case Page.CONNECTORS:
+            return <ConnectorsPage {...projectProps} accessToken={accessToken} />;
       case Page.ARCHITECTURE:
         return <ArchitecturePage 
                     {...projectProps} 

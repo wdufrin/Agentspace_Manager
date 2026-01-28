@@ -230,6 +230,22 @@ export const getDiscoveryOperation = async (name: string, config: Config, apiVer
     return gapiRequest<any>(`${baseUrl}/${apiVersion}/${name}`, 'GET', config.projectId);
 };
 
+export const listOperations = async (config: Config, filter?: string) => {
+    const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+    let url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${config.projectId}/locations/${config.appLocation}/collections/${config.collectionId || 'default_collection'}/operations`;
+    // Fallback to global operations if collection-specific fails or if we want broader scope? 
+    // User's curl example was: projects/.../locations/global/operations. 
+    // Let's support both or stick to the global one if that's what they asked.
+    // The user asked for: `https://discoveryengine.googleapis.com/v1beta/projects/.../locations/global/operations`
+    // So let's add a robust version.
+
+    url = `${baseUrl}/${DISCOVERY_API_BETA}/projects/${config.projectId}/locations/${config.appLocation}/operations`;
+    if (filter) {
+        url += `?filter=${encodeURIComponent(filter)}`;
+    }
+    return gapiRequest<any>(url, 'GET', config.projectId);
+};
+
 export const getVertexAiOperation = async (name: string, config: Config) => {
     const parts = name.split('/');
     const locIndex = parts.indexOf('locations');
@@ -371,6 +387,14 @@ export const updateDataStore = async (name: string, payload: any, config: Config
 export const deleteDataStore = async (name: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
     return gapiRequest(`${baseUrl}/${DISCOVERY_API_BETA}/${name}`, 'DELETE', config.projectId);
+};
+
+export const getDataConnector = async (config: Config) => {
+    const { projectId, appLocation, collectionId } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    // Note: The API is singleton per collection
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections/${collectionId || 'default_collection'}/dataConnector`;
+    return gapiRequest<any>(url, 'GET', projectId);
 };
 
 export const listDocuments = async (dataStoreName: string, config: Config) => {
@@ -838,6 +862,23 @@ export const runBigQueryQuery = async (projectId: string, query: string) => {
 
 export const fetchViolationLogs = async (config: Config, customFilter: string = '') => {
     const filter = `resource.type="modelarmor.googleapis.com/SanitizeOperation" ${customFilter ? 'AND ' + customFilter : ''}`;
+    return gapiRequest<any>(`https://logging.googleapis.com/v2/entries:list`, 'POST', config.projectId, undefined, {
+        resourceNames: [`projects/${config.projectId}`],
+        filter: filter,
+        orderBy: "timestamp desc",
+        pageSize: 50
+    });
+};
+
+export const fetchConnectorLogs = async (config: Config, connectorName: string, hoursAgo: number = 24) => {
+    const connectorId = connectorName.split('/').pop();
+    const startTime = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
+
+    // Combined filter: Control Plane (resource) OR Data Plane (jsonPayload)
+    // AND severity >= ERROR AND timestamp >= 24h ago
+    const baseFilter = `(resource.type="vertex_ai_search_connector" AND resource.labels.connector_id="${connectorId}") OR (jsonPayload.connectorRunPayload.dataConnector="${connectorName}")`;
+    const filter = `(${baseFilter}) AND severity>=ERROR AND timestamp>="${startTime}"`;
+
     return gapiRequest<any>(`https://logging.googleapis.com/v2/entries:list`, 'POST', config.projectId, undefined, {
         resourceNames: [`projects/${config.projectId}`],
         filter: filter,
