@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ConnectorVerificationTab from './connectors/ConnectorVerificationTab';
+import * as api from '../services/apiService';
+
 
 interface ConnectorDetailsModalProps {
   isOpen: boolean;
@@ -18,7 +20,36 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = React.useState<'diagnostics' | 'verification'>('diagnostics');
 
+
   if (!isOpen) return null;
+
+
+
+  const getRecommendation = (data: any): { title: string, message: string } | null => {
+    const logs = data.recentLogs || [];
+    const state = data.connectorState || {};
+    const allText = JSON.stringify(logs) + JSON.stringify(state);
+
+    if (allText.includes('JIRA_INVALID_AUTH_2') || allText.includes('JIRA_INVALID_AUTH')) {
+      return {
+        title: 'Jira Authentication Error',
+        message: 'Verify your Jira API Token. Ensure it is valid and has "read:jira-work" and "read:jira-user" scopes. Check if the user has browsing permissions for the project.'
+      };
+    }
+    if (allText.includes('FORBIDDEN') || allText.includes('403') || allText.includes('PERMISSION_DENIED')) {
+      return {
+        title: 'Access Denied (403)',
+        message: 'The connector lacks permission to access the resource. Check Service Account permissions or 3rd party credentials.'
+      };
+    }
+    if (allText.includes('NOT_FOUND') || allText.includes('404')) {
+      return {
+        title: 'Resource Not Found (404)',
+        message: 'The requested resource (Project, Issue, etc.) could not be found. Check valid IDs and URL configurations.'
+      };
+    }
+    return null;
+  };
 
   const renderContent = () => {
     if (typeof data === 'string') {
@@ -32,8 +63,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
       const errors = data.diagnostics.errors || [];
       const rawOps = data.rawOperations;
       const connectorState = data.connectorState || {};
-      // Strict check: User requested verification tab only for datastores starting with "jira-datastore"
-      // We check the serialized state since the user identified it in the raw data view.
+      const recommendation = getRecommendation(data);
 
       return (
         <div>
@@ -61,6 +91,17 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                 <div className={`text-md font-semibold ${status === 'success' ? 'text-green-400' : 'text-red-400'}`}>
                   {data.summary || (status === 'success' ? 'Validation Passed' : 'Validation Failed')}
                 </div>
+
+                {recommendation && (
+                  <div className="mt-3 bg-blue-900/30 border border-blue-700/50 p-3 rounded flex items-start">
+                    <svg className="w-5 h-5 text-blue-400 mr-2 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <div>
+                      <div className="text-sm font-bold text-blue-300">{recommendation.title}</div>
+                      <div className="text-xs text-blue-200 mt-1">{recommendation.message}</div>
+                    </div>
+                  </div>
+                )}
+
                 {warnings.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {warnings.map((w: string, i: number) => (
@@ -194,6 +235,9 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
                     </div>
                   </details>
                 )}
+
+
+
               </div>
             </div>
           ) : (
@@ -204,6 +248,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
         </div>
       );
     }
+
 
     // Fallback for generic JSON
     return (

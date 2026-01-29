@@ -70,6 +70,8 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({ projectNumber, setProje
         setConfig(prev => ({ ...prev, [name]: value }));
     };
 
+    const [isBulkScanning, setIsBulkScanning] = useState(false);
+
     const checkDataConnector = async (collection: Collection) => {
         const collectionId = collection.name.split('/').pop() || 'default_collection';
 
@@ -223,6 +225,15 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({ projectNumber, setProje
         }
     };
 
+    const handleBulkDiagnostics = async () => {
+        setIsBulkScanning(true);
+        // We use Promise.all to run them concurrently. 
+        // Note: Promise.all will reject if one fails, but checkDataConnector handles its own errors internally 
+        // and doesn't throw, updating state instead. So Promise.all is safe here.
+        await Promise.all(collections.map(collection => checkDataConnector(collection)));
+        setIsBulkScanning(false);
+    };
+
     return (
         <div className="space-y-6">
             <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700">
@@ -245,13 +256,21 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({ projectNumber, setProje
                             <option value="eu">eu</option>
                         </select>
                     </div>
-                    <div className="flex items-end">
+                    <div className="flex items-end space-x-2">
                         <button
                             onClick={fetchCollections}
                             disabled={isLoading || !config.projectId}
-                            className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 w-full h-[42px]"
+                            className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 h-[42px]"
                         >
                             {isLoading ? 'Scanning...' : 'Scan Collections'}
+                        </button>
+                        <button
+                            onClick={handleBulkDiagnostics}
+                            disabled={collections.length === 0 || isBulkScanning}
+                            className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-700 disabled:text-gray-500 h-[42px] flex items-center"
+                        >
+                            {isBulkScanning && <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>}
+                            {isBulkScanning ? 'Scanning...' : 'Run Bulk Diagnosis'}
                         </button>
                     </div>
                 </div>

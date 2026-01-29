@@ -233,6 +233,7 @@ export interface Document {
     };
     jsonData?: string;
     structData?: Record<string, any>;
+
 }
 
 export interface LogEntry {

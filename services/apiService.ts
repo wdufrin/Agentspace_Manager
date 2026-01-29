@@ -402,6 +402,23 @@ export const listDocuments = async (dataStoreName: string, config: Config) => {
     return gapiRequest<{ documents: Document[] }>(`${baseUrl}/${DISCOVERY_API_BETA}/${dataStoreName}/branches/default_branch/documents`, 'GET', config.projectId);
 };
 
+export const searchDocuments = async (dataStoreName: string, config: Config, query: string = '*') => {
+    const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+    // Construct Serving Config name from Data Store name
+    // DataStore: projects/.../dataStores/ID
+    // Serving: projects/.../dataStores/ID/servingConfigs/default_search
+    const url = `${baseUrl}/${DISCOVERY_API_BETA}/${dataStoreName}/servingConfigs/default_search:search`;
+
+    const body = {
+        query: query,
+        pageSize: 1,
+        // We just need the ID to fetch full ACLs via getDocument, but sometimes search returns enough info.
+
+    };
+
+    return gapiRequest<{ results: { document: Document }[] }>(url, 'POST', config.projectId, undefined, body);
+};
+
 export const getDocument = async (name: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
     return gapiRequest<Document>(`${baseUrl}/${DISCOVERY_API_BETA}/${name}`, 'GET', config.projectId);
