@@ -16,7 +16,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
   onClose,
   title,
   data,
-  status
+  status,
 }) => {
   const [activeTab, setActiveTab] = React.useState<'diagnostics' | 'verification'>('diagnostics');
 
@@ -239,6 +239,7 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
 
 
               </div>
+
             </div>
           ) : (
             <div className="space-y-6 animate-fadeIn">

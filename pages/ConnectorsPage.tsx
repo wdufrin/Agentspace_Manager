@@ -174,14 +174,14 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({ projectNumber, setProje
             }
 
             // 5. Fetch Recent Error Logs
-            addStep('Fetch Recent Error Logs', 'info', { filter: 'severity>=ERROR AND >= 24h ago' });
+            addStep('Fetch Recent Error Logs', 'info', { filter: 'severity>=ERROR AND >= 2h ago' });
             let recentLogs: any[] = [];
             try {
-                const logsResponse = await api.fetchConnectorLogs(collectionConfig, connector.name);
+                const logsResponse = await api.fetchConnectorLogs(collectionConfig, connector.name, 2);
                 recentLogs = logsResponse.entries || [];
                 if (recentLogs.length > 0) {
                     addStep('Fetch Recent Error Logs', 'fail', { count: recentLogs.length, latest: recentLogs[0].textPayload || 'See Details' });
-                    diagnostics.errors.push(`Found ${recentLogs.length} error logs in the last 24 hours.`);
+                    diagnostics.errors.push(`Found ${recentLogs.length} error logs in the last 2 hours.`);
                     // Mark validaton as Failed if we have recent errors
                     status = 'error';
                     message = `Validation Failed: ${recentLogs.length} Recent Errors`;
