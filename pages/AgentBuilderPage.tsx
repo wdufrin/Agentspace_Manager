@@ -41,7 +41,23 @@ interface AdkAgentConfig {
     useGoogleSearch: boolean;
     enableOAuth: boolean;
     authId: string;
+    enableDiscoveryApi: boolean;
+    discoveryConfig: DiscoveryConfig;
+    enableCloudLogging: boolean;
+    enableCloudStorage: boolean;
+    enableTelemetry: boolean;
+    enableMessageLogging: boolean;
+    enableBqAnalytics: boolean;
+    bqDatasetId: string;
+    bqTableId: string;
+}
 
+interface DiscoveryConfig {
+    projectId: string;
+    location: string;
+    collection: string;
+    engineId: string;
+    dataStoreIds: string;
 }
 
 // --- Tab Definitions ---
@@ -51,7 +67,8 @@ const ADK_TABS = [
     { id: 'env', label: '.env' },
     { id: 'requirements', label: 'requirements.txt' },
     { id: 'readme', label: 'README.md' },
-    { id: 'auth_utils', label: 'auth_utils.py' }
+    { id: 'auth_utils', label: 'auth_utils.py' },
+    { id: 'tools', label: 'tools.py' }
 ] as const;
 
 const A2A_TABS = [
@@ -470,28 +487,274 @@ def get_user_credentials(tool_context: ToolContext) -> Optional[Credentials]:
 `;
 };
 
-const generateAdkPythonCode = (config: AdkAgentConfig): string => {
-    const toolImports = new Set<string>();
-    const toolInitializations: string[] = [];
-    const toolListForAgent: string[] = [];
-    const pluginsImports = new Set<string>();
-    const pluginInitializations: string[] = [];
-    const pluginList: string[] = [];
-    
-    let oauthToolCodeBlock = '';
-    let a2aClassCode = '';
-    
-    const agentClass = 'Agent';
-    const agentImport = 'from google.adk.agents import Agent';
-    const adkAppImport = 'from google.adk.apps import App';
-
-    toolImports.add('import google.auth');
-
-    // Inject A2A Helper Function
-    if (config.tools.some(t => t.type === 'A2AClientTool')) {
-        a2aClassCode = `
+const generateToolsPy = (config: AdkAgentConfig): string => {
+    let code = `import os
+import logging
+import json
 import requests
+import google.auth
 import google.auth.transport.requests
+from typing import Optional, Dict, Any, List
+from google.adk.tools import ToolContext
+from auth_utils import get_user_credentials
+
+logger = logging.getLogger(__name__)
+`;
+
+    if (config.enableCloudLogging) {
+        code += `
+from google.cloud import logging as cloud_logging
+
+def read_recent_logs(tool_context: ToolContext, filter_str: str = "") -> str:
+    """
+    Reads the last 20 log entries from Cloud Logging.
+    
+    Args:
+        tool_context: The context provided by the ADK runtime.
+        filter_str: Optional filter string for the logs.
+    """
+    try:
+        creds = get_user_credentials(tool_context)
+        # fallback to default creds if not found (or let library handle it if None)
+        client = cloud_logging.Client(credentials=creds, project=os.environ["GOOGLE_CLOUD_PROJECT"])
+        
+        # Default simple filter if empty
+        if not filter_str:
+            filter_str = "severity>=WARNING"
+            
+        entries = client.list_entries(filter_=filter_str, page_size=20, max_results=20, order_by=cloud_logging.DESCENDING)
+        
+        logs = []
+        for entry in entries:
+            timestamp = entry.timestamp.isoformat() if entry.timestamp else "N/A"
+            payload = str(entry.payload) if entry.payload else "No Payload"
+            logs.append(f"[{timestamp}] {entry.severity}: {payload}")
+            
+        if not logs:
+            return "No logs found matching the filter."
+            
+        return "\\n".join(logs)
+    except Exception as e:
+        return f"Error reading logs: {e}"
+`;
+    }
+
+    if (config.enableCloudStorage) {
+        code += `
+from google.cloud import storage
+
+def list_gcs_buckets(tool_context: ToolContext) -> str:
+    """Lists all GCS buckets in the project."""
+    try:
+        creds = get_user_credentials(tool_context)
+        client = storage.Client(credentials=creds, project=os.environ["GOOGLE_CLOUD_PROJECT"])
+        buckets = list(client.list_buckets())
+        if not buckets:
+             return "No buckets found."
+        return "\\n".join([b.name for b in buckets])
+    except Exception as e:
+        return f"Error listing buckets: {e}"
+
+def list_gcs_objects(tool_context: ToolContext, bucket_name: str, prefix: str = "") -> str:
+    """Lists objects in a specific GCS bucket."""
+    try:
+        creds = get_user_credentials(tool_context)
+        client = storage.Client(credentials=creds, project=os.environ["GOOGLE_CLOUD_PROJECT"])
+        bucket = client.bucket(bucket_name)
+        blobs = list(client.list_blobs(bucket, prefix=prefix, max_results=50))
+        if not blobs:
+            return f"No objects found in {bucket_name} with prefix '{prefix}'."
+        return "\\n".join([b.name for b in blobs])
+    except Exception as e:
+        return f"Error listing objects: {e}"
+`;
+    }
+
+    if (config.enableDiscoveryApi) {
+        code += `
+def query_gemini_enterprise(tool_context: ToolContext, query_text: str) -> str:
+    """
+    Queries the Gemini Enterprise (Discovery Engine) API with the given query text.
+    
+    Args:
+        tool_context: The context provided by the ADK runtime.
+        query_text: The question to ask the specialized agent.
+        
+    Returns:
+        The text response from the agent.
+    """
+    project_id = os.getenv("DISCOVERY_ENGINE_PROJECT_ID")
+    location = os.getenv("DISCOVERY_ENGINE_LOCATION", "global")
+    collection = os.getenv("DISCOVERY_ENGINE_COLLECTION", "default_collection")
+    engine_id = os.getenv("DISCOVERY_ENGINE_ENGINE_ID")
+    
+    if not all([project_id, engine_id]):
+        return "Error: DISCOVERY_ENGINE_PROJECT_ID and DISCOVERY_ENGINE_ENGINE_ID must be set."
+    
+    url = f"https://discoveryengine.googleapis.com/v1alpha/projects/{project_id}/locations/{location}/collections/{collection}/engines/{engine_id}/assistants/default_assistant:streamAssist"
+    
+    # Get credentials
+    # 1. Try User Credentials from ToolContext (Agent Engine Identity Propagation)
+    creds = get_user_credentials(tool_context)
+    
+    # 2. Fallback to Service Account / ADC
+    if not creds:
+        logger.info("No user credentials found in context. Falling back to Application Default Credentials.")
+        scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+        creds, _ = google.auth.default(scopes=scopes)
+
+    # Refresh if needed (for ADC; User creds from context usually are simple tokens but might need refresh if expired and we have refresh token - but simple Credentials wrapping token won't refresh)
+    # Actually, Credentials(token=...) is read-only. We rely on valid token.
+    if not creds.valid and creds.refresh_token:
+        auth_req = google.auth.transport.requests.Request()
+        creds.refresh(auth_req)
+    
+    # If we still don't have a valid token (e.g. user token expired and no refresh), we might fail.
+    # But for ADC, it handles refresh.
+    
+    # For now, just use the token property.
+    token = creds.token
+    # If creds came from google.auth.default(), we definitely need to ensure it's refreshed.
+    if not token:
+        # Force refresh for ADC
+         auth_req = google.auth.transport.requests.Request()
+         creds.refresh(auth_req)
+         token = creds.token
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "X-Goog-User-Project": project_id
+    }
+    
+    # Construct the payload
+    # Note: The dataStoreSpecs are dynamic based on .env
+    data_store_ids = os.getenv("DISCOVERY_ENGINE_DATA_STORE_IDS", "").split(",")
+    data_store_specs = [
+        {"dataStore": f"projects/{project_id}/locations/{location}/collections/{collection}/dataStores/{ds_id.strip()}"}
+        for ds_id in data_store_ids if ds_id.strip()
+    ]
+    
+    payload = {
+        "query": {
+            "text": query_text
+        },
+        "toolsSpec": {
+            "vertexAiSearchSpec": {
+                "dataStoreSpecs": data_store_specs
+            }
+        }
+    }
+    
+    try:
+        logger.info(f"Querying Gemini Enterprise: {query_text}")
+        response = requests.post(url, headers=headers, json=payload, stream=True)
+        response.raise_for_status()
+        
+        # Process the response
+        try:
+            # The API seems to return a pretty-printed JSON array [ ... ]
+            # so we can parse the entire response as JSON.
+            data = response.json()
+            
+            # If data is a list, iterate through items
+            # If dict, wrap in list
+            if isinstance(data, dict):
+                 items = [data]
+            else:
+                 items = data
+            
+            # DEBUG: Save response to file for inspection
+            try:
+                with open("debug_response.json", "w") as f:
+                    json.dump(items, f, indent=2)
+            except Exception as e:
+                logger.warning(f"Failed to save debug response: {e}")
+
+            full_response_text = ""
+            unique_sources = {} # Map URI to Title to avoid duplicates
+
+            for item in items:
+                 # Check for errors
+                 if "error" in item:
+                      error_msg = item["error"].get("message", str(item["error"]))
+                      logger.warning(f"Received error in response item: {error_msg}")
+                      full_response_text += f"\\n[Error from upstream: {error_msg}]\\n"
+                      continue
+
+                 # 1. Extract Reply / Text
+                 # Candidates: item['reply'], item['answer']
+                 candidates = []
+                 if "reply" in item: candidates.append(item["reply"])
+                 if "answer" in item: candidates.append(item["answer"])
+                 
+                 for container in candidates:
+                      if not isinstance(container, dict):
+                           continue
+
+                      # Case A: 'parts' directly in container (Standard Gemini)
+                      if "parts" in container:
+                           for part in container["parts"]:
+                                if "text" in part:
+                                     full_response_text += part["text"]
+                      
+                      # Case B: 'planStep' (Agent Engine)
+                      if "planStep" in container and "parts" in container["planStep"]:
+                           for part in container["planStep"]["parts"]:
+                                if "text" in part:
+                                     full_response_text += part["text"]
+
+                      # Case C: 'replies' list (Discovery Engine Answer API)
+                      if "replies" in container:
+                           for reply_item in container["replies"]:
+                                # reply_item['groundedContent']['content']['text']
+                                content = reply_item.get("groundedContent", {}).get("content", {})
+                                if "text" in content:
+                                     full_response_text += content["text"]
+
+                                # Check for citations in reply item ? (Unknown, but safe to check)
+                                if "citations" in reply_item:
+                                     for citation in reply_item["citations"]:
+                                          for source in citation.get("sources", []):
+                                               uri = source.get("uri")
+                                               title = source.get("title")
+                                               if uri:
+                                                    unique_sources[uri] = title or uri
+
+                 # Check for citations at root level
+                 if "citations" in item:
+                     for citation in item["citations"]:
+                         for source in citation.get("sources", []):
+                             uri = source.get("uri")
+                             title = source.get("title")
+                             if uri:
+                                 unique_sources[uri] = title or uri
+
+            # Format the final output with sources
+
+            # Format the final output with sources
+            final_output = full_response_text.strip()
+
+            if unique_sources:
+                 final_output += "\\n\\n**Available Sources:**\\n"
+                 for uri, title in unique_sources.items():
+                      final_output += f"- [{title}]({uri})\\n"
+
+            return final_output
+
+        except json.JSONDecodeError:
+             # Fallback to raw text if JSON fails (e.g. maybe it was truly streaming text?)
+             logger.warning("Failed to parse response as JSON. Returning raw text.")
+             return f"Raw response:\\n{response.text}"
+
+    except Exception as e:
+        logger.error(f"Error querying Gemini Enterprise: {e}")
+        return f"Error: {str(e)}"
+`;
+    }
+
+    if (config.tools.some(t => t.type === 'A2AClientTool')) {
+        code += `
 import google.oauth2.id_token
 
 def create_a2a_tool(url: str, tool_name: str):
@@ -537,6 +800,31 @@ def create_a2a_tool(url: str, tool_name: str):
 `;
     }
 
+    return code;
+};
+
+const generateAdkPythonCode = (config: AdkAgentConfig): string => {
+    const toolImports = new Set<string>();
+    const toolInitializations: string[] = [];
+    const toolListForAgent: string[] = [];
+    const pluginsImports = new Set<string>();
+    const pluginInitializations: string[] = [];
+    const pluginList: string[] = [];
+
+    // We import from tools now
+    const toolsImport = new Set<string>();
+
+    const agentClass = 'Agent';
+    const agentImport = 'from google.adk.agents import Agent';
+    const adkAppImport = 'from google.adk.apps import App';
+
+    toolImports.add('import google.auth');
+
+    // Inject A2A Helper Function Import
+    if (config.tools.some(t => t.type === 'A2AClientTool')) {
+        toolsImport.add('create_a2a_tool');
+    }
+
     config.tools.forEach(tool => {
         if (tool.type === 'VertexAiSearchTool' && tool.dataStoreId) {
             toolImports.add('from google.adk.tools import VertexAiSearchTool');
@@ -558,8 +846,6 @@ def create_a2a_tool(url: str, tool_name: str):
         toolListForAgent.push('google_search');
     }
 
-
-    
     if (config.enableBqAnalytics) {
         pluginsImports.add('from google.adk.plugins.bigquery_agent_analytics_plugin import BigQueryAgentAnalyticsPlugin');
         pluginInitializations.push(`# BigQuery Analytics Plugin
@@ -571,13 +857,21 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
         pluginList.push('bq_logging_plugin');
     }
 
+    if (config.enableDiscoveryApi) {
+        toolsImport.add('query_gemini_enterprise');
+        toolListForAgent.push('query_gemini_enterprise');
+    }
 
+    if (config.enableCloudLogging) {
+        toolsImport.add('read_recent_logs');
+        toolListForAgent.push('read_recent_logs');
+    }
 
-    if (config.enableOAuth) {
-        toolImports.add('from auth_utils import get_user_credentials');
-    // NOTE: We do NOT add get_user_credentials to toolListForAgent because it returns a Credentials object
-    // which is not JSON-serializable and causes the Agent Engine to crash during schema generation.
-    // It is intended as a helper for other tools.
+    if (config.enableCloudStorage) {
+        toolsImport.add('list_gcs_buckets');
+        toolsImport.add('list_gcs_objects');
+        toolListForAgent.push('list_gcs_buckets');
+        toolListForAgent.push('list_gcs_objects');
     }
 
     const formatPythonString = (str: string) => {
@@ -598,6 +892,10 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
         ...Array.from(pluginsImports),
     ];
 
+    if (toolsImport.size > 0) {
+        imports.push(`from tools import ${Array.from(toolsImport).join(', ')}`);
+    }
+
     const hasPlugins = pluginList.length > 0;
     if (hasPlugins) {
         imports.push(adkAppImport);
@@ -608,9 +906,6 @@ ${imports.join('\n')}
 
 load_dotenv()
 
-${a2aClassCode}
-
-${oauthToolCodeBlock}
 # Initialize Tools
 ${toolInitializations.length > 0 ? toolInitializations.join('\n\n') : '# No additional tools defined'}
 
@@ -766,6 +1061,23 @@ AGENT_DISPLAY_NAME="${config.name}"`;
     
 
     
+
+    if (config.enableDiscoveryApi) {
+        content += `
+DISCOVERY_ENGINE_PROJECT_ID="${config.discoveryConfig.projectId}"
+DISCOVERY_ENGINE_LOCATION="${config.discoveryConfig.location}"
+DISCOVERY_ENGINE_COLLECTION="${config.discoveryConfig.collection}"
+DISCOVERY_ENGINE_ENGINE_ID="${config.discoveryConfig.engineId}"
+DISCOVERY_ENGINE_DATA_STORE_IDS="${config.discoveryConfig.dataStoreIds}"`;
+    }
+
+    if (config.enableTelemetry) {
+        content += `\nGOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true`;
+    }
+    if (config.enableMessageLogging) {
+        content += `\nOTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`;
+    }
+
     return content.trim();
 };
 
@@ -779,8 +1091,16 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
         requirements.add('google-api-python-client');
         requirements.add('google-auth');
     }
-    if (config.tools.some(t => t.type === 'A2AClientTool')) {
+
+    if (config.tools.some(t => t.type === 'A2AClientTool') || config.enableDiscoveryApi) {
         requirements.add('requests');
+    }
+
+    if (config.enableCloudLogging) {
+        requirements.add('google-cloud-logging');
+    }
+    if (config.enableCloudStorage) {
+        requirements.add('google-cloud-storage');
     }
 
     return Array.from(requirements).join('\n');
@@ -866,13 +1186,81 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         useGoogleSearch: false,
         enableOAuth: false,
         authId: '',
-
+        enableDiscoveryApi: false,
+        discoveryConfig: {
+            projectId: '',
+            location: 'global',
+            collection: 'default_collection',
+            engineId: '',
+            dataStoreIds: ''
+        },
+        enableCloudLogging: false,
+        enableCloudStorage: false,
+        enableTelemetry: false,
+        enableMessageLogging: false,
+        enableBqAnalytics: false,
+        bqDatasetId: '',
+        bqTableId: ''
     });
     const [vertexLocation, setVertexLocation] = useState('us-central1');
-    const [adkGeneratedCode, setAdkGeneratedCode] = useState({ agent: '', env: '', requirements: '', readme: '', deploy_re: '', auth_utils: '' });
-    const [adkActiveTab, setAdkActiveTab] = useState<'agent' | 'env' | 'requirements' | 'readme' | 'deploy_re' | 'auth_utils'>('agent');
+    const [adkGeneratedCode, setAdkGeneratedCode] = useState({ agent: '', env: '', requirements: '', readme: '', deploy_re: '', auth_utils: '', tools: '' });
+    const [adkActiveTab, setAdkActiveTab] = useState<'agent' | 'env' | 'requirements' | 'readme' | 'deploy_re' | 'auth_utils' | 'tools'>('agent');
     const [adkCopySuccess, setAdkCopySuccess] = useState('');
-    
+
+    // Discovery Engine State
+    const [collections, setCollections] = useState<any[]>([]);
+    const [engines, setEngines] = useState<any[]>([]);
+    const [isDiscoveryLoading, setIsDiscoveryLoading] = useState(false);
+
+    // Fetch Collections when project/location changes
+    useEffect(() => {
+        if (!adkConfig.enableDiscoveryApi || !adkConfig.discoveryConfig.projectId && !projectNumber) return;
+        if (!adkConfig.discoveryConfig.location) return;
+
+        const fetchCollections = async () => {
+            setIsDiscoveryLoading(true);
+            try {
+                const targetProject = adkConfig.discoveryConfig.projectId || projectNumber;
+                const tempConfig: any = {
+                    projectId: targetProject,
+                    appLocation: adkConfig.discoveryConfig.location
+                };
+
+                const res = await api.listResources('collections', tempConfig);
+                setCollections(res.collections || []);
+            } catch (e) {
+                console.error("Failed to fetch collections", e);
+            } finally {
+                setIsDiscoveryLoading(false);
+            }
+        };
+        fetchCollections();
+    }, [adkConfig.enableDiscoveryApi, adkConfig.discoveryConfig.projectId, adkConfig.discoveryConfig.location, projectNumber]);
+
+    // Fetch Engines when Collection changes
+    useEffect(() => {
+        if (!adkConfig.enableDiscoveryApi || !adkConfig.discoveryConfig.collection) return;
+
+        const fetchEngines = async () => {
+            setIsDiscoveryLoading(true);
+            try {
+                const targetProject = adkConfig.discoveryConfig.projectId || projectNumber;
+                const tempConfig: any = {
+                    projectId: targetProject,
+                    appLocation: adkConfig.discoveryConfig.location,
+                    collectionId: adkConfig.discoveryConfig.collection
+                };
+                const res = await api.listResources('engines', tempConfig);
+                setEngines(res.engines || []);
+            } catch (e) {
+                console.error("Failed to fetch engines", e);
+            } finally {
+                setIsDiscoveryLoading(false);
+            }
+        };
+        fetchEngines();
+    }, [adkConfig.enableDiscoveryApi, adkConfig.discoveryConfig.collection, adkConfig.discoveryConfig.projectId, adkConfig.discoveryConfig.location, projectNumber]);
+
     // Data Store Tool State
     const [toolBuilderConfig, setToolBuilderConfig] = useState({ dataStoreId: '' });
     const [dataStores, setDataStores] = useState<(DataStore & { location: string })[]>([]);
@@ -957,7 +1345,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         const readmeCode = generateAdkReadmeFile(adkConfig);
         const deployCode = generateAdkDeployScript(adkConfig);
         const authUtilsCode = generateAuthUtils();
-        setAdkGeneratedCode({ agent: agentCode, env: envCode, requirements: reqsCode, readme: readmeCode, deploy_re: deployCode, auth_utils: authUtilsCode });
+        const toolsCode = generateToolsPy(adkConfig);
+        setAdkGeneratedCode({ agent: agentCode, env: envCode, requirements: reqsCode, readme: readmeCode, deploy_re: deployCode, auth_utils: authUtilsCode, tools: toolsCode });
     }, [adkConfig, projectNumber, vertexLocation, stagingBucket]);
 
     // ADK Data Store & Buckets Fetching
@@ -1063,7 +1452,16 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
 
     const handleAdkConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
-        if (type === 'checkbox') {
+        if (name.startsWith('discovery.')) {
+            const field = name.split('.')[1];
+            setAdkConfig(prev => ({
+                ...prev,
+                discoveryConfig: {
+                    ...prev.discoveryConfig,
+                    [field]: value
+                }
+            }));
+        } else if (type === 'checkbox') {
              setAdkConfig(prev => ({...prev, [name]: (e.target as HTMLInputElement).checked }));
         } else if (name === 'name') {
              const sanitizedValue = value.replace(/\s+/g, '_');
@@ -1150,6 +1548,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         if (adkConfig.enableOAuth) {
             zip.file('auth_utils.py', adkGeneratedCode.auth_utils);
         }
+        zip.file('tools.py', adkGeneratedCode.tools);
         const blob = await zip.generateAsync({ type: 'blob' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1167,7 +1566,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         requirements: adkGeneratedCode.requirements, 
         readme: adkGeneratedCode.readme,
         deploy_re: adkGeneratedCode.deploy_re,
-        auth_utils: adkGeneratedCode.auth_utils
+        auth_utils: adkGeneratedCode.auth_utils,
+        tools: adkGeneratedCode.tools
     }[adkActiveTab];
 
     const a2aCodeDisplay = { 
@@ -1182,7 +1582,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         { name: '.env', content: adkGeneratedCode.env },
         { name: 'requirements.txt', content: adkGeneratedCode.requirements },
         { name: 'README.md', content: adkGeneratedCode.readme },
-        { name: 'deploy_re.py', content: adkGeneratedCode.deploy_re }
+        { name: 'deploy_re.py', content: adkGeneratedCode.deploy_re },
+        { name: 'tools.py', content: adkGeneratedCode.tools }
     ];
 
     if (adkConfig.enableOAuth) {
@@ -1299,7 +1700,107 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                     <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="useGoogleSearch" checked={adkConfig.useGoogleSearch} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable Google Search Tool</span></label>
                                     <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="enableOAuth" checked={adkConfig.enableOAuth} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable OAuth (For Reference)</span></label>
                                     {adkConfig.enableOAuth && (
-                                        <div className="pl-7"><input type="text" name="authId" value={adkConfig.authId} onChange={handleAdkConfigChange} placeholder="Authorization Resource ID" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" /></div>
+                                        <div className="pl-7 space-y-2">
+                                            <input type="text" name="authId" value={adkConfig.authId} onChange={handleAdkConfigChange} placeholder="Authorization Resource ID" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" />
+
+                                            <label className="flex items-center space-x-3 cursor-pointer mt-2">
+                                                <input type="checkbox" name="enableDiscoveryApi" checked={adkConfig.enableDiscoveryApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                                <span className="text-sm text-gray-300">Enable Discovery Engine API</span>
+                                            </label>
+
+                                            {adkConfig.enableDiscoveryApi && (
+                                                <div className="pl-4 space-y-2 border-l border-gray-600 ml-1">
+                                                    <div>
+                                                        <label className="block text-xs text-gray-400">Discovery Project ID (Optional)</label>
+                                                        <input type="text" name="discovery.projectId" value={adkConfig.discoveryConfig.projectId} onChange={handleAdkConfigChange} placeholder="Defaults to agent project if empty" className="bg-gray-600 border border-gray-500 rounded px-2 py-1 text-xs text-white w-full" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs text-gray-400">Location</label>
+                                                        <select name="discovery.location" value={adkConfig.discoveryConfig.location} onChange={handleAdkConfigChange} className="bg-gray-600 border border-gray-500 rounded px-2 py-1 text-xs text-white w-full">
+                                                            <option value="global">global</option>
+                                                            <option value="us">us</option>
+                                                            <option value="eu">eu</option>
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs text-gray-400">Collection</label>
+                                                        <select name="discovery.collection" value={adkConfig.discoveryConfig.collection} onChange={handleAdkConfigChange} className="bg-gray-600 border border-gray-500 rounded px-2 py-1 text-xs text-white w-full">
+                                                            <option value="default_collection">default_collection</option>
+                                                            {collections.map(c => {
+                                                                const cId = c.name.split('/').pop();
+                                                                if (cId === 'default_collection') return null; // already managed
+                                                                return <option key={c.name} value={cId}>{c.displayName || cId}</option>;
+                                                            })}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs text-gray-400">Engine ID</label>
+                                                        <select name="discovery.engineId" value={adkConfig.discoveryConfig.engineId} onChange={handleAdkConfigChange} className="bg-gray-600 border border-gray-500 rounded px-2 py-1 text-xs text-white w-full">
+                                                            <option value="">-- Select Engine --</option>
+                                                            {engines.map(e => {
+                                                                const eId = e.name.split('/').pop();
+                                                                return <option key={e.name} value={eId}>{e.displayName || eId}</option>;
+                                                            })}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs text-gray-400">Data Store IDs (comma separated)</label>
+                                                        <input type="text" name="discovery.dataStoreIds" value={adkConfig.discoveryConfig.dataStoreIds} onChange={handleAdkConfigChange} className="bg-gray-600 border border-gray-500 rounded px-2 py-1 text-xs text-white w-full" />
+                                                        <div className="mt-1">
+                                                            <select
+                                                                className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-gray-300 w-full"
+                                                                onChange={(e) => {
+                                                                    if (!e.target.value) return;
+                                                                    const current = adkConfig.discoveryConfig.dataStoreIds;
+                                                                    const newId = e.target.value;
+                                                                    const newList = current ? `${current},${newId}` : newId;
+                                                                    // We need to manually fire change since it's cleaner
+                                                                    // Or just call setAdkConfig directly
+                                                                    setAdkConfig(prev => ({
+                                                                        ...prev,
+                                                                        discoveryConfig: {
+                                                                            ...prev.discoveryConfig,
+                                                                            dataStoreIds: newList
+                                                                        }
+                                                                    }));
+                                                                }}
+                                                                value=""
+                                                            >
+                                                                <option value="">+ Add Data Store...</option>
+                                                                {dataStores.map(ds => {
+                                                                    const dsId = ds.name.split('/').pop();
+                                                                    return <option key={ds.name} value={dsId}>{ds.displayName} ({dsId})</option>
+                                                                })}
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
+                                                <h4 className="text-xs font-semibold text-gray-400">Standard GCP Tools</h4>
+                                                <label className="flex items-center space-x-3 cursor-pointer">
+                                                    <input type="checkbox" name="enableCloudLogging" checked={adkConfig.enableCloudLogging} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                                    <span className="text-sm text-gray-300">Enable Cloud Logging</span>
+                                                </label>
+                                                <label className="flex items-center space-x-3 cursor-pointer">
+                                                    <input type="checkbox" name="enableCloudStorage" checked={adkConfig.enableCloudStorage} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                                    <span className="text-sm text-gray-300">Enable Cloud Storage</span>
+                                                </label>
+                                            </div>
+
+                                            <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
+                                                <h4 className="text-xs font-semibold text-gray-400">Observability</h4>
+                                                <label className="flex items-center space-x-3 cursor-pointer" title="Populates the agent observability dashboard and traces pages.">
+                                                    <input type="checkbox" name="enableTelemetry" checked={adkConfig.enableTelemetry} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                                    <span className="text-sm text-gray-300">Enable OpenTelemetry Traces & Logs</span>
+                                                </label>
+                                                <label className="flex items-center space-x-3 cursor-pointer" title="Enabling this will collect and store the full content of user prompts and responses. Ensure you have necessary user consents.">
+                                                    <input type="checkbox" name="enableMessageLogging" checked={adkConfig.enableMessageLogging} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                                    <span className="text-sm text-gray-300">Log Prompts & Responses (Sensitive)</span>
+                                                </label>
+                                            </div>
+                                        </div>
                                     )}
 
                                 </div>
