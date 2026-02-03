@@ -50,6 +50,10 @@ interface AdkAgentConfig {
     enableBqAnalytics: boolean;
     bqDatasetId: string;
     bqTableId: string;
+    enableThinking: boolean;
+    thinkingBudget: number;
+    enableStreaming: boolean;
+
 }
 
 interface DiscoveryConfig {
@@ -814,11 +818,14 @@ const generateAdkPythonCode = (config: AdkAgentConfig): string => {
     // We import from tools now
     const toolsImport = new Set<string>();
 
+    // Model selection logic
+    const modelName = config.model;
     const agentClass = 'Agent';
     const agentImport = 'from google.adk.agents import Agent';
     const adkAppImport = 'from google.adk.apps import App';
 
     toolImports.add('import google.auth');
+
 
     // Inject A2A Helper Function Import
     if (config.tools.some(t => t.type === 'A2AClientTool')) {
@@ -887,10 +894,14 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
         'import os',
         'from dotenv import load_dotenv',
         agentImport,
+        'from dotenv import load_dotenv',
+        agentImport,
         'from vertexai.preview import reasoning_engines',
+        config.enableThinking ? 'from google.adk.planners import BuiltInPlanner' : '',
+        config.enableThinking ? 'from google.genai import types as genai_types' : '',
         ...Array.from(toolImports),
         ...Array.from(pluginsImports),
-    ];
+    ].filter(Boolean);
 
     if (toolsImport.size > 0) {
         imports.push(`from tools import ${Array.from(toolsImport).join(', ')}`);
@@ -912,13 +923,24 @@ ${toolInitializations.length > 0 ? toolInitializations.join('\n\n') : '# No addi
 # Initialize Plugins
 ${pluginInitializations.length > 0 ? pluginInitializations.join('\n\n') : '# No plugins defined'}
 
+${config.enableThinking ? `
+# Define Thinking Planner
+thinking_planner = BuiltInPlanner(
+    thinking_config=genai_types.ThinkingConfig(
+        include_thoughts=True,
+        thinking_budget=${config.thinkingBudget},
+    )
+)
+` : ''}
+
 # Define the root agent
 root_agent = ${agentClass}(
     name=${formatPythonString(config.name)},
     description=${formatPythonString(config.description)},
-    model=os.getenv("MODEL", ${formatPythonString(config.model)}),
+    model=os.getenv("MODEL", ${formatPythonString(modelName)}),
     instruction=${formatPythonString(config.instruction)},
     tools=[${toolListForAgent.join(', ')}],
+    ${config.enableThinking ? 'planner=thinking_planner,' : ''}
 )
 
 ${hasPlugins ? `
@@ -930,10 +952,49 @@ adk_app = App(
 )
 ` : ''}
 
+${config.enableStreaming ? `
+# Streaming Wrapper
+from typing import Generator
+
+class StreamingAgentWrapper:
+    def __init__(self, agent):
+        self.agent = agent
+
+    def query(self, input: str, **kwargs) -> Generator[str, None, None]:
+        # Use the underlying model's start_chat and send_message with stream=True
+        # This bypasses the agent's query/run method to force streaming from the model
+        # Note: This is a simplification. For full agent features like tool use + streaming, 
+        # one would typically need a streaming-compatible runner or updated Agent class.
+        # This wrapper assumes direct model interaction for streaming as a fallback.
+        
+        # If the agent has a model with start_chat, use it.
+        if hasattr(self.agent, 'model') and hasattr(self.agent.model, 'start_chat'):
+            chat = self.agent.model.start_chat()
+            response_stream = chat.send_message(input, stream=True, **kwargs)
+            for chunk in response_stream:
+                if chunk.text:
+                    yield chunk.text
+        else:
+            # Fallback to non-streaming if model doesn't support it easily
+            yield self.agent.query(input, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self.agent, name)
+` : ''}
+
 # Define the App for Vertex AI Agent Engine
 # Note: Root agent is wrapped in AdkApp as requested.
+# If streaming is enabled, wrap the agent.
+# Note: AdkApp expects 'agent' to have a 'query' method.
+final_agent = ${config.enableStreaming ? 'StreamingAgentWrapper(root_agent)' : 'root_agent'}
+${hasPlugins ? 'final_agent = adk_app' : ''} # Plugins take precedence if wrapping agent, but typically plug-ins wrap root_agent inside AdkApp logic.
+# Actually AdkApp takes 'agent'. If we use plugins, 'adk_app' IS the app. 
+# But 'reasoning_engines.AdkApp' wraps an agent. 
+# If we have plugins, 'adk_app' is an instance of 'google.adk.apps.App'.
+# Reasoning Engine's AdkApp expects a 'google.adk.agents.Agent' or compatible.
+
 app = reasoning_engines.AdkApp(
-    agent=${hasPlugins ? 'adk_app' : 'root_agent'},
+    agent=${hasPlugins ? 'adk_app' : 'final_agent'},
     enable_tracing=False
 )
 `.trim();
@@ -973,7 +1034,7 @@ except ImportError as e:
     raise
 
 # Read requirements
-reqs = ["google-cloud-aiplatform[adk,agent_engines]>=1.75.0", "python-dotenv"]
+reqs = ["google-cloud-aiplatform[adk,agent_engines]>=1.75.0", "google-adk>=0.1.0", "python-dotenv"]
 if os.path.exists("requirements.txt"):
     with open("requirements.txt", "r") as f:
         for line in f:
@@ -991,6 +1052,11 @@ if os.path.exists(".env"):
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     key, value = line.split("=", 1)
+                    key = key.strip()
+                    value = value.strip()
+                    if not key:
+                        continue
+
                     # Handle quotes if present
                     if value.startswith('"') and value.endswith('"'):
                         value = value[1:-1]
@@ -1001,8 +1067,14 @@ if os.path.exists(".env"):
                     os.environ[key] = value
 
                     # Append strictly non-reserved keys to env_vars list for deployment
-                    if key not in ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"]:
+                    if (key not in ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "STAGING_BUCKET", "PROJECT_ID"]
+                        and not key.startswith("OTEL_")
+                        and not key.startswith("GOOGLE_CLOUD_AGENT_ENGINE_")):
                         env_vars.append(key)
+
+        # Deduplicate env_vars to prevent "EnvVar names must be unique" error
+        env_vars = list(set(env_vars))
+        logger.info(f"Final deployment env_vars: {env_vars}")
         logger.info(f"Parsed {len(env_vars)} environment variables for deploymentSpec.")
     except Exception as e:
         logger.warning(f"Failed to parse .env file: {e}")
@@ -1028,8 +1100,12 @@ logger.info("Creating Agent Engine...")
 # Detect extra packages (like auth_utils.py)
 extra_packages = []
 for f in os.listdir("."):
-    if f.endswith(".py") and f not in ["deploy_re.py", ".env", "requirements.txt"]:
-            # Simple heuristic: include all other python files as extra_packages
+    if f in ["deploy_re.py", ".env", "requirements.txt", ".git", ".adk", "venv", ".venv", "__pycache__", "node_modules"]:
+        continue
+
+    if os.path.isfile(f) and f.endswith(".py"):
+            extra_packages.append(f)
+    elif os.path.isdir(f) and not f.startswith("."):
             extra_packages.append(f)
 
 logger.info(f"Extra packages detected: {extra_packages}")
@@ -1084,7 +1160,8 @@ DISCOVERY_ENGINE_DATA_STORE_IDS="${config.discoveryConfig.dataStoreIds}"`;
 const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
     const requirements = new Set([
         'google-cloud-aiplatform[adk,agent_engines]>=1.75.0', 
-        'python-dotenv'
+        'python-dotenv',
+        'google-adk>=0.1.0'
     ]);
     if (config.enableOAuth || config.tools.some(t => t.type === 'A2AClientTool')) {
         requirements.add('google-auth-oauthlib>=1.2.2');
@@ -1134,6 +1211,36 @@ This agent was created using the Gemini Enterprise Manager Agent Builder (ADK).
 `.trim();
 };
 
+
+interface AgentTemplate {
+    id: string;
+    name: string;
+    description: string;
+    config: Partial<AdkAgentConfig>;
+}
+
+const GCP_LOGS_READER_TEMPLATE: AgentTemplate = {
+    id: 'gcp_logs_reader',
+    name: 'GCP Logs Reader',
+    description: 'An agent that can search Google Cloud Logs, with OAuth and Telemetry enabled.',
+    config: {
+        name: 'GCP_Logs_Reader',
+        description: 'An expert agent for analyzing Google Cloud Logs.',
+        model: 'gemini-2.5-flash',
+        instruction: 'You are a Google Cloud Logging expert. Your goal is to help users find and analyze logs from their GCP projects. You have access to tools for reading logs and searching Google. Always verify the project ID before querying.',
+        useGoogleSearch: true,
+        enableOAuth: true,
+        authId: 'default',
+        enableCloudLogging: true,
+        enableTelemetry: true,
+        enableMessageLogging: true,
+        tools: []
+    }
+};
+
+const TEMPLATES: AgentTemplate[] = [
+    GCP_LOGS_READER_TEMPLATE
+];
 
 interface AgentBuilderPageProps {
   projectNumber: string;
@@ -1200,7 +1307,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         enableMessageLogging: false,
         enableBqAnalytics: false,
         bqDatasetId: '',
-        bqTableId: ''
+        bqTableId: '',
+        enableThinking: false,
+        thinkingBudget: 1024,
+        enableStreaming: false
     });
     const [vertexLocation, setVertexLocation] = useState('us-central1');
     const [adkGeneratedCode, setAdkGeneratedCode] = useState({ agent: '', env: '', requirements: '', readme: '', deploy_re: '', auth_utils: '', tools: '' });
@@ -1639,6 +1749,35 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                         
                         {builderTab === 'adk' ? (
                             <>
+                                {/* Templates Selection */}
+                                <div className="mb-4 p-3 bg-gray-750 rounded-lg border border-gray-600">
+                                    <label className="block text-sm font-medium text-blue-400 mb-2">🚀 Quick Start Templates</label>
+                                    <select
+                                        onChange={(e) => {
+                                            const template = TEMPLATES.find(t => t.id === e.target.value);
+                                            if (template) {
+                                                setAdkConfig(prev => ({
+                                                    ...prev,
+                                                    ...template.config,
+                                                    // Preserve specific fields we don't want to overwrite blindly if they have values?
+                                                    // For now, template overwrites defaults.
+                                                    discoveryConfig: {
+                                                        ...prev.discoveryConfig,
+                                                        ...(template.config.discoveryConfig || {})
+                                                    }
+                                                }));
+                                            }
+                                        }}
+                                        className="bg-gray-800 border border-gray-500 rounded-md px-3 py-2 text-sm text-white w-full hover:border-blue-500 focus:border-blue-500 transition-colors"
+                                        defaultValue=""
+                                    >
+                                        <option value="" disabled>Select a template to auto-fill...</option>
+                                        {TEMPLATES.map(t => (
+                                            <option key={t.id} value={t.id}>{t.name} - {t.description}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
                                 <div><label className="block text-sm font-medium text-gray-400 mb-1">Agent Name</label><input name="name" type="text" value={adkConfig.name} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]" /></div>
                                 <div><label className="block text-sm font-medium text-gray-400 mb-1">Description</label><input name="description" type="text" value={adkConfig.description} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]" /></div>
                                 <div>
@@ -1703,89 +1842,39 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                         <div className="pl-7 space-y-2">
                                             <input type="text" name="authId" value={adkConfig.authId} onChange={handleAdkConfigChange} placeholder="Authorization Resource ID" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" />
 
+
                                             <label className="flex items-center space-x-3 cursor-pointer mt-2">
-                                                <input type="checkbox" name="enableDiscoveryApi" checked={adkConfig.enableDiscoveryApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                                <span className="text-sm text-gray-300">Enable Discovery Engine API</span>
+                                                <input type="checkbox" name="enableDiscoveryApi" checked={adkConfig.enableDiscoveryApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" disabled />
+                                                <span className="text-sm text-gray-500 line-through">Enable Discovery Engine API (Disabled)</span>
                                             </label>
 
-                                            {adkConfig.enableDiscoveryApi && (
-                                                <div className="pl-4 space-y-2 border-l border-gray-600 ml-1">
-                                                    <div>
-                                                        <label className="block text-xs text-gray-400">Discovery Project ID (Optional)</label>
-                                                        <input type="text" name="discovery.projectId" value={adkConfig.discoveryConfig.projectId} onChange={handleAdkConfigChange} placeholder="Defaults to agent project if empty" className="bg-gray-600 border border-gray-500 rounded px-2 py-1 text-xs text-white w-full" />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-xs text-gray-400">Location</label>
-                                                        <select name="discovery.location" value={adkConfig.discoveryConfig.location} onChange={handleAdkConfigChange} className="bg-gray-600 border border-gray-500 rounded px-2 py-1 text-xs text-white w-full">
-                                                            <option value="global">global</option>
-                                                            <option value="us">us</option>
-                                                            <option value="eu">eu</option>
-                                                        </select>
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-xs text-gray-400">Collection</label>
-                                                        <select name="discovery.collection" value={adkConfig.discoveryConfig.collection} onChange={handleAdkConfigChange} className="bg-gray-600 border border-gray-500 rounded px-2 py-1 text-xs text-white w-full">
-                                                            <option value="default_collection">default_collection</option>
-                                                            {collections.map(c => {
-                                                                const cId = c.name.split('/').pop();
-                                                                if (cId === 'default_collection') return null; // already managed
-                                                                return <option key={c.name} value={cId}>{c.displayName || cId}</option>;
-                                                            })}
-                                                        </select>
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-xs text-gray-400">Engine ID</label>
-                                                        <select name="discovery.engineId" value={adkConfig.discoveryConfig.engineId} onChange={handleAdkConfigChange} className="bg-gray-600 border border-gray-500 rounded px-2 py-1 text-xs text-white w-full">
-                                                            <option value="">-- Select Engine --</option>
-                                                            {engines.map(e => {
-                                                                const eId = e.name.split('/').pop();
-                                                                return <option key={e.name} value={eId}>{e.displayName || eId}</option>;
-                                                            })}
-                                                        </select>
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-xs text-gray-400">Data Store IDs (comma separated)</label>
-                                                        <input type="text" name="discovery.dataStoreIds" value={adkConfig.discoveryConfig.dataStoreIds} onChange={handleAdkConfigChange} className="bg-gray-600 border border-gray-500 rounded px-2 py-1 text-xs text-white w-full" />
-                                                        <div className="mt-1">
-                                                            <select
-                                                                className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-gray-300 w-full"
-                                                                onChange={(e) => {
-                                                                    if (!e.target.value) return;
-                                                                    const current = adkConfig.discoveryConfig.dataStoreIds;
-                                                                    const newId = e.target.value;
-                                                                    const newList = current ? `${current},${newId}` : newId;
-                                                                    // We need to manually fire change since it's cleaner
-                                                                    // Or just call setAdkConfig directly
-                                                                    setAdkConfig(prev => ({
-                                                                        ...prev,
-                                                                        discoveryConfig: {
-                                                                            ...prev.discoveryConfig,
-                                                                            dataStoreIds: newList
-                                                                        }
-                                                                    }));
-                                                                }}
-                                                                value=""
-                                                            >
-                                                                <option value="">+ Add Data Store...</option>
-                                                                {dataStores.map(ds => {
-                                                                    const dsId = ds.name.split('/').pop();
-                                                                    return <option key={ds.name} value={dsId}>{ds.displayName} ({dsId})</option>
-                                                                })}
-                                                            </select>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )}
+                                        </div>
+                                    )}
 
                                             <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
-                                                <h4 className="text-xs font-semibold text-gray-400">Standard GCP Tools</h4>
+                                        <h4 className="text-xs font-semibold text-gray-400">Agent Capabilities</h4>
+                                        <div className="flex items-center space-x-2">
+                                            <label className="flex items-center space-x-3 cursor-pointer">
+                                                <input type="checkbox" name="enableThinking" checked={adkConfig.enableThinking} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                                <span className="text-sm text-gray-300">Enable Thinking Details</span>
+                                            </label>
+                                            {adkConfig.enableThinking && (
+                                                <div className="flex flex-col">
+                                                    <input
+                                                        type="number"
+                                                        name="thinkingBudget"
+                                                        value={adkConfig.thinkingBudget}
+                                                        onChange={handleAdkConfigChange}
+                                                        placeholder="Limit (-1)"
+                                                        title="Token limit for thinking process (-1 for unlimited)"
+                                                        className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-24"
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
                                                 <label className="flex items-center space-x-3 cursor-pointer">
-                                                    <input type="checkbox" name="enableCloudLogging" checked={adkConfig.enableCloudLogging} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                                    <span className="text-sm text-gray-300">Enable Cloud Logging</span>
-                                                </label>
-                                                <label className="flex items-center space-x-3 cursor-pointer">
-                                                    <input type="checkbox" name="enableCloudStorage" checked={adkConfig.enableCloudStorage} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                                    <span className="text-sm text-gray-300">Enable Cloud Storage</span>
+                                            <input type="checkbox" name="enableStreaming" checked={adkConfig.enableStreaming} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Streaming Responses</span>
                                                 </label>
                                             </div>
 
@@ -1800,8 +1889,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                                     <span className="text-sm text-gray-300">Log Prompts & Responses (Sensitive)</span>
                                                 </label>
                                             </div>
-                                        </div>
-                                    )}
+
 
                                 </div>
                             </>

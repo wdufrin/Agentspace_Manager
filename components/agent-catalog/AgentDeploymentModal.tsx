@@ -417,6 +417,10 @@ echo "Deployment Complete."`;
             reqsContent += '\ngoogle-cloud-aiplatform[adk,agent_engines]>=1.75.0'; 
             reqsUpdated = true; 
         }
+        if (!reqsContent.includes('google-adk')) {
+            reqsContent += '\ngoogle-adk>=0.1.0';
+            reqsUpdated = true;
+        }
         
         // If targeting Cloud Run, we use A2A which requires uvicorn/fastapi
         if (target === 'cloud_run') {
@@ -591,6 +595,11 @@ if os.path.exists(".env"):
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     key, value = line.split("=", 1)
+                    key = key.strip()
+                    value = value.strip()
+                    if not key:
+                        continue
+
                     # Handle quotes if present
                     if value.startswith('"') and value.endswith('"'):
                         value = value[1:-1]
@@ -602,8 +611,14 @@ if os.path.exists(".env"):
                     
                     # Append strictly non-reserved keys to env_vars list for deployment
                     # GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are reserved by Vertex AI
-                    if key not in ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"]:
+                    if (key not in ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "STAGING_BUCKET", "PROJECT_ID"]
+                        and not key.startswith("OTEL_")
+                        and not key.startswith("GOOGLE_CLOUD_AGENT_ENGINE_")):
                         env_vars.append(key)
+        
+        # Deduplicate env_vars to prevent "EnvVar names must be unique" error
+        env_vars = list(set(env_vars))
+        logger.info(f"Final deployment env_vars: {env_vars}")
         logger.info(f"Parsed {len(env_vars)} environment variables for deploymentSpec.")
     except Exception as e:
         logger.warning(f"Failed to parse .env file: {e}")
@@ -633,8 +648,12 @@ try:
     # Detect extra packages (like auth_utils.py)
     extra_packages = []
     for f in os.listdir("."):
-        if f.endswith(".py") and f not in ["deploy_re.py", ".env", "requirements.txt"]:
-             # Simple heuristic: include all other python files as extra_packages
+        if f in ["deploy_re.py", ".env", "requirements.txt", ".git", ".adk", "venv", ".venv", "__pycache__", "node_modules"]:
+            continue
+        
+        if os.path.isfile(f) and f.endswith(".py"):
+             extra_packages.append(f)
+        elif os.path.isdir(f) and not f.startswith("."):
              extra_packages.append(f)
     
     logger.info(f"Extra packages detected: {extra_packages}")
