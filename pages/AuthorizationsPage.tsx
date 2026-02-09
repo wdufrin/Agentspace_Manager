@@ -4,6 +4,7 @@ import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
 import AuthList from '../components/authorizations/AuthList';
 import AuthForm from '../components/authorizations/AuthForm';
+import WorkforcePoolValidator from '../components/tools/WorkforcePoolValidator';
 import ConfirmationModal from '../components/ConfirmationModal';
 
 interface AuthorizationsPageProps {
@@ -16,6 +17,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'form'>('list');
   const [authToEdit, setAuthToEdit] = useState<Authorization | null>(null);
+  const [region, setRegion] = useState<string>('global');
   
   // State for delete confirmation modal
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -25,15 +27,16 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
   // State for agent usage mapping
   const [authUsage, setAuthUsage] = useState<Record<string, Agent[]>>({});
   const [isScanningAgents, setIsScanningAgents] = useState(false);
+  const [showWorkforceValidator, setShowWorkforceValidator] = useState(false);
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
       projectId: projectNumber,
       // These are not used for authorizations but are required by the type
-      appLocation: 'global', 
+    appLocation: region, 
       collectionId: 'default_collection',
       appId: '',
       assistantId: 'default_assistant'
-  }), [projectNumber]);
+  }), [projectNumber, region]);
 
   const fetchData = useCallback(async () => {
     if (!projectNumber) {
@@ -86,7 +89,12 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
 
       const [authResponse, allAgents] = await Promise.all([authPromise, agentPromise]);
       
-      setAuthorizations(authResponse.authorizations || []);
+      // Strict filtering: Ensure we only show authorizations that match the selected region
+      // This handles cases where the API might return mixed results or if there's any confusion
+      const regionPattern = `/locations/${apiConfig.appLocation}/`;
+      const filteredAuths = (authResponse.authorizations || []).filter(auth => auth.name.includes(regionPattern));
+
+      setAuthorizations(filteredAuths);
       
       const usageMap: Record<string, Agent[]> = {};
       for (const agent of allAgents) {
@@ -184,8 +192,14 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
     setIsLoading(true);
     setError(null);
     try {
-        const authName = `projects/${projectNumber}/locations/global/authorizations/${authId}`;
-        const authData = await api.getAuthorization(authName, apiConfig);
+      // Find the full auth object from the list to get the correct name (including location)
+      const auth = authorizations.find(a => a.name.endsWith(`/${authId}`));
+      if (!auth) {
+        throw new Error(`Authorization with ID ${authId} not found in the current list.`);
+      }
+
+      // Use the full resource name which includes the correct location
+      const authData = await api.getAuthorization(auth.name, apiConfig);
         setAuthToEdit(authData);
         setView('form');
     } catch (err: any) {
@@ -247,6 +261,23 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
                     {projectNumber || <span className="text-gray-500 italic">Not set (configure on Agents page)</span>}
                 </div>
             </div>
+
+        <div className="mt-4">
+          <label className="block text-sm font-medium text-gray-400 mb-1">Region</label>
+          <select
+            value={region}
+            onChange={(e) => setRegion(e.target.value)}
+            className="block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-sm text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+          >
+            <option value="global">Global</option>
+            <option value="us">US (Multi-region)</option>
+            <option value="eu">EU (Multi-region)</option>
+          </select>
+          <p className="mt-1 text-xs text-gray-500">
+            Select the region where you want to manage authorizations.
+          </p>
+        </div>
+
             {view === 'list' && (
                 <button 
                     onClick={fetchData} 
@@ -256,7 +287,25 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
                     {isLoading ? 'Loading...' : 'Refresh Authorizations'}
                 </button>
             )}
+      </div>
+
+      {/* Tools Section */}
+      {view === 'list' && (
+        <div className="mb-6">
+          <button
+            onClick={() => setShowWorkforceValidator(!showWorkforceValidator)}
+            className="text-sm text-blue-400 hover:text-blue-300 underline focus:outline-none"
+          >
+            {showWorkforceValidator ? 'Hide Tools' : 'Show Advanced Tools (Workforce Pool Validator)'}
+          </button>
+
+          {showWorkforceValidator && (
+            <div className="mt-4 animate-fade-in-down">
+              <WorkforcePoolValidator config={apiConfig} />
+            </div>
+          )}
         </div>
+      )}
       {renderContent()}
 
       {authToDelete && (

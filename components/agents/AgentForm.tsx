@@ -259,9 +259,12 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
         
             const finalAuthId = formData.authId?.split('/').pop()?.trim();
             if (finalAuthId) {
+                const selectedAuth = authorizations.find(a => a.name.endsWith(`/${finalAuthId}`));
+                const authResourceName = selectedAuth ? selectedAuth.name : `projects/${projectId}/locations/global/authorizations/${finalAuthId}`;
+
                 createPayload.authorizationConfig = {
                     toolAuthorizations: [
-                        `projects/${projectId}/locations/global/authorizations/${finalAuthId}`
+                        authResourceName
                     ]
                 };
             }
@@ -530,9 +533,13 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
         const finalAuthId = formData.authId?.split('/').pop()?.trim();
         if (finalAuthId) {
             // Updated to use authorizationConfig structure
+            // Try to find the full auth object to get the correct location
+            const selectedAuth = authorizations.find(a => a.name.endsWith(`/${finalAuthId}`));
+            const authResourceName = selectedAuth ? selectedAuth.name : `projects/${config.projectId}/locations/global/authorizations/${finalAuthId}`;
+
             createPayload.authorizationConfig = {
                 toolAuthorizations: [
-                    `projects/${config.projectId}/locations/global/authorizations/${finalAuthId}`
+                    authResourceName
                 ]
             };
         }

@@ -435,32 +435,60 @@ export const importDocuments = async (dataStoreName: string, gcsUris: string[], 
 
 // Authorizations
 export const listAuthorizations = async (config: Config) => {
-    const baseUrl = getDiscoveryEngineUrl('global');
-    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${config.projectId}/locations/global/authorizations`;
+    const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${config.projectId}/locations/${config.appLocation}/authorizations`;
     return gapiRequest<{ authorizations: Authorization[] }>(url, 'GET', config.projectId);
 };
 
+// Helper to extract location from resource name
+const getLocationFromResourceName = (name: string): string => {
+    const match = name.match(/locations\/([a-zA-Z0-9-]+)\//);
+    return match ? match[1] : 'global';
+};
+
 export const getAuthorization = async (name: string, config: Config) => {
-    const baseUrl = getDiscoveryEngineUrl('global');
+    const location = getLocationFromResourceName(name);
+    const baseUrl = getDiscoveryEngineUrl(location);
     return gapiRequest<Authorization>(`${baseUrl}/${DISCOVERY_API_VERSION}/${name}`, 'GET', config.projectId);
 };
 
 export const createAuthorization = async (authId: string, payload: any, config: Config) => {
-    const baseUrl = getDiscoveryEngineUrl('global');
-    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${config.projectId}/locations/global/authorizations?authorizationId=${authId}`;
+    const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${config.projectId}/locations/${config.appLocation}/authorizations?authorizationId=${authId}`;
     return gapiRequest<Authorization>(url, 'POST', config.projectId, undefined, payload);
 };
 
 export const updateAuthorization = async (name: string, payload: any, updateMask: string[], config: Config) => {
-    const baseUrl = getDiscoveryEngineUrl('global');
+    const location = getLocationFromResourceName(name);
+    const baseUrl = getDiscoveryEngineUrl(location);
     const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}?updateMask=${updateMask.join(',')}`;
     return gapiRequest<Authorization>(url, 'PATCH', config.projectId, undefined, payload);
 };
 
-export const deleteAuthorization = async (authId: string, config: Config) => {
-    const baseUrl = getDiscoveryEngineUrl('global');
-    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${config.projectId}/locations/global/authorizations/${authId}`;
-    return gapiRequest(url, 'DELETE', config.projectId);
+export const deleteAuthorization = async (name: string, config: Config) => {
+    // name might be full resource name or just ID?
+    // If it's just ID, we need config.appLocation.
+    // But typical usage for delete in this app passes the full object or name.
+    // checking usage in AuthList: onDelete(auth).
+    // auth.name IS the full resource name.
+    // However, the previous signature was (authId, config).
+    // Let's check if we need to change the signature or if it was already name.
+    // Previous: deleteAuthorization(authId, config) -> url .../locations/${config.appLocation}/authorizations/${authId}
+    // I should change it to accept full name to be safe, OR keep it and use config.appLocation if we are sure it matches.
+    // Actually, AuthList passes `auth` to onDelete, and Page calls `api.deleteAuthorization(auth.name, config)`.
+    // Wait, let's check AuthorizationsPage usage of delete.
+
+    // If input is full name, use it. If not, construct it.
+    if (name.startsWith('projects/')) {
+        const location = getLocationFromResourceName(name);
+        const baseUrl = getDiscoveryEngineUrl(location);
+        const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}`;
+        return gapiRequest(url, 'DELETE', config.projectId);
+    } else {
+        const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+        const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${config.projectId}/locations/${config.appLocation}/authorizations/${name}`;
+        return gapiRequest(url, 'DELETE', config.projectId);
+    }
 };
 
 // Vertex AI Reasoning Engines
@@ -1039,4 +1067,12 @@ export const invokeA2aAgent = async (serviceUrl: string, prompt: string, accessT
         throw new Error(`A2A Invocation Error: ${response.status} - ${await response.text()}`);
     }
     return response.json();
+};
+
+// Workforce Identity Pools
+export const validateWorkforcePool = async (poolName: string, config: Config) => {
+    // poolName should be full resource name: locations/{location}/workforcePools/{pool_id}
+    // API endpoint: https://iam.googleapis.com/v1/{name}
+    const url = `https://iam.googleapis.com/v1/${poolName}`;
+    return gapiRequest<any>(url, 'GET', config.projectId);
 };

@@ -11,6 +11,8 @@ interface AuthFormProps {
 
 const initialFormData = {
     authId: 'your-auth-id',
+    authProvider: 'google', // 'google' | 'microsoft'
+    tenantId: '', // For Microsoft
     oauthClientId: 'your-oauth-client-id',
     oauthClientSecret: '', // Start empty
     scopes: 'https://www.googleapis.com/auth/cloud-platform',
@@ -39,8 +41,13 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
   const [curlCommand, setCurlCommand] = useState('');
   const [copySuccessCurl, setCopySuccessCurl] = useState(false);
 
-  const constructGoogleAuthUri = useCallback((clientId: string, redirectUri: string, scopes: string) => {
+
+    const constructAuthUri = useCallback((provider: string, clientId: string, redirectUri: string, scopes: string, tenantId?: string) => {
       const encodedScopes = encodeURIComponent(scopes.split(',').join(' '));
+        if (provider === 'microsoft' && tenantId) {
+            return `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodedScopes}&response_mode=query&prompt=consent`;
+        }
+        // Default to Google
       return `https://accounts.google.com/o/oauth2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&scope=${encodedScopes}&response_type=code&access_type=offline&prompt=consent`;
   }, []);
 
@@ -60,36 +67,85 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
         const clientId = authToEdit.serverSideOauth2.clientId;
         const tokenUri = authToEdit.serverSideOauth2.tokenUri;
         
-        // Check if the existing URI matches the standard Google pattern
-        const generated = constructGoogleAuthUri(clientId, redirectUri, scopes);
+
+
+        // Detect provider and tenant ID
+        let detectedProvider = 'google';
+        let detectedTenantId = '';
+
+        if (authUri.includes('microsoftonline.com') || tokenUri.includes('microsoftonline.com')) {
+            detectedProvider = 'microsoft';
+            // Try to extract tenant ID from Auth URI first, then Token URI
+            const tenantMatch = authUri.match(/microsoftonline\.com\/([^\/]+)\//) ||
+                tokenUri.match(/microsoftonline\.com\/([^\/]+)\//);
+            if (tenantMatch) {
+                detectedTenantId = tenantMatch[1];
+            }
+        }
+
+        // Check if the existing URI matches the standard pattern for the detected provider
+        const generated = constructAuthUri(detectedProvider, clientId, redirectUri, scopes, detectedTenantId);
         const isStandard = authUri === generated;
 
         setFormData({
-            authId: authToEdit.name.split('/').pop() || '',
+            authId: authToEdit.name,
+            authProvider: detectedProvider,
+            tenantId: detectedTenantId,
             oauthClientId: clientId,
-            oauthClientSecret: '', // Secret is write-only, must be re-entered to update
-            scopes,
-            oauthTokenUri: tokenUri,
-            redirectUri,
-            authorizationUri: authUri,
+            oauthClientSecret: '', // Don't show the secret
+            scopes: scopes,
+            oauthTokenUri: authToEdit.serverSideOauth2.tokenUri || '',
+            redirectUri: redirectUri,
+            authorizationUri: authUri, // Keep original URI initially
         });
-        setAutoGenerateUri(isStandard);
+
+        // Smart Auto-Generate: User requested to always have this enabled by default.
+        // This ensures the URI is regenerated based on the loaded fields.
+        setAutoGenerateUri(true); 
     } else {
         setFormData({
             ...initialFormData,
-            authorizationUri: constructGoogleAuthUri(initialFormData.oauthClientId, initialFormData.redirectUri, initialFormData.scopes)
+            authorizationUri: constructAuthUri('google', initialFormData.oauthClientId, initialFormData.redirectUri, initialFormData.scopes)
         });
         setAutoGenerateUri(true);
     }
-  }, [authToEdit, constructGoogleAuthUri]);
+  }, [authToEdit, constructAuthUri]);
   
   // Effect to auto-update Authorization URI when dependencies change
   useEffect(() => {
       if (autoGenerateUri) {
-          const newUri = constructGoogleAuthUri(formData.oauthClientId, formData.redirectUri, formData.scopes);
+          const newUri = constructAuthUri(formData.authProvider, formData.oauthClientId, formData.redirectUri, formData.scopes, formData.tenantId);
           setFormData(prev => ({ ...prev, authorizationUri: newUri }));
       }
-  }, [autoGenerateUri, formData.oauthClientId, formData.redirectUri, formData.scopes, constructGoogleAuthUri]);
+  }, [autoGenerateUri, formData.authProvider, formData.oauthClientId, formData.redirectUri, formData.scopes, formData.tenantId, constructAuthUri]);
+
+
+    // Helper to handle provider change
+    const handleProviderChange = (newProvider: string) => {
+        const defaults = newProvider === 'microsoft' ? {
+            scopes: 'https://graph.microsoft.com/Mail.Read,https://graph.microsoft.com/Calendars.Read,offline_access',
+            oauthTokenUri: formData.tenantId ? `https://login.microsoftonline.com/${formData.tenantId}/oauth2/v2.0/token` : 'https://login.microsoftonline.com/YOUR_TENANT_ID/oauth2/v2.0/token'
+        } : {
+            scopes: 'https://www.googleapis.com/auth/cloud-platform',
+            oauthTokenUri: 'https://oauth2.googleapis.com/token'
+        };
+
+        setFormData(prev => ({
+            ...prev,
+            authProvider: newProvider,
+            ...defaults
+        }));
+    };
+
+    // Update token URI when Tenant ID changes for Microsoft
+    useEffect(() => {
+        if (formData.authProvider === 'microsoft' && formData.tenantId) {
+            setFormData(prev => ({
+                ...prev,
+                oauthTokenUri: `https://login.microsoftonline.com/${prev.tenantId}/oauth2/v2.0/token`
+            }));
+        }
+    }, [formData.tenantId, formData.authProvider]);
 
   // Effect to generate the cURL command preview for both create and update
   useEffect(() => {
@@ -133,7 +189,17 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
         }
 
         const payloadString = JSON.stringify(payload, null, 2);
-        const url = `https://discoveryengine.googleapis.com/v1alpha/${authToEdit.name}?updateMask=${updateMask.join(',')}`;
+        const location = config.appLocation || 'global';
+        const domain = location === 'global' ? 'discoveryengine.googleapis.com' : `${location}-discoveryengine.googleapis.com`;
+
+        // Use full name from authToEdit if available, otherwise construct it
+        // Ensure we don't duplicate the project/location part if authToEdit.name is already full
+        let name = authToEdit.name;
+        if (!name.startsWith('projects/')) {
+            name = `projects/${projectId}/locations/${location}/authorizations/${name}`;
+        }
+
+        const url = `https://${domain}/v1alpha/${name}?updateMask=${updateMask.join(',')}`;
 
         const command = `curl -X PATCH \\
      -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
@@ -161,7 +227,9 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
         };
 
         const payloadString = JSON.stringify(createPayload, null, 2);
-        const url = `https://discoveryengine.googleapis.com/v1alpha/projects/${projectId}/locations/global/authorizations?authorizationId=${finalAuthId}`;
+        const location = config.appLocation || 'global';
+        const domain = location === 'global' ? 'discoveryengine.googleapis.com' : `${location}-discoveryengine.googleapis.com`;
+        const url = `https://${domain}/v1alpha/projects/${projectId}/locations/${location}/authorizations?authorizationId=${finalAuthId}`;
 
         const command = `curl -X POST \\
      -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
@@ -242,7 +310,55 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Column 1: The Form */}
             <form id="auth-form" onSubmit={handleSubmit} className="space-y-4">
-                <FormField name="authId" label="Authorization ID" value={formData.authId} onChange={handleChange} required disabled={!!authToEdit} helpText={!authToEdit ? 'Enter a unique ID or paste the full resource name.' : ''} />
+                  <FormField name="authId" label="Authorization ID" value={formData.authId} onChange={handleChange} required disabled={!!authToEdit} helpText={!authToEdit ? 'Enter a unique ID or paste the full resource name.' : 'The full resource name of the authorization.'} />
+
+
+                  {authToEdit && (
+                      <div>
+                          <label className="block text-sm font-medium text-gray-300">Region</label>
+                          <input
+                              type="text"
+                              value={authToEdit.name.match(/locations\/([a-zA-Z0-9-]+)\//)?.[1] || 'unknown'}
+                              disabled
+                              className="mt-1 block w-full bg-gray-800 border-gray-700 rounded-md shadow-sm text-sm text-gray-400 cursor-not-allowed"
+                          />
+                      </div>
+                  )}
+
+                  {!authToEdit && (
+                      <div>
+                          <label className="block text-sm font-medium text-gray-300 mb-2">Provider</label>
+                          <div className="flex items-center space-x-4">
+                              <label className="flex items-center cursor-pointer">
+                                  <input
+                                      type="radio"
+                                      name="authProvider"
+                                      value="google"
+                                      checked={formData.authProvider === 'google'}
+                                      onChange={(e) => handleProviderChange(e.target.value)}
+                                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                  />
+                                  <span className="ml-2 text-white">Google</span>
+                              </label>
+                              <label className="flex items-center cursor-pointer">
+                                  <input
+                                      type="radio"
+                                      name="authProvider"
+                                      value="microsoft"
+                                      checked={formData.authProvider === 'microsoft'}
+                                      onChange={(e) => handleProviderChange(e.target.value)}
+                                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                  />
+                                  <span className="ml-2 text-white">Microsoft Entra ID</span>
+                              </label>
+                          </div>
+                      </div>
+                  )}
+
+                  {formData.authProvider === 'microsoft' && (
+                      <FormField name="tenantId" label="Tenant ID" value={formData.tenantId} onChange={handleChange} required={formData.authProvider === 'microsoft'} helpText="Your Microsoft Entra ID Directory (tenant) ID." />
+                  )}
+
                 <FormField name="oauthClientId" label="OAuth 2.0 Client ID" value={formData.oauthClientId} onChange={handleChange} required />
                 <FormField name="oauthClientSecret" label="OAuth 2.0 Client Secret" value={formData.oauthClientSecret} onChange={handleChange} required={!authToEdit} type="password" helpText={authToEdit ? 'Leave blank to keep existing secret. Enter a new value to update.' : ''} />
                 
@@ -302,7 +418,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ config, onSuccess, onCancel, authTo
                                 onChange={(e) => setAutoGenerateUri(e.target.checked)} 
                                 className="mr-2 h-3.5 w-3.5 rounded bg-gray-700 border-gray-500 text-blue-500 focus:ring-blue-600"
                             />
-                            Auto-generate Google Auth URI
+                              Auto-generate Auth URI
                         </label>
                     </div>
                     <input

@@ -18,6 +18,7 @@ export enum Page {
   ARCHITECTURE = 'Architecture',
   LICENSE = 'Licenses',
   CONNECTORS = 'Connectors',
+  AGENT_STARTER_PACK = 'Agent Starter Pack',
 }
 
 export type SortableAgentKey = 'displayName' | 'state' | 'name' | 'updateTime' | 'agentType';

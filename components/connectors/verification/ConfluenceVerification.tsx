@@ -15,12 +15,20 @@ const ConfluenceVerification: React.FC<ConfluenceVerificationProps> = ({ dataMod
         }));
     };
 
-    const ChecklistItem = ({ id, label, subLabel, badge }: { id: string, label: string, subLabel?: string, badge?: string }) => {
+    const ChecklistItem = ({ id, label, subLabel, badge, copyValue }: { id: string, label: string, subLabel?: string, badge?: string, copyValue?: string }) => {
         const isChecked = checkedItems[id] || false;
+
+        const handleCopy = (e: React.MouseEvent) => {
+            e.stopPropagation();
+            if (copyValue) {
+                navigator.clipboard.writeText(copyValue);
+            }
+        };
+
         return (
             <div
                 onClick={() => toggleItem(id)}
-                className={`flex items-start text-xs p-2 rounded border cursor-pointer transition-colors select-none mb-2 ${isChecked
+                className={`flex items-start text-xs p-2 rounded border cursor-pointer transition-colors select-none mb-2 group/item ${isChecked
                         ? 'bg-blue-900/40 border-blue-500/50 text-blue-100'
                         : 'bg-gray-900/50 text-gray-300 border-gray-700 hover:border-gray-600'
                     }`}
@@ -33,16 +41,27 @@ const ConfluenceVerification: React.FC<ConfluenceVerificationProps> = ({ dataMod
                         </svg>
                     )}
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                         <span className="font-mono">{label}</span>
-                        {badge && (
-                            <span className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] bg-gray-700 text-gray-300 border border-gray-600">
-                                {badge}
-                            </span>
-                        )}
+                        <div className="flex items-center gap-2">
+                            {copyValue && (
+                                <button
+                                    onClick={handleCopy}
+                                    className="opacity-0 group-hover/item:opacity-100 transition-opacity h-7 w-7 flex items-center justify-center rounded hover:bg-white/10 text-gray-400 hover:text-white"
+                                    title="Copy to clipboard"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
+                                </button>
+                            )}
+                            {badge && (
+                                <span className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] bg-gray-700 text-gray-300 border border-gray-600 whitespace-nowrap">
+                                    {badge}
+                                </span>
+                            )}
+                        </div>
                     </div>
-                    {subLabel && <p className="text-gray-500 mt-0.5 leading-tight">{subLabel}</p>}
+                    {subLabel && <p className="text-gray-500 mt-0.5 leading-tight break-all">{subLabel}</p>}
                 </div>
             </div>
         );
@@ -92,6 +111,7 @@ const ConfluenceVerification: React.FC<ConfluenceVerificationProps> = ({ dataMod
                         label="Callback URL"
                         badge="Critical"
                         subLabel="https://vertexaisearch.cloud.google.com/console/oauth/confluence_oauth.html"
+                        copyValue="https://vertexaisearch.cloud.google.com/console/oauth/confluence_oauth.html"
                     />
                     <ChecklistItem
                         id="oauth_distribution"

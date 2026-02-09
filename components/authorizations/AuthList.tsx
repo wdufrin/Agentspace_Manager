@@ -30,6 +30,7 @@ const AuthList: React.FC<AuthListProps> = ({ authorizations, onDelete, onEdit, o
             <thead className="bg-gray-700/50">
               <tr>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Auth ID</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Region</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Client ID</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Used By Agent</th>
                 <th scope="col" className="relative px-6 py-3">
@@ -40,10 +41,16 @@ const AuthList: React.FC<AuthListProps> = ({ authorizations, onDelete, onEdit, o
             <tbody className="bg-gray-800 divide-y divide-gray-700">
               {authorizations.map((auth) => {
                 const authId = auth.name.split('/').pop() || '';
+                const location = auth.name.match(/locations\/([a-zA-Z0-9-]+)\//)?.[1] || 'unknown';
                 const usingAgents = authUsage[auth.name] || [];
                 return (
                   <tr key={auth.name} className="hover:bg-gray-700/50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white font-mono">{authId}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300 font-mono">
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${location === 'global' ? 'bg-blue-900 text-blue-200' : 'bg-green-900 text-green-200'}`}>
+                        {location}
+                      </span>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300 font-mono">{auth.serverSideOauth2.clientId}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                       {isScanningAgents ? (
