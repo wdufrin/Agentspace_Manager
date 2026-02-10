@@ -313,3 +313,43 @@ export interface GraphEdge {
   source: string;
   target: string;
 }
+
+// Chat History Types
+export interface DiscoverySession {
+  name: string;
+  state?: string;
+  userPseudoId?: string;
+  startTime?: string;
+  endTime?: string;
+  turns?: DiscoveryTurn[];
+}
+
+export interface DiscoveryTurn {
+  query: {
+    text: string;
+  };
+  answer: string | {
+    reply: {
+      replytext?: string;
+      replyText?: string;
+      summary?: {
+        summaryText?: string;
+        summarytext?: string;
+      }
+    };
+    citations?: any[];
+    references?: any[];
+    answerText?: string; // For hydrated answers
+    steps?: any[];
+  };
+}
+
+export interface ReasoningEngineSession {
+  name: string;
+  createTime?: string;
+  updateTime?: string;
+  history?: {
+    role: string;
+    parts: { text: string }[];
+  }[];
+}

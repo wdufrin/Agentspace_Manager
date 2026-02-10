@@ -41,10 +41,16 @@ It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates dir
 *   **IAM Policies**: View and edit IAM policies for specific agents directly from the UI.
 
 ### 🔧 Operations
+*   **Discovery Engine & Conversation Management**:
+    *   **Share Session**: Clone a session to another user's history by User ID (email or numeric).
+    *   **Copy Link**: Generate a deep link to the session in the Vertex AI Search console (handles Console CID).
+    *   **Raw Content Inspection**: View full JSON for User/Model turns, including system instructions and grounding metadata.
 *   **Architecture Visualizer**: An interactive node-graph visualizing the relationships between your Project, Engines, Assistants, Agents, Data Stores, and Backends.
 *   **Backup & Recovery**:
     *   Full backup of Discovery Engine resources (Collections, Engines, Agents) to GCS.
-    *   Granular backup/restore for specific Agents, Data Stores, or Agent Engines.
+    *   **Granular Backup/Restore**:
+        *   Backup specific Agents, Data Stores, or Agent Engines.
+        *   **Restore as User**: Restore chat history to a specific Target User ID (useful for debugging or migration).
 *   **Licenses**: Monitor user license assignments and prune inactive users.
     *   **Auto-Pruner**: Deploy a serverless job to automatically revoke licenses for users who haven't logged in for $N days.
 

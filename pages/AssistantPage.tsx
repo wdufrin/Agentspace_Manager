@@ -10,6 +10,7 @@ import AgentListForAssistant from '../components/assistants/AgentListForAssistan
 import ExportMetricsModal from '../components/assistants/ExportMetricsModal';
 import AnalyticsMetricsViewer from '../components/assistants/AnalyticsMetricsViewer';
 import ChatWindow from '../components/agents/ChatWindow';
+import ChatHistoryViewer from '../components/assistants/ChatHistoryViewer';
 
 interface AssistantPageProps {
   projectNumber: string;
@@ -105,11 +106,12 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
   // Sorting State
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'displayName', direction: 'asc' });
 
-  // Detail View State
-  const [selectedRow, setSelectedRow] = useState<AssistantRowData | null>(null);
-  const [agents, setAgents] = useState<Agent[]>([]);
+    // Detail View State
+    const [selectedRow, setSelectedRow] = useState<AssistantRowData | null>(null);
+    const [agents, setAgents] = useState<Agent[]>([]);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'analytics' | 'history'>('overview');
 
   // Chat State
   const [activeChatConfig, setActiveChatConfig] = useState<{ displayName: string; config: Config } | null>(null);
@@ -564,28 +566,63 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
             {isDetailLoading ? (
                 <Spinner />
             ) : (
-                <>
-                          <EngineDetailsForm
-                              engine={selectedRow.engine}
-                              config={currentConfig}
-                              onUpdateSuccess={handleEngineUpdateSuccess}
-                          />
+                      <div className="space-y-6">
+                          {/* Tabs Navigation */}
+                          <div className="border-b border-gray-700">
+                              <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                                  {['overview', 'agents', 'analytics', 'history'].map((tab) => (
+                                      <button
+                                          key={tab}
+                                          onClick={() => setActiveTab(tab as any)}
+                                          className={`${activeTab === tab
+                                              ? 'border-blue-500 text-blue-400'
+                                              : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+                                              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm capitalize`}
+                                      >
+                                          {tab}
+                                      </button>
+                                  ))}
+                              </nav>
+                          </div>
 
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                        <AssistantDetailsForm 
-                            assistant={selectedRow.assistant}
-                            config={currentConfig}
-                            onUpdateSuccess={handleUpdateSuccess}
-                        />
-                        <AgentListForAssistant agents={agents} />
-                    </div>
-                    <AnalyticsMetricsViewer config={currentConfig} />
+                          {/* Tab Content */}
+                          <div className="py-4">
+                              {activeTab === 'overview' && (
+                                  <>
+                                      <EngineDetailsForm
+                                          engine={selectedRow.engine}
+                                          config={currentConfig}
+                                          onUpdateSuccess={handleEngineUpdateSuccess}
+                                      />
+                                      <div className="mt-6">
+                                          <AssistantDetailsForm
+                                              assistant={selectedRow.assistant}
+                                              config={currentConfig}
+                                              onUpdateSuccess={handleUpdateSuccess}
+                                          />
+                                      </div>
+                                  </>
+                              )}
+
+                              {activeTab === 'agents' && (
+                                  <AgentListForAssistant agents={agents} />
+                              )}
+
+                              {activeTab === 'analytics' && (
+                                  <AnalyticsMetricsViewer config={currentConfig} />
+                              )}
+
+                              {activeTab === 'history' && (
+                                  <ChatHistoryViewer config={currentConfig} />
+                              )}
+                          </div>
+
                     <ExportMetricsModal
                         isOpen={isExportModalOpen}
                         onClose={() => setIsExportModalOpen(false)}
                         config={currentConfig}
                     />
-                </>
+                      </div>
             )}
         </div>
       );

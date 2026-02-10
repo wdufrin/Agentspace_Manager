@@ -1,9 +1,10 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Agent, AppEngine, Assistant, Authorization, Collection, Config, DataStore, ReasoningEngine, GcsBucket, GcsObject } from '../types';
+import { Agent, AppEngine, Assistant, Authorization, Collection, Config, DataStore, ReasoningEngine, GcsBucket, GcsObject, DiscoverySession } from '../types';
 import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
 import RestoreSelectionModal from '../components/backup/RestoreSelectionModal';
+import ChatHistoryArchiveViewer from '../components/backup/ChatHistoryArchiveViewer';
 import ClientSecretPrompt from '../components/backup/ClientSecretPrompt';
 import CurlInfoModal from '../components/CurlInfoModal';
 
@@ -157,7 +158,9 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     processor: (data: any) => Promise<void>;
     originalData: any;
   } | null>(null);
-  
+
+  const [chatHistoryArchiveData, setChatHistoryArchiveData] = useState<{ sessions: any[]; fileName: string } | null>(null);
+
   const [secretPrompt, setSecretPrompt] = useState<{ auth: Authorization; resolve: (secret: string | null) => void; customMessage?: string; } | null>(null);
   
   const [infoModalKey, setInfoModalKey] = useState<string | null>(null);
@@ -237,8 +240,9 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
               'ReasoningEngine': [],
               'Assistant': [],
               'Agents': [],
-              'DataStores': [],
+            'DataStores': [],
               'Authorizations': [],
+            'ChatHistory': [],
           };
 
           objects.forEach(obj => {
@@ -247,7 +251,9 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
               else if (obj.name.startsWith('agentspace-assistant')) categorized['Assistant'].push(obj.name);
               else if (obj.name.startsWith('agentspace-agents')) categorized['Agents'].push(obj.name);
               else if (obj.name.startsWith('agentspace-data-stores')) categorized['DataStores'].push(obj.name);
+              else if (obj.name.startsWith('agentspace-data-stores')) categorized['DataStores'].push(obj.name);
               else if (obj.name.startsWith('agentspace-authorizations')) categorized['Authorizations'].push(obj.name);
+              else if (obj.name.startsWith('agentspace-chat-history')) categorized['ChatHistory'].push(obj.name);
           });
 
           // Sort chronologically (names contain ISO timestamp, so alphabetical reverse works)
@@ -472,6 +478,144 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       addLog(`Backup complete! Found ${authorizations.length} authorizations (client secrets omitted).`);
   });
 
+  const handleBackupChatHistory = async () => executeOperation('BackupChatHistory', async () => {
+    addLog("Starting Chat History backup...");
+
+    // 1. Discovery Engine Sessions
+    addLog("Fetching Discovery Engine sessions...");
+    let discoverySessions: DiscoverySession[] = [];
+    try {
+      // We need to iterate over all "Engines"/Apps to get their sessions.
+      // This might be expensive if there are many apps.
+      // For now, let's use the CURRENTLY SELECTED App in config, or try to discovery all?
+      // The other backups try to discover all (e.g. iterate collections).
+      // Let's iterate all collections -> engines -> sessions.
+
+      const collectionsResponse = await api.listResources('collections', apiConfig);
+      const collections: Collection[] = collectionsResponse.collections || [];
+
+      for (const collection of collections) {
+        const collectionId = collection.name.split('/').pop()!;
+        const enginesResponse = await api.listResources('engines', { ...apiConfig, collectionId });
+        const engines: AppEngine[] = enginesResponse.engines || [];
+        for (const engine of engines) {
+          const appId = engine.name.split('/').pop()!;
+          try {
+            let pageToken: string | undefined = undefined;
+            do {
+              const sessionsResp = await api.listDiscoverySessions({ ...apiConfig, collectionId, appId }, pageToken, 100); // Fetch 100 at a time
+              const sessions = sessionsResp.sessions || [];
+
+              if (sessions.length > 0) {
+                addLog(`  - Found ${sessions.length} sessions in App '${engine.displayName}' (Page Token: ${pageToken ? 'Yes' : 'First'})`);
+
+                // Fetch details for each session in parallel to speed up
+                // We use a concurrency limit to avoid hitting rate limits too hard
+                const chunkedSessions = [];
+                for (let i = 0; i < sessions.length; i += 5) {
+                  chunkedSessions.push(sessions.slice(i, i + 5));
+                }
+
+                for (const chunk of chunkedSessions) {
+                  await Promise.all(chunk.map(async (session) => {
+                    try {
+                      const fullSession = await api.getDiscoverySession(session.name, { ...apiConfig, collectionId, appId });
+
+                      // Hydrate Answers if they are references (Fix for missing chat text)
+                      if (fullSession.turns && fullSession.turns.length > 0) {
+                        // Fetch answers sequentially or parallel? Parallel for this session.
+                        await Promise.all(fullSession.turns.map(async (turn) => {
+                          if (typeof turn.answer === 'string') {
+                            try {
+                              const answerObj = await api.getDiscoveryAnswer(turn.answer, { ...apiConfig, collectionId, appId });
+                              // Normalize for UI
+                              turn.answer = {
+                                ...answerObj,
+                                reply: {
+                                  replyText: answerObj.answerText || answerObj.answer_text || (answerObj.steps ? 'Step-based answer' : 'No text'),
+                                  ...answerObj.reply // Keep original if exists
+                                }
+                              };
+                            } catch (err) {
+                              // Keep as string if failed
+                              console.warn('Failed to hydrate answer', turn.answer);
+                            }
+                          }
+                        }));
+                      }
+
+                      discoverySessions.push(fullSession);
+                    } catch (e: any) {
+                      console.warn(`Failed to fetch session details for ${session.name}`, e);
+                      discoverySessions.push(session);
+                    }
+                  }));
+                  // Small delay between chunks
+                  await delay(100);
+                }
+              }
+              pageToken = sessionsResp.nextPageToken;
+            } while (pageToken);
+
+          } catch (err) {
+            // Ignore errors (e.g. no sessions found or permission issues)
+            addLog(`  - Warning: Failed to fetch sessions for App '${engine.displayName}': ${(err as any).message}`);
+          }
+        }
+      }
+    } catch (e: any) {
+      addLog(`Error fetching Discovery sessions: ${e.message}`);
+    }
+
+    // 2./Agent Engine Sessions (if a reasoning engine is selected or iterate all?)
+    // We'll skip complex iteration for now and just check the selected one if present, or maybe list all?
+    // listReasoningEngines -> sessions
+    addLog("Fetching Agent Engine sessions...");
+    let reasoningSessions: any[] = []; // Type is generic for now
+    try {
+      const res = await api.listReasoningEngines(apiConfig);
+      const engines = res.reasoningEngines || [];
+      for (const engine of engines) {
+        try {
+          const sessionsResp = await api.listReasoningEngineSessions(engine.name, apiConfig);
+          const sessions = sessionsResp.sessions || [];
+          if (sessions.length > 0) {
+            addLog(`  - Found ${sessions.length} sessions in Agent Engine '${engine.displayName}'`);
+            for (const session of sessions) {
+              try {
+                const fullSession = await api.getReasoningEngineSession(session.name, apiConfig);
+                reasoningSessions.push(fullSession);
+              } catch (e) {
+                reasoningSessions.push(session);
+              }
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+    } catch (e: any) {
+      addLog(`Error fetching Agent Engine sessions: ${e.message}`);
+    }
+
+    const totalSessions = discoverySessions.length + reasoningSessions.length;
+    if (totalSessions === 0) {
+      addLog("No chat sessions found to backup.");
+      return;
+    }
+
+    const backupData = {
+      type: 'ChatHistory',
+      createdAt: new Date().toISOString(),
+      sourceConfig: apiConfig,
+      discoverySessions,
+      reasoningSessions
+    };
+
+    await uploadBackupToGcs(backupData, 'agentspace-chat-history-backup');
+    addLog(`Backup complete! Saved ${totalSessions} sessions.`);
+  });
+
 
   // --- Restore Handlers & Processors ---
 
@@ -490,10 +634,24 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       const backupData = JSON.parse(fileContent);
       
       if (backupData.type !== section) {
+        // Allow backward compatibility or relaxed checking if needed, but for now strict.
+        // Actually, some backups might be old format?
+        // ChatHistory backups have type 'ChatHistory'.
         throw new Error(`Invalid backup file type. Expected '${section}', but found '${backupData.type}'.`);
       }
-      
-      await processor(backupData);
+
+      if (section === 'ChatHistory') {
+        // Special handling for Chat History: Open Archive Viewer
+        const sessions = [
+          ...(backupData.discoverySessions || []),
+          ...(backupData.reasoningSessions || [])
+        ];
+        setChatHistoryArchiveData({ sessions, fileName: filename });
+        addLog(`Opened Chat History Archive Viewer for ${filename}.`);
+      } else {
+        await processor(backupData);
+      }
+
       addLog(`Restore process for ${sectionName} finished.`);
     });
   };
@@ -979,10 +1137,22 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     { section: 'Agents', title: 'Agents', backupHandler: handleBackupAgents, restoreProcessor: processRestoreAgents },
     { section: 'DataStores', title: 'Data Stores', backupHandler: handleBackupDataStores, restoreProcessor: processRestoreDataStores },
     { section: 'Authorizations', title: 'Authorizations', backupHandler: handleBackupAuthorizations, restoreProcessor: processRestoreAuthorizations },
+    { section: 'ChatHistory', title: 'Chat History', backupHandler: handleBackupChatHistory, restoreProcessor: async () => { /* Handled by handleRestore special case */ } },
   ];
 
   return (
     <div className="space-y-6">
+      {/* Chat History Archive Viewer Modal */}
+      {chatHistoryArchiveData && (
+        <ChatHistoryArchiveViewer
+          sessions={chatHistoryArchiveData.sessions}
+          fileName={chatHistoryArchiveData.fileName}
+          onClose={() => setChatHistoryArchiveData(null)}
+          config={apiConfig}
+        />
+      )}
+
+      {/* Restore Selection Modal */}
       {modalData && (
         <RestoreSelectionModal
           isOpen={!!modalData}
