@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import JiraVerification from './verification/JiraVerification';
 import ConfluenceVerification from './verification/ConfluenceVerification';
 import SalesforceVerification from './verification/SalesforceVerification';
+import ServiceNowVerification from './verification/ServiceNowVerification';
 import EntraIdVerification from './verification/EntraIdVerification';
 import SharePointVerification from './verification/SharePointVerification';
 import OutlookVerification from './verification/OutlookVerification';
