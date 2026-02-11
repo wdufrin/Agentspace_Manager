@@ -627,7 +627,7 @@ const InnerApp: React.FC = () => {
       case Page.AGENTS:
         return <AgentsPage {...projectProps} accessToken={accessToken} />;
       case Page.ASSISTANT:
-        return <AssistantPage {...projectProps} accessToken={accessToken} />;
+            return <AssistantPage {...projectProps} accessToken={accessToken} userProfile={userProfile} />;
       case Page.AUTHORIZATIONS:
         return <AuthorizationsPage {...commonProps} />;
       case Page.AGENT_ENGINES:
@@ -645,7 +645,7 @@ const InnerApp: React.FC = () => {
       case Page.DIALOGFLOW_AGENTS:
         return <DialogflowAgentsPage {...projectProps} accessToken={accessToken} />;
       case Page.CHAT:
-        return <ChatPage {...projectProps} accessToken={accessToken} context={pageContext} />;
+            return <ChatPage {...projectProps} accessToken={accessToken} context={pageContext} userProfile={userProfile} />;
       case Page.DATA_STORES:
         return <DataStoresPage {...commonProps} />;
       case Page.MCP_SERVERS:

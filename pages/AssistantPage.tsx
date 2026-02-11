@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Agent, AppEngine, Assistant, Config } from '../types';
+import { Agent, AppEngine, Assistant, Config, UserProfile } from '../types';
 import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
 import Spinner from '../components/Spinner';
@@ -16,6 +16,7 @@ interface AssistantPageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
   accessToken: string;
+    userProfile: UserProfile | null;
 }
 
 interface AssistantRowData {
@@ -89,7 +90,7 @@ const determineAppType = (engine: AppEngine): string => {
     return engine.solutionType?.replace('SOLUTION_TYPE_', '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()) || 'Unknown';
 };
 
-const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProjectNumber, accessToken }) => {
+const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProjectNumber, accessToken, userProfile }) => {
   const [config, setConfig] = useState(getInitialConfig);
   
   // List View State
@@ -661,6 +662,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
                   config={activeChatConfig.config}
                   accessToken={accessToken}
                   onClose={() => setActiveChatConfig(null)}
+                      userProfile={userProfile}
               />
           </div>
       )}

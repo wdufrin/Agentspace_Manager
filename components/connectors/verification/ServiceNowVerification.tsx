@@ -131,6 +131,25 @@ const ServiceNowVerification: React.FC<ServiceNowVerificationProps> = ({ dataMod
                             { id: 'cmn_department', label: 'cmn_department', desc: 'Department attributes' },
                             { id: 'cmn_location', label: 'cmn_location', desc: 'Location attributes' },
                             { id: 'kb_knowledge_base', label: 'kb_knowledge_base', desc: 'Knowledge bases list' },
+
+                            // User Criteria & Permissions
+                            { id: 'user_criteria', label: 'user_criteria', desc: 'User criteria records' },
+                            { id: 'sc_cat_item_user_criteria_mtom', label: 'sc_cat_item_user_criteria_mtom', desc: 'User criteria for catalog items' },
+                            { id: 'sc_cat_item_user_criteria_no_mtom', label: 'sc_cat_item_user_criteria_no_mtom', desc: 'Restricted user criteria for catalog items' },
+                            { id: 'sc_cat_item_user_mtom', label: 'sc_cat_item_user_mtom', desc: 'Users who can access catalog items' },
+                            { id: 'sc_cat_item_user_no_mtom', label: 'sc_cat_item_user_no_mtom', desc: 'Users who cannot access catalog items' },
+                            { id: 'kb_uc_can_contribute_mtom', label: 'kb_uc_can_contribute_mtom', desc: 'Can contribute to KB (user criteria)' },
+                            { id: 'kb_uc_can_read_mtom', label: 'kb_uc_can_read_mtom', desc: 'Can read KB (user criteria)' },
+                            { id: 'kb_uc_cannot_read_mtom', label: 'kb_uc_cannot_read_mtom', desc: 'Cannot read KB (user criteria)' },
+
+                            // Group & Role Memberships
+                            { id: 'sys_user_has_role', label: 'sys_user_has_role', desc: 'Roles assigned to users' },
+                            { id: 'sys_user_grmember', label: 'sys_user_grmember', desc: 'Group members' },
+
+                            // Portal Linking
+                            { id: 'sp_portal', label: 'sp_portal', desc: 'Portal URIs' },
+                            { id: 'm2m_sp_portal_knowledge_base', label: 'm2m_sp_portal_knowledge_base', desc: 'Portal URIs for KBs' },
+                            { id: 'm2m_sp_portal_catalog', label: 'm2m_sp_portal_catalog', desc: 'Portal URIs for Catalog' },
                         ].map(table => (
                             <ChecklistItem
                                 key={table.id}
@@ -148,7 +167,7 @@ const ServiceNowVerification: React.FC<ServiceNowVerificationProps> = ({ dataMod
                         </h5>
                         <p className="text-[10px] text-yellow-200/80">
                             ServiceNow connector uses restrictive access control via implicit queries.
-                            Users in Gemini Enterprise can only search incidents if they are the <strong>caller, assignee, or in the watch list</strong>, regardless of broader ServiceNow roles (unless they are admin/incident_manager).
+                            Users in Gemini Enterprise can only search incidents if they are the <strong>caller, assignee, or in the watch list</strong>, regardless of broader ServiceNow roles (unless they are <strong>admin</strong>, <strong>incident_manager</strong>, or <strong>change_manager</strong>).
                         </p>
                     </div>
                 </div>

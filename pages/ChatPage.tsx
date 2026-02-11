@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Config } from '../types';
+import { Config, UserProfile } from '../types';
 import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
 import ChatWindow from '../components/agents/ChatWindow';
@@ -10,6 +10,7 @@ interface ChatPageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
   context?: any;
+  userProfile: UserProfile | null;
 }
 
 const getInitialConfig = () => {
@@ -29,7 +30,7 @@ const getInitialConfig = () => {
   };
 };
 
-const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProjectNumber, context }) => {
+const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProjectNumber, context, userProfile }) => {
   const [config, setConfig] = useState(() => ({
     ...getInitialConfig(),
     collectionId: 'default_collection',
@@ -101,6 +102,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ accessToken, projectNumber, setProj
                     config={apiConfig} 
                     accessToken={accessToken} 
                     onClose={() => setConfig(prev => ({...prev, appId: ''}))}
+              userProfile={userProfile}
                 />
             </div>
         );

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Config, AppEngine, CloudRunService, Agent } from '../types';
+import { Config, AppEngine, CloudRunService, Agent, Authorization } from '../types';
 import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
 
@@ -51,9 +51,16 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
         agentDescription: 'A helpful agent that can perform a specific task.',
         providerOrganization: 'My Organization',
         agentUrl: '',
+
         iconUri: 'https://www.gstatic.com/lamda/images/gemini/google_bard_logo_32px_clr_r2.svg',
+        authIds: '', // comma separated string (DEPRECATED - kept for state but unused in UI if we switch)
     });
-    
+
+    const [authorizations, setAuthorizations] = useState<Authorization[]>([]);
+    const [isLoadingAuths, setIsLoadingAuths] = useState(false);
+    // Dynamic list of selected authorization IDs (full resource names)
+    const [authRows, setAuthRows] = useState<string[]>([]);
+
     // AI Rewrite State
     const [isRewriting, setIsRewriting] = useState(false);
     const [rewriteError, setRewriteError] = useState<string | null>(null);
@@ -129,6 +136,26 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
         };
         fetchServices();
     }, [projectNumber, config.cloudRunRegion]);
+
+    // Fetch Authorizations
+    useEffect(() => {
+        if (!projectNumber || !config.location) {
+            setAuthorizations([]);
+            return;
+        }
+        const fetchAuths = async () => {
+            setIsLoadingAuths(true);
+            try {
+                const res = await api.listAuthorizations(apiConfig);
+                setAuthorizations(res.authorizations || []);
+            } catch (err) {
+                console.error("Failed to fetch authorizations", err);
+            } finally {
+                setIsLoadingAuths(false);
+            }
+        };
+        fetchAuths();
+    }, [projectNumber, config.location, apiConfig]);
 
 
     // Generate IAM command
@@ -213,13 +240,34 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
             const text = await api.generateVertexContent(apiConfig, prompt, 'gemini-2.5-flash');
             const rewrittenText = text.trim().replace(/^["']|["']$/g, '').replace(/^```\w*\n?|\n?```$/g, '').trim();
             setAgentDetails(prev => ({ ...prev, agentDescription: rewrittenText }));
+            setAgentDetails(prev => ({ ...prev, agentDescription: rewrittenText }));
         } catch (err: any) {
             setRewriteError(`AI rewrite failed: ${err.message}`);
         } finally {
             setIsRewriting(false);
         }
     };
-    
+
+    setIsRewriting(false);
+}
+    };
+
+const handleAddAuthRow = () => {
+    setAuthRows(prev => [...prev, '']);
+};
+
+const handleRemoveAuthRow = (index: number) => {
+    setAuthRows(prev => prev.filter((_, i) => i !== index));
+};
+
+const handleAuthChange = (index: number, value: string) => {
+    setAuthRows(prev => {
+        const newRows = [...prev];
+        newRows[index] = value;
+        return newRows;
+    });
+};
+
     const handleRegisterAgent = async () => {
         setIsRegistering(true);
         setRegistrationError(null);
@@ -257,12 +305,29 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
             };
             const cardString = JSON.stringify(cardObject);
 
-            const apiPayload = {
+            const apiPayload: any = {
                 displayName: agentDetails.agentDisplayName,
                 description: agentDetails.agentDescription,
                 icon: { uri: agentDetails.iconUri },
                 a2aAgentDefinition: { jsonAgentCard: cardString }
             };
+
+            // Use selected auths from the dynamic list
+            const validAuthRows = authRows.filter(id => id.trim());
+
+            if (validAuthRows.length > 0) {
+                apiPayload.authorizationConfig = {
+                    toolAuthorizations: validAuthRows
+                };
+            } else if (agentDetails.authIds.trim()) {
+                // Fallback to manual text input if populated (legacy support)
+                const authIdsList = agentDetails.authIds.split(',').map(id => id.trim()).filter(id => id);
+                if (authIdsList.length > 0) {
+                    apiPayload.authorizationConfig = {
+                        toolAuthorizations: authIdsList
+                    };
+                }
+            }
 
             const newAgent = await api.registerA2aAgent(apiConfig, agentDetails.agentName, apiPayload);
             
@@ -359,6 +424,64 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
                             <input id="agentDisplayName" name="agentDisplayName" type="text" value={agentDetails.agentDisplayName} onChange={handleDetailsChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full" />
                         </div>
                     </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-400 mb-1">Authorizations (Optional)</label>
+
+                        <div className="space-y-2">
+                            {authRows.map((authId, index) => (
+                                <div key={index} className="flex gap-2 items-center">
+                                    <select
+                                        value={authId}
+                                        onChange={(e) => handleAuthChange(index, e.target.value)}
+                                        className="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200"
+                                    >
+                                        <option value="">-- Select Authorization --</option>
+                                        {authorizations.map(auth => (
+                                            <option key={auth.name} value={auth.name}>
+                                                {auth.displayName || auth.name.split('/').pop()}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleRemoveAuthRow(index)}
+                                        className="p-2 text-gray-400 hover:text-white bg-gray-600 hover:bg-red-500 rounded-md transition-colors"
+                                        title="Remove Authorization"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="flex gap-2 items-center mt-2">
+                            <button
+                                type="button"
+                                onClick={handleAddAuthRow}
+                                className="text-sm font-semibold text-blue-400 hover:text-blue-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+                            >
+                                + Add Authorization
+                            </button>
+                            {isLoadingAuths && <span className="text-gray-400 text-xs italic ml-2">Loading authorizations...</span>}
+                        </div>
+
+                        {/* Advanced Manual Entry (Hidden helper for confirming state or fallback) */}
+                        <div className="mt-2 text-xs text-gray-500">
+                            <details>
+                                <summary className="cursor-pointer hover:text-gray-300">Advanced: Manual ID Entry (Legacy)</summary>
+                                <input
+                                    id="authIds"
+                                    name="authIds"
+                                    type="text"
+                                    value={agentDetails.authIds}
+                                    onChange={handleDetailsChange}
+                                    placeholder="Manually enter IDs (comma separated)"
+                                    className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full font-mono placeholder-gray-500 mt-1"
+                                />
+                            </details>
+                        </div>
                      <div>
                         <div className="flex justify-between items-center mb-1">
                             <label htmlFor="agentDescription" className="block text-sm font-medium text-gray-400">Agent Description</label>

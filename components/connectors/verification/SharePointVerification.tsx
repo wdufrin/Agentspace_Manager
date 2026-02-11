@@ -15,7 +15,7 @@ const SharePointVerification: React.FC<SharePointVerificationProps> = ({ dataMod
         }));
     };
 
-    const ChecklistItem = ({ id, label, subLabel, badge, copyValue }: { id: string, label: string, subLabel?: string, badge?: string, copyValue?: string }) => {
+    const ChecklistItem = ({ id, label, subLabel, badge, copyValue, disabled }: { id: string, label: string, subLabel?: string, badge?: string, copyValue?: string, disabled?: boolean }) => {
         const isChecked = checkedItems[id] || false;
 
         const handleCopy = (e: React.MouseEvent) => {
@@ -25,15 +25,25 @@ const SharePointVerification: React.FC<SharePointVerificationProps> = ({ dataMod
             }
         };
 
+        const handleClick = () => {
+            if (!disabled) {
+                toggleItem(id);
+            }
+        };
+
         return (
             <div
-                onClick={() => toggleItem(id)}
-                className={`flex items-start text-xs p-2 rounded border cursor-pointer transition-colors select-none mb-2 group/item ${isChecked
-                    ? 'bg-blue-900/40 border-blue-500/50 text-blue-100'
-                        : 'bg-gray-900/50 text-gray-300 border-gray-700 hover:border-gray-600'
+                onClick={handleClick}
+                className={`flex items-start text-xs p-2 rounded border transition-colors select-none mb-2 group/item ${disabled
+                    ? 'opacity-50 cursor-not-allowed bg-gray-900/30 border-gray-800 text-gray-500'
+                    : 'cursor-pointer ' + (isChecked
+                        ? 'bg-blue-900/40 border-blue-500/50 text-blue-100'
+                        : 'bg-gray-900/50 text-gray-300 border-gray-700 hover:border-gray-600')
                     }`}
             >
-                <div className={`mt-0.5 min-w-[1rem] w-4 h-4 rounded border flex items-center justify-center mr-2 transition-colors ${isChecked ? 'bg-blue-500 border-blue-500' : 'border-gray-500 bg-transparent'
+                <div className={`mt-0.5 min-w-[1rem] w-4 h-4 rounded border flex items-center justify-center mr-2 transition-colors ${disabled
+                    ? 'border-gray-700 bg-gray-800'
+                    : (isChecked ? 'bg-blue-500 border-blue-500' : 'border-gray-500 bg-transparent')
                     }`}>
                     {isChecked && (
                         <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -85,21 +95,116 @@ const SharePointVerification: React.FC<SharePointVerificationProps> = ({ dataMod
                     <ChecklistItem id="sp_tenant" label="Tenant ID" subLabel="Your Microsoft 365 Tenant ID." />
                     <ChecklistItem id="sp_client_id" label="Client ID" subLabel="Application (Client) ID from App Registration." />
                     <ChecklistItem id="sp_secret" label="Client Secret" subLabel="A valid client secret from Certificates & secrets." />
+
+                    <div className="mt-4 pt-4 border-t border-gray-700">
+                        <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase">Required Redirect URIs (Platform: Web)</h5>
+                        <p className="text-gray-400 text-xs mb-2">Add these exact URIs in the Authentication section of your App Registration.</p>
+                        <ChecklistItem
+                            id="uri_console"
+                            label="Data Source Redirect"
+                            subLabel="https://vertexaisearch.cloud.google.com/console/oauth/sharepoint_oauth.html"
+                            copyValue="https://vertexaisearch.cloud.google.com/console/oauth/sharepoint_oauth.html"
+                        />
+                        <ChecklistItem
+                            id="uri_oauth"
+                            label="OAuth Redirect"
+                            subLabel="https://vertexaisearch.cloud.google.com/oauth-redirect"
+                            copyValue="https://vertexaisearch.cloud.google.com/oauth-redirect"
+                        />
+                    </div>
                 </div>
 
                 <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
                      <h4 className="text-lg font-semibold text-white mb-4 flex items-center">
                         <span className="bg-blue-600 rounded-full w-6 h-6 flex items-center justify-center text-xs mr-2">2</span>
-                        Permissions (Microsoft Graph)
+                        Permissions
                     </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                         <div>
-                            <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase">Required (Application)</h5>
-                            <ChecklistItem id="perm_sites_read" label="Sites.Read.All" badge="Application" />
-                            <ChecklistItem id="perm_files_read" label="Files.Read.All" badge="Application" />
-                            <ChecklistItem id="perm_user_read" label="User.Read.All" badge="Application" />
-                         </div>
-                    </div>
+
+                    {dataMode === 'INGESTION' ? (
+                        <div className="space-y-6">
+                            <div>
+                                <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase flex items-center gap-2">
+                                    <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                                    Microsoft Graph API
+                                </h5>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <ChecklistItem id="graph_group_read" label="GroupMember.Read.All" badge="Application" subLabel="Read memberships and basic group properties." />
+                                    <ChecklistItem id="graph_user_read" label="User.Read.All" badge="Application" subLabel="Read all user profiles." />
+                                    <ChecklistItem id="graph_user_read_del" label="User.Read" badge="Delegated" subLabel="Read signed-in user profile." />
+                                    <ChecklistItem id="graph_sites_full" label="Sites.FullControl.All" badge="Application" subLabel="Full control of all site collections (or use Sites.Selected)." />
+                                </div>
+                            </div>
+
+                            <div>
+                                <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase flex items-center gap-2">
+                                    <svg className="w-4 h-4 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" /></svg>
+                                    Office 365 SharePoint Online API
+                                </h5>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <ChecklistItem id="sp_sites_full" label="Sites.FullControl.All" badge="Application" subLabel="Full control of all site collections (or use Sites.Selected)." />
+                                    <ChecklistItem id="sp_term_read" label="TermStore.Read.All" badge="Application" subLabel="Read term store data." />
+                                    <ChecklistItem id="sp_user_read" label="User.Read.All" badge="Application" subLabel="Read user profiles." />
+
+                                    <div className="md:col-span-2 mt-2 pt-2 border-t border-gray-700/50">
+                                        <h6 className="text-[10px] font-bold text-gray-400 mb-1 uppercase">For OAuth 2.0 Refresh Token Mode Only (Select One)</h6>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <ChecklistItem
+                                                id="sp_allsites_full_del"
+                                                label="AllSites.FullControl"
+                                                badge="Delegated"
+                                                subLabel="Required if using Refresh Token."
+                                                disabled={checkedItems['sp_sites_selected_del']}
+                                            />
+                                            <ChecklistItem
+                                                id="sp_sites_selected_del"
+                                                label="Sites.Selected"
+                                                badge="Delegated"
+                                                subLabel="Alternative to FullControl (requires site configuration)."
+                                                disabled={checkedItems['sp_allsites_full_del']}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-6">
+                            <div className="bg-blue-900/20 border border-blue-800 rounded p-3 mb-4">
+                                <p className="text-xs text-blue-200">
+                                    ℹ️ Federated Search uses <strong>Delegated</strong> permissions to search on behalf of the user. No Graph API permissions are required for basic search.
+                                </p>
+                            </div>
+                            <div>
+                                <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase flex items-center gap-2">
+                                    <svg className="w-4 h-4 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" /></svg>
+                                    Office 365 SharePoint Online API
+                                </h5>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <ChecklistItem id="sp_search_all" label="Sites.Search.All" badge="Delegated" subLabel="Run search queries on behalf of the user." />
+
+                                    <div className="md:col-span-2 mt-2">
+                                        <h6 className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Site Access (Select One)</h6>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <ChecklistItem
+                                                id="sp_allsites_read"
+                                                label="AllSites.Read"
+                                                badge="Delegated"
+                                                subLabel="Read documents/lists in all site collections."
+                                                disabled={checkedItems['sp_sites_fed_selected']}
+                                            />
+                                            <ChecklistItem
+                                                id="sp_sites_fed_selected"
+                                                label="Sites.Selected"
+                                                badge="Delegated"
+                                                subLabel="Read specific site collections (requires config)."
+                                                disabled={checkedItems['sp_allsites_read']}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

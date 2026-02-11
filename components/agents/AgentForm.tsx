@@ -34,7 +34,7 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
     additionalInfo: '',
     reasoningEngineLocation: 'us-central1',
     reasoningEngineId: '901164128171720704',
-    authId: '',
+      authIds: [''],
     starterPrompts: [''],
     // A2A Specific
     a2aUrl: '',
@@ -123,7 +123,9 @@ const AgentForm: React.FC<AgentFormProps> = ({ config, onSuccess, onCancel, agen
         additionalInfo: additionalInfo,
         reasoningEngineLocation: reParts.length > 3 ? reParts[3] : getCompatibleReasoningEngineLocation(config.appLocation),
         reasoningEngineId: reParts.length > 5 ? reParts[5] : '',
-        authId: (agentToEdit.authorizations?.[0] || '').split('/').pop() || '',
+          authIds: (agentToEdit.authorizationConfig?.toolAuthorizations || agentToEdit.authorizations || [])
+              .map(a => a.split('/').pop() || '')
+              .filter(id => id) || [''],
         starterPrompts: agentToEdit.starterPrompts && agentToEdit.starterPrompts.length > 0
             ? agentToEdit.starterPrompts.map(p => p.text)
             : [''],
@@ -375,6 +377,21 @@ Rewritten agent description:`;
     setFormData({ ...formData, starterPrompts: newPrompts });
   };
 
+    const handleAuthIdChange = (index: number, value: string) => {
+        const newAuthIds = [...formData.authIds];
+        newAuthIds[index] = value;
+        setFormData({ ...formData, authIds: newAuthIds });
+    };
+
+    const addAuthId = () => {
+        setFormData({ ...formData, authIds: [...formData.authIds, ''] });
+    };
+
+    const removeAuthId = (index: number) => {
+        const newAuthIds = formData.authIds.filter((_, i) => i !== index);
+        setFormData({ ...formData, authIds: newAuthIds.length ? newAuthIds : [''] });
+    };
+
   const handleLoadEngines = async () => {
     if (!formData.reasoningEngineLocation) {
         setEngineLoadError("Please enter a location to load agent engines from.");
@@ -530,17 +547,20 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
             ...agentDefinitionPayload
         };
     
-        const finalAuthId = formData.authId?.split('/').pop()?.trim();
-        if (finalAuthId) {
-            // Updated to use authorizationConfig structure
-            // Try to find the full auth object to get the correct location
-            const selectedAuth = authorizations.find(a => a.name.endsWith(`/${finalAuthId}`));
-            const authResourceName = selectedAuth ? selectedAuth.name : `projects/${config.projectId}/locations/global/authorizations/${finalAuthId}`;
+          const validAuthIds = formData.authIds
+              .map(id => id.trim())
+              .filter(id => id.length > 0);
+
+          if (validAuthIds.length > 0) {
+              // Map IDs back to matching full resource names if found in authorizations list
+              const toolAuthorizations = validAuthIds.map(id => {
+                  // Try exact match or suffix match
+                  const matched = authorizations.find(a => a.name === id || a.name.endsWith(`/${id}`));
+                  return matched ? matched.name : `projects/${config.projectId}/locations/global/authorizations/${id}`;
+              });
 
             createPayload.authorizationConfig = {
-                toolAuthorizations: [
-                    authResourceName
-                ]
+                toolAuthorizations
             };
         }
         
@@ -647,43 +667,85 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                 </div>
 
                 <div>
-                    <label htmlFor="authId" className="block text-sm font-medium text-gray-300">
-                        Authorization ID {agentToEdit ? '(Immutable)' : '(Optional)'}
+                          <label className="block text-sm font-medium text-gray-300">
+                              Authorization IDs {agentToEdit ? '(Immutable)' : '(Optional)'}
                     </label>
                     {agentToEdit ? (
                         <>
-                            <input
-                                type="text"
-                                name="authId"
-                                value={formData.authId}
-                                className="mt-1 block w-full bg-gray-800 border-gray-600 rounded-md shadow-sm text-gray-400"
-                                disabled
-                            />
+                                  <div className="space-y-2 mt-1">
+                                      {formData.authIds.map((authId, index) => (
+                                    <input
+                                        key={index}
+                                        type="text"
+                                        value={authId}
+                                        className="block w-full bg-gray-800 border-gray-600 rounded-md shadow-sm text-gray-400 disabled:opacity-75"
+                                        disabled
+                                    />
+                                ))}
+                                  </div>
                             <p className="mt-1 text-xs text-gray-400">Authorization cannot be changed after an agent is created.</p>
                         </>
                     ) : (
                         <>
-                            <div className="flex items-center space-x-2 mt-1">
-                                {authInputMode === 'select' && authorizations.length > 0 ? (
-                                    <>
-                                        <select name="authId" value={formData.authId} onChange={handleChange} className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm">
-                                            <option value="">-- Select an Authorization --</option>
-                                            {authorizations.map(auth => {
-                                                const authId = auth.name.split('/').pop() || '';
-                                                return <option key={auth.name} value={authId}>{authId}</option>;
-                                            })}
-                                        </select>
-                                        <button type="button" onClick={() => setAuthInputMode('manual')} className="text-sm text-blue-400 hover:text-blue-300 shrink-0">
-                                            Enter Manually
+                                      <div className="space-y-2 mt-1">
+                                          {formData.authIds.map((authId, index) => (
+                                              <div key={index} className="flex items-center space-x-2">
+                                                  {authInputMode === 'select' && authorizations.length > 0 ? (
+                                            <select
+                                                value={authId}
+                                                onChange={(e) => handleAuthIdChange(index, e.target.value)}
+                                                className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm"
+                                            >
+                                                <option value="">-- Select an Authorization --</option>
+                                                {authorizations.map(auth => {
+                                                    const aId = auth.name.split('/').pop() || '';
+                                                    return <option key={auth.name} value={aId}>{auth.displayName || aId}</option>;
+                                                })}
+                                            </select>
+                                        ) : (
+                                            <input
+                                                type="text"
+                                                value={authId}
+                                                onChange={(e) => handleAuthIdChange(index, e.target.value)}
+                                                className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm"
+                                                placeholder="Type an ID"
+                                            />
+                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() => removeAuthId(index)}
+                                            className="p-2 text-gray-400 hover:text-white bg-gray-600 hover:bg-red-500 rounded-md transition-colors"
+                                            title="Remove Authorization"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                            </svg>
                                         </button>
-                                    </>
-                                ) : (
-                                    <input type="text" name="authId" value={formData.authId} onChange={handleChange} className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" placeholder="Type an ID or click Load" />
-                                )}
-                                <button type="button" onClick={handleLoadAuthorizations} disabled={isLoadingAuths} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-500 shrink-0" title="Load available authorizations">
-                                    {isLoadingAuths ? '...' : 'Load'}
-                                </button>
-                            </div>
+                                    </div>
+                                ))}
+                                      </div>
+
+                                      <div className="flex justify-between items-center mt-2">
+                                          <button
+                                              type="button"
+                                              onClick={addAuthId}
+                                              className="text-sm font-semibold text-blue-400 hover:text-blue-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+                                          >
+                                              + Add Authorization
+                                          </button>
+
+                                          <div className="flex gap-2">
+                                              {authInputMode === 'select' && (
+                                                  <button type="button" onClick={() => setAuthInputMode('manual')} className="text-sm text-blue-400 hover:text-blue-300">
+                                                      Switch to Manual
+                                                  </button>
+                                              )}
+                                              <button type="button" onClick={handleLoadAuthorizations} disabled={isLoadingAuths} className="px-3 py-1 bg-indigo-600 text-white text-xs font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-500" title="Load available authorizations">
+                                                  {isLoadingAuths ? '...' : 'Load'}
+                                              </button>
+                                          </div>
+                                      </div>
+
                             {authLoadError && <p className="mt-1 text-sm text-red-400">{authLoadError}</p>}
                         </>
                     )}

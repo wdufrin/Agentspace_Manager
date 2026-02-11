@@ -99,7 +99,7 @@ const GitHubCreateModal: React.FC<GitHubCreateModalProps> = ({ isOpen, onClose, 
                                 value={token || ''}
                                 onChange={(e) => setToken(e.target.value)}
                                 className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:ring-teal-500"
-                                placeholder="ghp_..."
+                                placeholder="Token..."
                             />
                             <p className="text-xs text-gray-500 mt-1">Token requires <code>repo</code> scope.</p>
                         </div>

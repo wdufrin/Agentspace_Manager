@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ChatMessage, Config, DataStore } from '../../types';
+import { ChatMessage, Config, DataStore, UserProfile } from '../../types';
 import * as api from '../../services/apiService';
 import ResponseDetailsModal from './ResponseDetailsModal';
 import ChatCurlModal from './ChatCurlModal';
@@ -10,9 +10,10 @@ interface ChatWindowProps {
     config: Config;
     accessToken: string;
     onClose: () => void;
+    userProfile: UserProfile | null;
 }
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, accessToken, onClose }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, accessToken, onClose, userProfile }) => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -110,6 +111,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
         let skipReason: string | null = null;
         let finalDiagnostics: any = null;
         let allCitations: any[] = [];
+        let currentSessionId = sessionId;
 
         // Build toolsSpec based on CURRENT filter selection
         const toolsSpec: any = selectedDsNames.size > 0 ? {
@@ -119,15 +121,34 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
         } : undefined;
 
         try {
+            // 1. Create Session if needed (to attach User ID)
+            if (!currentSessionId && userProfile?.email) {
+                try {
+                    const sessionPayload = {
+                        name: '', // Server generated
+                        userPseudoId: userProfile.email
+                    };
+                    const newSession = await api.createDiscoverySession(sessionPayload, config);
+                    if (newSession.name) {
+                        currentSessionId = newSession.name;
+                        setSessionId(newSession.name);
+                    }
+                } catch (sessionErr) {
+                    console.warn("Failed to create user-attributed session, falling back to anonymous auto-creation.", sessionErr);
+                }
+            }
+
             await api.streamChat(
                 null, 
                 currentQuery,
-                sessionId,
+                currentSessionId,
                 config,
                 accessToken,
                 (parsedChunk) => {
                     const newSessionId = parsedChunk.sessionInfo?.session;
-                    if (newSessionId && !sessionId) {
+                    // Only update if we didn't already have one
+                    if (newSessionId && !currentSessionId) {
+                        currentSessionId = newSessionId;
                         setSessionId(newSessionId);
                     }
                     
