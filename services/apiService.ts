@@ -1,5 +1,5 @@
 
-import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, LogEntry, ReasoningEngine, CloudRunService, GcsBucket, GcsObject, DialogflowAgent } from '../types';
+import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, LogEntry, ReasoningEngine, CloudRunService, GcsBucket, GcsObject, DialogflowAgent, DiscoverySession, ReasoningEngineSession } from '../types';
 import { getGapiClient } from './gapiService';
 
 const DISCOVERY_API_VERSION = 'v1alpha';
@@ -1069,13 +1069,9 @@ export const exportAnalyticsMetrics = async (config: Config, datasetId: string, 
     return gapiRequest<any>(url, 'POST', projectId, undefined, body);
 };
 
-export const getLicenseConfig = async (name: string, config: Config) => {
-    const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-    const url = `${baseUrl}/v1/${name}`;
-    return gapiRequest<any>(url, 'GET', config.projectId);
-};
 
-export const listUserLicenses = async (config: Config, userStoreId: string, filter?: string, pageToken?: string, pageSize: number = 20) => {
+
+export const listUserStoreLicenses = async (config: Config, userStoreId: string, filter?: string, pageToken?: string, pageSize: number = 20) => {
     const { projectId, appLocation } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
     let url = `${baseUrl}/v1/projects/${projectId}/locations/${appLocation}/userStores/${userStoreId}/userLicenses?pageSize=${pageSize}`;
@@ -1140,4 +1136,109 @@ export const validateWorkforcePool = async (poolName: string, config: Config) =>
     // API endpoint: https://iam.googleapis.com/v1/{name}
     const url = `https://iam.googleapis.com/v1/${poolName}`;
     return gapiRequest<any>(url, 'GET', config.projectId);
+};
+
+// --- License Management ---
+
+export const listBillingAccounts = async (config: Config) => {
+    // API: GET https://cloudbilling.googleapis.com/v1/billingAccounts
+    const url = `https://cloudbilling.googleapis.com/v1/billingAccounts`;
+    return gapiRequest<{ billingAccounts: any[] }>(url, 'GET', config.projectId);
+};
+
+
+export const listBillingAccountLicenseConfigs = async (billingAccountId: string, config: Config) => {
+    // API: GET .../billingAccounts/{BILLING_ACCOUNT_ID}/billingAccountLicenseConfigs
+    // Uses discoveryengine.googleapis.com (v1alpha)
+    const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+    // Note: The user's instructions say "https://discoveryengine.googleapis.com/v1alpha/..."
+    // We reuse getDiscoveryEngineUrl which handles global/regional domains.
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/billingAccounts/${billingAccountId}/billingAccountLicenseConfigs`;
+    return gapiRequest<{ billingAccountLicenseConfigs: any[] }>(url, 'GET', config.projectId);
+};
+
+export const listLicenseConfigsUsageStats = async (config: Config, userStoreId: string = 'default_user_store') => {
+    // API: GET .../projects/{project}/locations/{location}/userStores/{user_store_id}/licenseConfigsUsageStats
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/userStores/${userStoreId}/licenseConfigsUsageStats`;
+    return gapiRequest<{ licenseConfigUsageStats: any[] }>(url, 'GET', projectId);
+};
+
+export const listUserLicenses = async (config: Config) => {
+    // API: GET .../projects/{project}/locations/{location}/userLicenses
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/userLicenses`;
+    return gapiRequest<{ userLicenses: any[] }>(url, 'GET', projectId);
+};
+
+
+export const getLicenseConfig = async (name: string, config: Config) => {
+    // name is the full resource name: projects/.../licenseConfigs/...
+    // API: GET https://discoveryengine.googleapis.com/v1alpha/{name}
+    const location = getLocationFromResourceName(name);
+    const baseUrl = getDiscoveryEngineUrl(location);
+    return gapiRequest<any>(`${baseUrl}/${DISCOVERY_API_VERSION}/${name}`, 'GET', config.projectId);
+};
+
+
+
+// Re-implementing the real append block:
+export const distributeLicense = async (billingAccountId: string, billingAccountLicenseConfigId: string, payload: {
+    projectNumber: string;
+    location: string;
+    licenseCount: number;
+    licenseConfigId?: string;
+}, config: Config) => {
+    const { appLocation, projectId } = config; // We use config.projectId for X-Goog-User-Project header
+    // Ideally appLocation should match payload.location or be global?
+    // The user instruction says ENDPOINT_LOCATION should match LOCATION.
+    const baseUrl = getDiscoveryEngineUrl(payload.location);
+
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/billingAccounts/${billingAccountId}/billingAccountLicenseConfigs/${billingAccountLicenseConfigId}:distributeLicenseConfig`;
+
+    // Payload needs: projectNumber, location, licenseCount, licenseConfigId
+    return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
+};
+
+export const probeProjectLicense = async (
+    billingAccountId: string,
+    billingAccountLicenseConfigId: string,
+    projectNumber: string,
+    config: Config,
+    projectLicenseConfigId?: string
+) => {
+    // Probes the project license configuration by distributing 0 licenses.
+    // This returns the current state of the license config for the project.
+    const payload: any = {
+        projectNumber,
+        location: config.appLocation, // or 'global', based on config?
+        licenseCount: 0,
+    };
+    if (projectLicenseConfigId) {
+        payload.licenseConfigId = projectLicenseConfigId;
+    }
+    return distributeLicense(billingAccountId, billingAccountLicenseConfigId, payload, config);
+};
+
+export const retractLicense = async (billingAccountId: string, billingAccountLicenseConfigId: string, payload: {
+    licenseConfig: string; // Full resource name
+    licenseCount: number;  // Decremental count (amount to remove? No, instructions say "unused licenses to retract" but example says "licenseCount: 10" which implies the NEW count?
+    // Wait, let's re-read carefully:
+    // "LICENSE_COUNT: The number of unused licenses to retract. Note this is the decremental count not absolute count"
+    // So if I want to remove 2, I send 2? 
+    // Example: "if there are 10 licenses on the project, and you want to keep 3 licenses on the project, you’ll need to put 7 here."
+    // So it IS the amount to REMOVE.
+}, config: Config) => {
+    const { projectId } = config;
+    // We need to determine the endpoint location. 
+    // The instructions say "ENDPOINT_LOCATION: It should match the LOCATION above."
+    // We can extract location from the licenseConfig name.
+    const location = getLocationFromResourceName(payload.licenseConfig);
+    const baseUrl = getDiscoveryEngineUrl(location);
+
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/billingAccounts/${billingAccountId}/billingAccountLicenseConfigs/${billingAccountLicenseConfigId}:retractLicenseConfig`;
+
+    return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
 };

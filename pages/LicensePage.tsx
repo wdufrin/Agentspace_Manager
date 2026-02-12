@@ -8,6 +8,8 @@ import JsonViewModal from '../components/license/JsonViewModal';
 import PruneLicensesModal from '../components/license/PruneLicensesModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import PrunerDeploymentModal from '../components/license/PrunerDeploymentModal';
+import DistributeLicenseModal from '../components/license/DistributeLicenseModal';
+import RetractLicenseModal from '../components/license/RetractLicenseModal';
 
 interface LicensePageProps {
   projectNumber: string;
@@ -51,6 +53,27 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
   
   const [isActionLoading, setIsActionLoading] = useState(false); // For delete/prune
 
+    // --- Billing Account State ---
+    const [activeTab, setActiveTab] = useState<'user_licenses' | 'allocations'>('user_licenses');
+    const [billingAccountId, setBillingAccountId] = useState('');
+    const [billingConfigs, setBillingConfigs] = useState<any[]>([]);
+    const [isBillingLoading, setIsBillingLoading] = useState(false);
+
+    // Allocation Modals
+    const [distributeModalProps, setDistributeModalProps] = useState<any>(null);
+    const [retractModalProps, setRetractModalProps] = useState<any>(null);
+
+    // Billing Accounts Dropdown
+    const [availableBillingAccounts, setAvailableBillingAccounts] = useState<any[]>([]);
+    const [isBillingAccountsLoading, setIsBillingAccountsLoading] = useState(false);
+
+    // Project License Stats
+    const [statsProjectId, setStatsProjectId] = useState('');
+    const [projectLicenseConfigs, setProjectLicenseConfigs] = useState<any[]>([]);
+    const [isProjectStatsLoading, setIsProjectStatsLoading] = useState(false);
+    const [hasFetchedProjectStats, setHasFetchedProjectStats] = useState(false);
+    const [projectStatsError, setProjectStatsError] = useState<string | null>(null);
+
   // --- Auto Fetch Data ---
   useEffect(() => {
       if (projectNumber) {
@@ -81,7 +104,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
 
           do {
               // Fetch maximum allowed page size (50) to minimize requests
-              const result: any = await api.listUserLicenses(config, apiConfig.userStoreId, userLicensesFilter, nextPageToken, 50);
+              const result: any = await api.listUserStoreLicenses(config, apiConfig.userStoreId, userLicensesFilter, nextPageToken, 50);
               if (result.userLicenses) {
                   allLicenses = [...allLicenses, ...result.userLicenses];
               }
@@ -138,7 +161,174 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
 
       setLicenseNames(prev => ({ ...prev, ...newNames }));
   };
-  
+
+    const fetchAvailableBillingAccounts = async () => {
+        setIsBillingAccountsLoading(true);
+        try {
+            const config: Config = {
+                projectId: projectNumber,
+                appLocation: apiConfig.appLocation,
+                // Dummy values
+                collectionId: '', appId: '', assistantId: ''
+            } as any;
+            const res = await api.listBillingAccounts(config);
+            const accounts = res.billingAccounts || [];
+            setAvailableBillingAccounts(accounts);
+
+            // Auto-select if only one
+            if (accounts.length === 1 && !billingAccountId) {
+                // value is like "billingAccounts/012345..."
+                const id = accounts[0].name.split('/').pop();
+                setBillingAccountId(id);
+            }
+        } catch (e: any) {
+            console.error("Failed to fetch billing accounts", e);
+        } finally {
+            setIsBillingAccountsLoading(false);
+        }
+    };
+
+    // Fetch billing accounts when tab is active
+    useEffect(() => {
+        if (activeTab === 'allocations' && projectNumber) {
+            fetchAvailableBillingAccounts();
+        }
+    }, [activeTab, projectNumber]);
+
+    // Set default stats project ID
+    useEffect(() => {
+        if (projectNumber && !statsProjectId) {
+            setStatsProjectId(projectNumber);
+        }
+    }, [projectNumber]);
+
+    const fetchProjectStats = async () => {
+        if (!statsProjectId) return;
+        setIsProjectStatsLoading(true);
+        setHasFetchedProjectStats(false);
+        setProjectStatsError(null);
+        try {
+            // Common Config for both calls
+            const config: Config = {
+                projectId: statsProjectId,
+                appLocation: apiConfig.appLocation,
+                collectionId: '', appId: '', assistantId: ''
+            } as any;
+
+            // 1. Resolve Project Number (needed for probe)
+            let scProjectNumber = '';
+            try {
+                const projInfo = await api.getProject(statsProjectId);
+                scProjectNumber = projInfo.projectNumber;
+            } catch (e) {
+                console.warn("Could not resolve project number for", statsProjectId, e);
+                // Fallback: assume input might be number or fail probe
+            }
+
+            // 2. Fetch Usage Stats (Standard API)
+            let usageStats: any[] = [];
+            try {
+                const res = await api.listLicenseConfigsUsageStats(config, apiConfig.userStoreId);
+                usageStats = res.licenseConfigUsageStats || [];
+            } catch (e: any) {
+                console.error("Failed to fetch usage stats", e);
+                if (!scProjectNumber) {
+                    // If both fail and strict mode... but let's try probe if we have billing configs
+                    setProjectStatsError(e.message || "Failed to fetch usage stats");
+                }
+            }
+
+            // 3. Match with Billing Configs (Preferred Source)
+            // Use 'licenseConfigDistributions' from loaded billing configs to find matches.
+            // This gives us Total, Tier, Dates without probing, if we have billing access.
+            const statsMap = new Map<string, any>();
+
+            // First, populate map from usage stats (base layer)
+            usageStats.forEach(stat => {
+                const name = stat.licenseConfig; // "projects/.../licenseConfigs/..."
+                statsMap.set(name, {
+                    ...stat,
+                    state: 'UNKNOWN',
+                    licenseCount: 0,
+                    tier: 'Unknown',
+                    source: 'usage'
+                });
+            });
+
+            // Second, overlay data from Billing Config Distributions
+            billingConfigs.forEach(bc => {
+                // bc.licenseConfigDistributions is a map: { "projects/.../locations/.../licenseConfigs/...": "count" }
+                if (bc.licenseConfigDistributions) {
+                    Object.entries(bc.licenseConfigDistributions).forEach(([projConfigName, count]) => {
+                        // Check if this project config belongs to our target project
+                        // project name: projects/{projectNumber}/...
+                        if (projConfigName.includes(`projects/${scProjectNumber}/`)) {
+                            // Match!
+                            const existing = statsMap.get(projConfigName) || {};
+                            statsMap.set(projConfigName, {
+                                ...existing,
+                                name: projConfigName,
+                                // Enrich with Billing Config metadata
+                                state: bc.state,
+                                licenseCount: count, // The allocated count for THIS project
+                                tier: bc.subscriptionTier,
+                                startTime: bc.startDate, // billing config start/end? or distribution time? 
+                                // Ideally project config has its own start/end, but billing config is a good proxy for the subscription term.
+                                expireTime: bc.endDate,
+                                renewalTime: bc.renewalTime, // if available
+                                // assigned is still from usage stat (existing.userLicenseCount)
+                                userLicenseCount: existing.userLicenseCount || 0,
+                                source: 'billing_distribution'
+                            });
+                        }
+                    });
+                }
+            });
+
+            // 4. Probe Missing (Fallback)
+            // If we have usage stats that didn't match a billing config (maybe we don't have access to that billing account?),
+            // OR if we strictly want to verify the project-level config state (e.g. distinct creation time).
+            // But probing requires us to know WHICH billing account to standardly probe against? as discussed.
+            // Given the user's input, the "distribution" map is the source of truth for "Allocated".
+            // So we might not need to probe if we found matches.
+
+            // Let's only probe if we have NO data for a usage stat? Or if we suspect missing info.
+            // For now, rely on usage + billing match.
+            // Converting map to list.
+
+            const finalConfigs = Array.from(statsMap.values());
+
+            setProjectLicenseConfigs(finalConfigs);
+            setHasFetchedProjectStats(true);
+        } catch (e: any) {
+            console.error("Failed to fetch project license stats", e);
+            setProjectStatsError(e.message || "Failed to fetch project license stats");
+            setProjectLicenseConfigs([]);
+        } finally {
+            setIsProjectStatsLoading(false);
+        }
+    };
+
+    const fetchBillingConfigs = async () => {
+        if (!billingAccountId) return;
+        setIsBillingLoading(true);
+        setLicensesError(null);
+        try {
+            const config: Config = {
+                projectId: projectNumber,
+                appLocation: apiConfig.appLocation,
+                // Dummy values
+                collectionId: '', appId: '', assistantId: ''
+            } as any;
+            const res = await api.listBillingAccountLicenseConfigs(billingAccountId, config);
+            setBillingConfigs(res.billingAccountLicenseConfigs || []);
+        } catch (e: any) {
+            setLicensesError("Failed to fetch billing account configs: " + e.message);
+        } finally {
+            setIsBillingLoading(false);
+        }
+    };
+
   const requestDelete = (license: any) => {
       setLicenseToDelete(license);
       setIsDeleteModalOpen(true);
@@ -315,6 +505,38 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
         </ConfirmationModal>
       )}
 
+
+
+          {distributeModalProps && (
+              <DistributeLicenseModal
+                  isOpen={!!distributeModalProps}
+                  onClose={() => setDistributeModalProps(null)}
+                  onSuccess={() => {
+                      fetchBillingConfigs();
+                      // Also refresh user licenses if we distributed to this project
+                      if (distributeModalProps.currentProjectNumber === projectNumber) {
+                          fetchUserLicenses();
+                      }
+                  }}
+                  {...distributeModalProps}
+              />
+          )}
+
+          {retractModalProps && (
+              <RetractLicenseModal
+                  isOpen={!!retractModalProps}
+                  onClose={() => setRetractModalProps(null)}
+                  onSuccess={() => {
+                      fetchBillingConfigs();
+                      // Also refresh user licenses if we retracted from this project
+                      if (retractModalProps.currentProjectNumber === projectNumber) {
+                          fetchUserLicenses();
+                      }
+                  }}
+                  {...retractModalProps}
+              />
+          )}
+
       {/* --- Common Configuration --- */}
       <div className="bg-gray-800 p-4 rounded-lg shadow-md">
          <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
@@ -344,6 +566,32 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
         </div>
       </div>
 
+          {/* --- Tabs --- */}
+          <div className="border-b border-gray-700">
+              <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                  <button
+                      onClick={() => setActiveTab('user_licenses')}
+                      className={`${activeTab === 'user_licenses'
+                          ? 'border-blue-500 text-blue-400'
+                          : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+                          } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-150`}
+                  >
+                      User Assignments
+                  </button>
+                  <button
+                      onClick={() => setActiveTab('allocations')}
+                      className={`${activeTab === 'allocations'
+                          ? 'border-blue-500 text-blue-400'
+                          : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+                          } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-150`}
+                  >
+                      Allocation Management (Billing Account)
+                  </button>
+              </nav>
+          </div>
+
+          {activeTab === 'user_licenses' ? (
+              <>
       {/* --- Stats & Actions Row --- */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Stats Card */}
@@ -513,7 +761,131 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
              !isLicensesLoading && <div className="text-gray-500 text-center p-8 bg-gray-800">No user licenses found matching criteria.</div>
         )}
       </div>
-    </div>
+              </>
+          ) : (
+              /* --- Allocation Management View --- */
+              <div className="space-y-6">
+                  <div className="bg-gray-800 p-6 rounded-lg shadow-md border border-gray-700">
+                      <h3 className="text-lg font-semibold text-white mb-4">Manage License Allocations</h3>
+                      <div className="flex gap-4 items-end">
+                          <div className="flex-grow">
+                              <label className="block text-sm font-medium text-gray-400 mb-1">Billing Account</label>
+                              {isBillingAccountsLoading ? (
+                                  <div className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-400 h-[42px] flex items-center">
+                                      <Spinner className="w-4 h-4 mr-2" /> Loading accounts...
+                                  </div>
+                              ) : (
+                                  <select
+                                      value={billingAccountId}
+                                      onChange={(e) => setBillingAccountId(e.target.value)}
+                                      className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[42px]"
+                                  >
+                                      <option value="">-- Select Billing Account --</option>
+                                      {availableBillingAccounts.map(account => {
+                                          const id = account.name.split('/').pop();
+                                          return (
+                                              <option key={account.name} value={id}>
+                                                  {account.displayName} ({id})
+                                              </option>
+                                          );
+                                      })}
+                                  </select>
+                              )}
+                          </div>
+                          <button
+                              onClick={fetchBillingConfigs}
+                              disabled={isBillingLoading || !billingAccountId}
+                              className="px-6 py-2 bg-blue-600 text-white font-semibold rounded hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed h-[42px]"
+                          >
+                              {isBillingLoading ? 'Loading...' : 'Load Configs'}
+                          </button>
+                      </div>
+                  </div>
+
+                  {billingConfigs.length > 0 ? (
+                      <div className="space-y-4">
+                          {billingConfigs.map((config) => (
+                              <div key={config.name} className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                                  <div className="p-4 bg-gray-750 border-b border-gray-700 flex justify-between items-start">
+                                      <div>
+                                          <h4 className="text-md font-bold text-white mb-1">{config.displayName || 'Billing Account Config'}</h4>
+                                          <p className="text-xs text-gray-400 font-mono mb-2">{config.name}</p>
+                                          <div className="flex gap-2 text-xs">
+                                              <span className="px-2 py-0.5 rounded bg-gray-700 text-gray-300">Total Licenses: {config.licenseCount}</span>
+                                              <span className="px-2 py-0.5 rounded bg-blue-900/30 text-blue-300 border border-blue-800">{config.subscriptionTier}</span>
+                                          </div>
+                                      </div>
+                                      <button
+                                          onClick={() => setDistributeModalProps({
+                                              billingAccountId,
+                                              billingAccountLicenseConfigId: config.name.split('/').pop(),
+                                              currentProjectNumber: projectNumber
+                                          })}
+                                          className="px-3 py-1.5 bg-green-700 hover:bg-green-600 text-white text-xs font-semibold rounded flex items-center"
+                                      >
+                                          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                          Distribute
+                                      </button>
+                                  </div>
+
+                                  <div className="p-4 bg-gray-900/30">
+                                      <h5 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wide">Project Allocations</h5>
+                                      {config.licenseConfigDistributions && Object.keys(config.licenseConfigDistributions).length > 0 ? (
+                                          <div className="overflow-x-auto">
+                                              <table className="min-w-full text-left text-sm">
+                                                  <thead className="text-xs text-gray-500 uppercase bg-gray-800/50">
+                                                      <tr>
+                                                          <th className="px-4 py-2">Project</th>
+                                                          <th className="px-4 py-2">Location</th>
+                                                          <th className="px-4 py-2">Allocated</th>
+                                                          <th className="px-4 py-2 text-right">Actions</th>
+                                                      </tr>
+                                                  </thead>
+                                                  <tbody className="divide-y divide-gray-700">
+                                                      {Object.entries(config.licenseConfigDistributions).map(([resourceKey, count]: [string, any]) => {
+                                                          const project = resourceKey.includes('projects/') ? resourceKey.split('projects/')[1].split('/')[0] : 'N/A';
+                                                          const loc = resourceKey.includes('/locations/') ? resourceKey.split('/locations/')[1].split('/')[0] : 'N/A';
+
+                                                          return (
+                                                              <tr key={resourceKey} className="hover:bg-gray-800/50">
+                                                                  <td className="px-4 py-2 text-white font-mono">{project}</td>
+                                                                  <td className="px-4 py-2 text-gray-400">{loc}</td>
+                                                                  <td className="px-4 py-2 text-white font-bold">{count}</td>
+                                                                  <td className="px-4 py-2 text-right">
+                                                                      <button
+                                                                          onClick={() => setRetractModalProps({
+                                                                              billingAccountId,
+                                                                              billingAccountLicenseConfigId: config.name.split('/').pop(),
+                                                                              licenseConfigName: resourceKey,
+                                                                              allocatedCount: parseInt(count),
+                                                                              currentProjectNumber: projectNumber
+                                                                          })}
+                                                                          className="text-red-400 hover:text-red-300 text-xs underline"
+                                                                      >
+                                                                          Retract
+                                                                      </button>
+                                                                  </td>
+                                                              </tr>
+                                                          );
+                                                      })}
+                                                  </tbody>
+                                              </table>
+                                          </div>
+                                      ) : (
+                                          <p className="text-sm text-gray-500 italic px-2">No licenses distributed yet.</p>
+                                      )}
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                  ) : (
+                      !isBillingLoading && billingAccountId && <div className="text-center p-8 bg-gray-800 rounded-lg border border-gray-700 text-gray-400">No configs found for this billing account.</div>
+                  )}
+              </div>
+          )}
+
+
+      </div>
   );
 };
 

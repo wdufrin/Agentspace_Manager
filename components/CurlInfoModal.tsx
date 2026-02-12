@@ -432,6 +432,44 @@ curl -X GET \\
         description: "License management in this application is currently client-side only, storing the license state in your local browser storage. In a production environment, this would integrate with a licensing backend API.",
         commands: []
     },
+  'Backup:ChatHistory': {
+    description: "Backing up Chat History involves listing all sessions for the target App/Engine. Note that the API requires iterating over pages if there are many sessions.",
+    commands: [
+      {
+        title: 'List Sessions',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/sessions"`
+      },
+      {
+        title: 'Get Session Details',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/sessions/[SESSION_ID]"`
+      }
+    ]
+  },
+  'Restore:ChatHistory': {
+    description: "Restoring Chat History involves creating sessions. Since the API does not support client-assigned session IDs in v1alpha, new IDs will be generated. The 'turns' array from the backup should be included in the body to restore conversation history.",
+    commands: [
+      {
+        title: 'Create Session (Restore)',
+        command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "userPseudoId": "restored-user-id",
+        "turns": [
+            { "query": { "text": "Hello" }, "answer": "Hi there!" }
+        ]
+      }' \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/sessions"`
+      }
+    ]
+  },
 };
 
 const CodeBlock: React.FC<{ title: string, command: string }> = ({ title, command }) => {

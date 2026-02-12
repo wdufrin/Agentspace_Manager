@@ -240,7 +240,7 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
             const text = await api.generateVertexContent(apiConfig, prompt, 'gemini-2.5-flash');
             const rewrittenText = text.trim().replace(/^["']|["']$/g, '').replace(/^```\w*\n?|\n?```$/g, '').trim();
             setAgentDetails(prev => ({ ...prev, agentDescription: rewrittenText }));
-            setAgentDetails(prev => ({ ...prev, agentDescription: rewrittenText }));
+
         } catch (err: any) {
             setRewriteError(`AI rewrite failed: ${err.message}`);
         } finally {
@@ -248,9 +248,7 @@ const AgentRegistrationPage: React.FC<AgentRegistrationPageProps> = ({ projectNu
         }
     };
 
-    setIsRewriting(false);
-}
-    };
+
 
 const handleAddAuthRow = () => {
     setAuthRows(prev => [...prev, '']);
@@ -482,6 +480,7 @@ const handleAuthChange = (index: number, value: string) => {
                                 />
                             </details>
                         </div>
+                    </div>
                      <div>
                         <div className="flex justify-between items-center mb-1">
                             <label htmlFor="agentDescription" className="block text-sm font-medium text-gray-400">Agent Description</label>

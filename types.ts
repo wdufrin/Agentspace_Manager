@@ -95,6 +95,7 @@ export interface Oauth2Config {
 
 export interface Authorization {
   name: string;
+  displayName?: string;
   serverSideOauth2: Oauth2Config;
 }
 
