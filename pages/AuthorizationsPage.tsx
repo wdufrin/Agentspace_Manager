@@ -4,6 +4,7 @@ import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
 import AuthList from '../components/authorizations/AuthList';
 import AuthForm from '../components/authorizations/AuthForm';
+import ViewAuthModal from '../components/authorizations/ViewAuthModal';
 import WorkforcePoolValidator from '../components/tools/WorkforcePoolValidator';
 import ConfirmationModal from '../components/ConfirmationModal';
 
@@ -17,6 +18,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'form'>('list');
   const [authToEdit, setAuthToEdit] = useState<Authorization | null>(null);
+  const [authToView, setAuthToView] = useState<Authorization | null>(null);
   const [region, setRegion] = useState<string>('global');
   
   // State for delete confirmation modal
@@ -209,6 +211,21 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
     }
   };
 
+  const handleView = async (auth: Authorization) => {
+    // We already have the auth object from the list, but it might be partial if we optimized the list call later.
+    // For now, the list returns full objects, but let's fetch fresh details to be safe and consistent with Edit.
+    setIsLoading(true);
+    setError(null);
+    try {
+      const authData = await api.getAuthorization(auth.name, apiConfig);
+      setAuthToView(authData);
+    } catch (err: any) {
+      setError(err.message || `Failed to fetch details for authorization.`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleShowCreateForm = () => {
     setAuthToEdit(null);
     setView('form');
@@ -244,6 +261,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
         authorizations={authorizations}
         onDelete={requestDelete}
         onEdit={handleEdit}
+        onView={handleView}
         onCreateNew={handleShowCreateForm}
         authUsage={authUsage}
         isScanningAgents={isScanningAgents}
@@ -324,6 +342,14 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
             </div>
             <p className="mt-4 text-sm text-yellow-300">This action cannot be undone and may break agents that rely on it.</p>
         </ConfirmationModal>
+      )}
+
+      {authToView && (
+        <ViewAuthModal
+          isOpen={!!authToView}
+          onClose={() => setAuthToView(null)}
+          authorization={authToView}
+        />
       )}
     </div>
   );

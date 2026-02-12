@@ -8,9 +8,10 @@ interface AuthListProps {
   onCreateNew: () => void;
   authUsage: Record<string, Agent[]>;
   isScanningAgents: boolean;
+  onView: (auth: Authorization) => void;
 }
 
-const AuthList: React.FC<AuthListProps> = ({ authorizations, onDelete, onEdit, onCreateNew, authUsage, isScanningAgents }) => {
+const AuthList: React.FC<AuthListProps> = ({ authorizations, onDelete, onEdit, onCreateNew, authUsage, isScanningAgents, onView }) => {
   return (
     <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">
       <div className="p-4 flex justify-between items-center border-b border-gray-700">
@@ -71,6 +72,9 @@ const AuthList: React.FC<AuthListProps> = ({ authorizations, onDelete, onEdit, o
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
+                      <button onClick={() => onView(auth)} className="font-semibold text-blue-400 hover:text-blue-300">
+                        View
+                      </button>
                       <button onClick={() => onEdit(authId)} className="font-semibold text-indigo-400 hover:text-indigo-300">
                         Edit
                       </button>
