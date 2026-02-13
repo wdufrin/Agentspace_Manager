@@ -17,7 +17,7 @@ const JiraVerification: React.FC<JiraVerificationProps> = ({ dataMode }) => {
     };
 
     const getClassicReadScopes = () => {
-        return ['read:jira-user', 'read:jira-work'];
+        return dataMode === 'INGESTION' ? ['read:jira-work'] : ['read:jira-user', 'read:jira-work'];
     };
 
     const getClassicActionScopes = () => {
@@ -25,25 +25,39 @@ const JiraVerification: React.FC<JiraVerificationProps> = ({ dataMode }) => {
     };
 
     const getGranularReadScopes = () => {
-        return dataMode === 'INGESTION'
-            ? [
+        if (dataMode === 'INGESTION') {
+            return [
                 'read:user:jira',
                 'read:group:jira',
                 'read:avatar:jira',
                 'read:issue-security-level:jira',
                 'read:issue-security-scheme:jira',
-                'read:audit-log:jira',
+                'read:audit-log:jira'
+            ];
+        } else {
+            return [
+                'read:issue:jira',
+                'read:issue-type:jira',
+                'read:comment:jira',
+                'read:comment.property:jira',
+                'read:project:jira',
+                'read:priority:jira',
+                'read:issue.transition:jira',
+                'read:issue-meta:jira',
                 'read:board-scope.admin:jira-software',
                 'read:board-scope:jira-software',
                 'read:issue-details:jira',
-                'read:jql:jira',
-                'read:project:jira'
-            ]
-            : [];
+                'read:jql:jira'
+            ];
+        }
     };
 
     const getGranularActionScopes = () => {
-        return ['write:comment:jira', 'write:issue:jira'];
+        if (dataMode === 'INGESTION') {
+            return ['write:comment:jira', 'write:issue:jira'];
+        } else {
+            return ['write:comment:jira', 'write:issue:jira', 'write:attachment:jira'];
+        }
     };
 
     const ScopeItem = ({ scope }: { scope: string }) => {
@@ -175,10 +189,28 @@ const JiraVerification: React.FC<JiraVerificationProps> = ({ dataMode }) => {
                     </div>
 
 
+                    {/* User Identity Accessor (Ingestion Only) */}
+                    {dataMode === 'INGESTION' && (
+                        <div>
+                            <SectionHeader number="3" title="User Identity Accessor" />
+                            <p className="text-gray-400 text-xs mb-3">
+                                Required for Jira Cloud to sync user identities correctly for data ingestion.
+                            </p>
+                            <div className="space-y-2 bg-gray-900/50 p-3 rounded border border-gray-700">
+                                <ol className="list-decimal list-inside text-xs text-gray-300 space-y-2 ml-2">
+                                    <li>Navigate to <strong>Atlassian Marketplace</strong> and search for <em>User Identity Accessor for Jira Cloud</em>.</li>
+                                    <li>Click <strong>Get it now</strong> to install it on your Jira site.</li>
+                                    <li>Once installed, configure an <strong>API key</strong> that your Jira Cloud Connector will use.</li>
+                                </ol>
+                            </div>
+                        </div>
+                    )}
+
+
                     {/* Verify Section */}
                     <div>
                         <h4 className="text-lg font-semibold text-white mb-4 flex items-center pt-4 border-t border-gray-700">
-                            <span className="bg-blue-600 rounded-full w-6 h-6 flex items-center justify-center text-xs mr-2">3</span>
+                            <span className="bg-blue-600 rounded-full w-6 h-6 flex items-center justify-center text-xs mr-2">{dataMode === 'INGESTION' ? '4' : '3'}</span>
                             Verify Connectivity
                         </h4>
                         <div className="bg-black/50 p-4 rounded-lg border border-gray-700 font-mono text-xs text-green-400 overflow-x-auto relative group">

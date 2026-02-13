@@ -83,23 +83,40 @@ const ServiceNowVerification: React.FC<ServiceNowVerificationProps> = ({ dataMod
                         User Roles
                     </h4>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="p-3 bg-gray-900/50 rounded border border-gray-700">
-                            <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase">Option A: Custom Role (Recommended)</h5>
+                            <h5 className="text-[10px] font-bold text-gray-300 mb-1 uppercase tracking-wider">Option A: Custom Role w/ ACLs</h5>
+                            <p className="text-[10px] text-green-400/80 mb-2">Most secure (Recommended)</p>
                             <ChecklistItem
                                 id="role_custom_create"
                                 label="Create Role"
-                                subLabel="Create a new custom role in User Administration."
+                                subLabel="Create new custom role."
                             />
                             <ChecklistItem
                                 id="role_web_service"
-                                label="Web Service Access Only"
-                                subLabel="Ensure the user account has 'Web service access only' checked."
+                                label="Service Account"
+                                subLabel="Check 'Web service access only'."
                             />
                         </div>
-                        <div className="p-3 bg-gray-900/50 rounded border border-gray-700 opacity-70">
-                            <h5 className="text-xs font-bold text-gray-400 mb-2 uppercase">Option B: Admin Role</h5>
-                            <p className="text-xs text-gray-500 mb-2">Easier setup, but less secure.</p>
+
+                        <div className="p-3 bg-gray-900/50 rounded border border-gray-700">
+                            <h5 className="text-[10px] font-bold text-gray-300 mb-1 uppercase tracking-wider">Option B: Entity Admins</h5>
+                            <p className="text-[10px] text-gray-400 mb-2">Requires 3 specific roles</p>
+                            <ChecklistItem
+                                id="role_entity_admins"
+                                label="Assign Roles"
+                                subLabel="catalog_admin, knowledge_admin, incident_manager"
+                            />
+                            <ChecklistItem
+                                id="role_entity_web"
+                                label="Service Account"
+                                subLabel="Check 'Web service access only'."
+                            />
+                        </div>
+
+                        <div className="p-3 bg-gray-900/50 rounded border border-gray-700 opacity-80">
+                            <h5 className="text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wider">Option C: Admin Role</h5>
+                            <p className="text-[10px] text-gray-500 mb-2">Easiest setup, least secure.</p>
                             <ChecklistItem
                                 id="role_admin"
                                 label="Admin Role"
@@ -119,11 +136,22 @@ const ServiceNowVerification: React.FC<ServiceNowVerificationProps> = ({ dataMod
                         Grant <strong>Read</strong> access to the custom role for these tables.
                     </p>
 
+                    <div className="mb-4 bg-gray-900/50 p-3 rounded border border-gray-700">
+                        <h5 className="text-[10px] font-bold text-gray-300 mb-1 uppercase tracking-wider">Prerequisite: Elevate Role</h5>
+                        <ChecklistItem
+                            id="elevate_security_admin"
+                            label="Elevate to security_admin"
+                            subLabel="Click your profile icon > 'Elevate role' > select 'security_admin'. This is required before you can create or edit ACLs."
+                            badge="Required"
+                        />
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                         {[
                             { id: 'incident', label: 'incident', desc: 'Show incidents in search results' },
                             { id: 'kb_knowledge', label: 'kb_knowledge', desc: 'Knowledge articles' },
                             { id: 'sc_cat_item', label: 'sc_cat_item', desc: 'Catalog items' },
+                            { id: 'sc_cat_item_star', label: 'sc_cat_item.*', desc: 'Catalog item fields (Explicitly named ACL required)' },
                             { id: 'sys_user', label: 'sys_user', desc: 'List of all users' },
                             { id: 'sys_user_group', label: 'sys_user_group', desc: 'List of user group segments' },
                             { id: 'sys_user_role', label: 'sys_user_role', desc: 'List of roles' },

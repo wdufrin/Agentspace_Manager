@@ -7,14 +7,20 @@ import EntraIdVerification from './verification/EntraIdVerification';
 import SharePointVerification from './verification/SharePointVerification';
 import OutlookVerification from './verification/OutlookVerification';
 import TeamsVerification from './verification/TeamsVerification';
-import OneDriveVerification from './verification/OneDriveVerification';
+import SlackVerification from './verification/SlackVerification';
+import JiraDcVerification from './verification/JiraDcVerification';
+import ConfluenceDcVerification from './verification/ConfluenceDcVerification';
+import DropboxVerification from './verification/DropboxVerification';
+import NotionVerification from './verification/NotionVerification';
+import ZendeskVerification from './verification/ZendeskVerification';
 import GenericVerification from './verification/GenericVerification';
+import OneDriveVerification from './verification/OneDriveVerification';
 
 interface ConnectorVerificationTabProps {
     connector: any;
 }
 
-export type VerificationType = 'JIRA' | 'CONFLUENCE' | 'SALESFORCE' | 'SERVICENOW' | 'ENTRA_ID' | 'SHAREPOINT' | 'OUTLOOK' | 'TEAMS' | 'ONEDRIVE' | 'GENERIC';
+export type VerificationType = 'JIRA' | 'JIRA_DC' | 'CONFLUENCE' | 'CONFLUENCE_DC' | 'SALESFORCE' | 'SERVICENOW' | 'ENTRA_ID' | 'SHAREPOINT' | 'OUTLOOK' | 'TEAMS' | 'ONEDRIVE' | 'SLACK' | 'DROPBOX' | 'NOTION' | 'ZENDESK' | 'GENERIC';
 export type DataMode = 'INGESTION' | 'FEDERATED';
 
 const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({ connector }) => {
@@ -24,15 +30,20 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({ con
 
     // Detection Logic
     const getInitialType = (): VerificationType => {
+        if (stateString.includes('jira_dc') || stateString.includes('jira-dc') || nameString.includes('jira_dc') || nameString.includes('jira-dc')) return 'JIRA_DC';
         if (stateString.includes('jira') || nameString.includes('jira')) return 'JIRA';
+        if (stateString.includes('confluence_dc') || stateString.includes('confluence-dc') || nameString.includes('confluence_dc') || nameString.includes('confluence-dc')) return 'CONFLUENCE_DC';
         if (stateString.includes('confluence') || nameString.includes('confluence')) return 'CONFLUENCE';
         if (stateString.includes('salesforce') || nameString.includes('salesforce')) return 'SALESFORCE';
         if (stateString.includes('servicenow') || nameString.includes('servicenow')) return 'SERVICENOW';
         if (stateString.includes('entra') || nameString.includes('entra') || nameString.includes('azure')) return 'ENTRA_ID';
         if (stateString.includes('sharepoint')) return 'SHAREPOINT';
         if (stateString.includes('outlook')) return 'OUTLOOK';
-        if (stateString.includes('teams')) return 'TEAMS';
         if (stateString.includes('onedrive')) return 'ONEDRIVE';
+        if (stateString.includes('slack') || nameString.includes('slack')) return 'SLACK';
+        if (stateString.includes('dropbox') || nameString.includes('dropbox')) return 'DROPBOX';
+        if (stateString.includes('notion') || nameString.includes('notion')) return 'NOTION';
+        if (stateString.includes('zendesk') || nameString.includes('zendesk')) return 'ZENDESK';
         return 'GENERIC';
     };
 
@@ -40,22 +51,27 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({ con
     const [dataMode, setDataMode] = useState<DataMode>('INGESTION');
 
     const supportsDataMode = (type: VerificationType) => {
-        return ['JIRA', 'CONFLUENCE', 'SALESFORCE', 'SERVICENOW', 'SHAREPOINT', 'OUTLOOK', 'TEAMS', 'ONEDRIVE'].includes(type);
+        return ['JIRA', 'JIRA_DC', 'CONFLUENCE', 'CONFLUENCE_DC', 'SALESFORCE', 'SERVICENOW', 'SHAREPOINT', 'OUTLOOK', 'TEAMS', 'ONEDRIVE', 'SLACK'].includes(type);
     };
 
     const renderContent = () => {
         const props = { dataMode }; // Pass dataMode to all verification components
 
         switch (activeType) {
+            case 'JIRA_DC': return <JiraDcVerification {...props} />;
             case 'JIRA': return <JiraVerification {...props} />;
+            case 'CONFLUENCE_DC': return <ConfluenceDcVerification {...props} />;
             case 'CONFLUENCE': return <ConfluenceVerification {...props} />;
             case 'SALESFORCE': return <SalesforceVerification {...props} />;
             case 'SERVICENOW': return <ServiceNowVerification {...props} />;
             case 'ENTRA_ID': return <EntraIdVerification {...props} />;
             case 'SHAREPOINT': return <SharePointVerification {...props} />;
             case 'OUTLOOK': return <OutlookVerification {...props} />;
-            case 'TEAMS': return <TeamsVerification {...props} />;
             case 'ONEDRIVE': return <OneDriveVerification {...props} />;
+            case 'SLACK': return <SlackVerification {...props} />;
+            case 'DROPBOX': return <DropboxVerification />;
+            case 'NOTION': return <NotionVerification />;
+            case 'ZENDESK': return <ZendeskVerification />;
             default: return <GenericVerification {...props} />;
         }
     };
@@ -100,8 +116,10 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({ con
                         className="bg-gray-800 text-white text-xs border border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500 hover:border-blue-400 transition-colors cursor-pointer"
                     >
                         <option value="GENERIC">Generic / Other</option>
-                        <option value="JIRA">Atlassian Jira</option>
-                        <option value="CONFLUENCE">Atlassian Confluence</option>
+                        <option value="JIRA">Atlassian Jira Cloud</option>
+                        <option value="JIRA_DC">Atlassian Jira Data Center</option>
+                        <option value="CONFLUENCE">Atlassian Confluence Cloud</option>
+                        <option value="CONFLUENCE_DC">Atlassian Confluence Data Center</option>
                         <option value="SALESFORCE">Salesforce</option>
                         <option value="SERVICENOW">ServiceNow</option>
                         <option value="SHAREPOINT">Microsoft SharePoint</option>
@@ -109,6 +127,10 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({ con
                         <option value="TEAMS">Microsoft Teams</option>
                         <option value="ONEDRIVE">Microsoft OneDrive</option>
                         <option value="ENTRA_ID">Microsoft Entra ID</option>
+                        <option value="SLACK">Slack</option>
+                        <option value="DROPBOX">Dropbox</option>
+                        <option value="NOTION">Notion</option>
+                        <option value="ZENDESK">Zendesk</option>
                     </select>
                 </div>
             </div>

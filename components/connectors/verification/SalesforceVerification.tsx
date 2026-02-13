@@ -117,7 +117,7 @@ const SalesforceVerification: React.FC<SalesforceVerificationProps> = ({ dataMod
                     {authType === 'OAUTH_CLIENT_CREDS' && (
                         <div className="space-y-1">
                             <p className="text-xs text-gray-400 mb-3">Setup "External Client App" in Salesforce.</p>
-                            <ChecklistItem id="app_enable_client_creds" label="Enable Client Credentials Flow" subLabel="In Flow Enablement settings." />
+                            <ChecklistItem id="app_enable_client_creds" label="Enable Client Credentials Flow" subLabel="Also select 'Enable Authorization Code and Credentials Flow' in Flow Enablement settings." />
                             <ChecklistItem id="app_callback" label="Callback URL" subLabel="https://vertexaisearch.cloud.google.com/console/oauth/salesforce_oauth.html" copyValue="https://vertexaisearch.cloud.google.com/console/oauth/salesforce_oauth.html" />
                             <ChecklistItem id="app_scopes" label="Scopes" subLabel="Full (full), API (api), Refresh Token (refresh_token, offline_access)" />
                             <ChecklistItem id="app_policies" label="Pre-Authorize Users" subLabel="Set 'Permitted Users' to 'Admin approved users are pre-authorized' in Policies." />
