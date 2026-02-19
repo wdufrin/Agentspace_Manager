@@ -775,6 +775,7 @@ const InnerApp: React.FC = () => {
                         <div className="space-y-4">
                             <p className="text-center text-gray-400 font-semibold border-b border-gray-700 pb-2">Option 1: Manual Token</p>
                             <p className="text-sm text-gray-500 text-center">Paste a pre-generated GCP Access Token.</p>
+                            <p className="text-xs text-gray-500 text-center">Run: <code className="bg-gray-700 px-1.5 py-0.5 rounded text-blue-300 select-all">gcloud auth print-access-token</code></p>
                             <AccessTokenInput accessToken={accessToken} setAccessToken={handleSetAccessToken} />
                         </div>
                         

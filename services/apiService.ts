@@ -478,6 +478,38 @@ export const searchDocuments = async (dataStoreName: string, config: Config, que
     return gapiRequest<{ results: { document: Document }[] }>(url, 'POST', config.projectId, undefined, body);
 };
 
+/**
+ * Searches a Data Store using the Discovery Engine Search API.
+ * Equivalent to the Python discoveryengine_v1beta.SearchServiceClient.search() method.
+ */
+export const queryDataStore = async (
+    dataStoreName: string,
+    config: Config,
+    query: string,
+    pageSize: number = 10,
+    pageToken?: string,
+    servingConfigId: string = 'default_serving_config',
+) => {
+    const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+    const url = `${baseUrl}/${DISCOVERY_API_BETA}/${dataStoreName}/servingConfigs/${servingConfigId}:search`;
+
+    const body: any = {
+        query,
+        pageSize,
+    };
+    if (pageToken) {
+        body.pageToken = pageToken;
+    }
+
+    return gapiRequest<{
+        results: { id: string; document: Document }[];
+        totalSize?: number;
+        nextPageToken?: string;
+        summary?: { summaryText?: string; summaryWithMetadata?: any };
+        queryExpansionInfo?: any;
+    }>(url, 'POST', config.projectId, undefined, body);
+};
+
 export const getDocument = async (name: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
     return gapiRequest<Document>(`${baseUrl}/${DISCOVERY_API_BETA}/${name}`, 'GET', config.projectId);
