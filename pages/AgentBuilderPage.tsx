@@ -6,6 +6,7 @@ import AgentDeploymentModal from '../components/agent-catalog/AgentDeploymentMod
 import A2aDeployModal from '../components/a2a/A2aDeployModal';
 import ProjectInput from '../components/ProjectInput';
 
+
 declare var JSZip: any;
 
 // Define types for agent config and tools
@@ -43,24 +44,16 @@ interface AdkAgentConfig {
     authId: string;
     enableDiscoveryApi: boolean;
     discoveryConfig: DiscoveryConfig;
-    enableCloudLogging: boolean;
-    enableCloudStorage: boolean;
-    enableTelemetry: boolean;
-    enableMessageLogging: boolean;
     enableBqAnalytics: boolean;
     bqDatasetId: string;
     bqTableId: string;
     enableThinking: boolean;
     thinkingBudget: number;
     enableStreaming: boolean;
-    enableMonitoring: boolean;
-    enableSecurityCenter: boolean;
-    enableRecommender: boolean;
-    enableServiceHealth: boolean;
-    enableNetworkManagement: boolean;
-    enableResourceDiscovery: boolean;
     enableBigQueryMcp: boolean;
     enableEmailTool: boolean;
+    enableTelemetry: boolean;
+    enableMessageLogging: boolean;
 }
 
 interface DiscoveryConfig {
@@ -78,7 +71,7 @@ const ADK_TABS = [
     { id: 'env', label: '.env' },
     { id: 'requirements', label: 'requirements.txt' },
     { id: 'readme', label: 'README.md' },
-    { id: 'auth_utils', label: 'auth_utils.py' },
+    { id: 'auth', label: 'auth.py' },
     { id: 'tools', label: 'tools.py' }
 ] as const;
 
@@ -467,7 +460,7 @@ echo "Your A2A function is now available at: $SERVICE_URL"
 
 // --- ADK Generators ---
 
-const generateAuthUtils = (): string => {
+const generateAuthPy = (): string => {
     return `import os
 import logging
 from typing import Optional
@@ -479,21 +472,21 @@ logger = logging.getLogger(__name__)
 def get_user_credentials(tool_context: ToolContext) -> Optional[Credentials]:
     """
     Extracts user OAuth2 credentials from the ToolContext state using the configured AUTH_ID.
-    
-    Args:
-        tool_context: The context provided by the ADK runtime.
-        
-    Returns:
-        google.oauth2.credentials.Credentials if token is found, else None.
     """
-    # Try to find credentials in context first (injected by Agent Engine)
-    auth_id = os.getenv("AUTH_ID", "temp_oauth")
+    auth_id = os.getenv("AUTH_ID")
     if auth_id and tool_context.state:
         access_token = tool_context.state.get(auth_id)
         if access_token:
             logger.info(f"Successfully retrieved access token for AUTH_ID: {auth_id}")
             return Credentials(token=access_token)
-            
+
+    # Check environment variable matching AUTH_ID (for local testing)
+    if auth_id:
+        env_token_specific = os.getenv(auth_id)
+        if env_token_specific:
+            logger.info(f"Successfully retrieved access token from environment variable: {auth_id}")
+            return Credentials(token=env_token_specific)
+
     return None
 `;
 };
@@ -505,81 +498,19 @@ import json
 import requests
 import google.auth
 import google.auth.transport.requests
+import google.oauth2.id_token
 from typing import Optional, Dict, Any, List
 from google.adk.tools import ToolContext
-from auth_utils import get_user_credentials
+from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
+
+try:
+    from auth import get_user_credentials
+except ImportError:
+    # Handle case where auth.py might not be generated or needed
+    def get_user_credentials(context): return None
 
 logger = logging.getLogger(__name__)
 `;
-
-    if (config.enableCloudLogging) {
-        code += `
-from google.cloud import logging as cloud_logging
-
-def read_recent_logs(tool_context: ToolContext, filter_str: str = "") -> str:
-    """
-    Reads the last 20 log entries from Cloud Logging.
-    
-    Args:
-        tool_context: The context provided by the ADK runtime.
-        filter_str: Optional filter string for the logs.
-    """
-    try:
-        creds = get_user_credentials(tool_context)
-        # fallback to default creds if not found (or let library handle it if None)
-        client = cloud_logging.Client(credentials=creds, project=os.environ["GOOGLE_CLOUD_PROJECT"])
-        
-        # Default simple filter if empty
-        if not filter_str:
-            filter_str = "severity>=WARNING"
-            
-        entries = client.list_entries(filter_=filter_str, page_size=20, max_results=20, order_by=cloud_logging.DESCENDING)
-        
-        logs = []
-        for entry in entries:
-            timestamp = entry.timestamp.isoformat() if entry.timestamp else "N/A"
-            payload = str(entry.payload) if entry.payload else "No Payload"
-            logs.append(f"[{timestamp}] {entry.severity}: {payload}")
-            
-        if not logs:
-            return "No logs found matching the filter."
-            
-        return "\\n".join(logs)
-    except Exception as e:
-        return f"Error reading logs: {e}"
-`;
-    }
-
-    if (config.enableCloudStorage) {
-        code += `
-from google.cloud import storage
-
-def list_gcs_buckets(tool_context: ToolContext) -> str:
-    """Lists all GCS buckets in the project."""
-    try:
-        creds = get_user_credentials(tool_context)
-        client = storage.Client(credentials=creds, project=os.environ["GOOGLE_CLOUD_PROJECT"])
-        buckets = list(client.list_buckets())
-        if not buckets:
-             return "No buckets found."
-        return "\\n".join([b.name for b in buckets])
-    except Exception as e:
-        return f"Error listing buckets: {e}"
-
-def list_gcs_objects(tool_context: ToolContext, bucket_name: str, prefix: str = "") -> str:
-    """Lists objects in a specific GCS bucket."""
-    try:
-        creds = get_user_credentials(tool_context)
-        client = storage.Client(credentials=creds, project=os.environ["GOOGLE_CLOUD_PROJECT"])
-        bucket = client.bucket(bucket_name)
-        blobs = list(client.list_blobs(bucket, prefix=prefix, max_results=50))
-        if not blobs:
-            return f"No objects found in {bucket_name} with prefix '{prefix}'."
-        return "\\n".join([b.name for b in blobs])
-    except Exception as e:
-        return f"Error listing objects: {e}"
-`;
-    }
 
     if (config.enableDiscoveryApi) {
         code += `
@@ -604,33 +535,18 @@ def query_gemini_enterprise(tool_context: ToolContext, query_text: str) -> str:
     
     url = f"https://discoveryengine.googleapis.com/v1alpha/projects/{project_id}/locations/{location}/collections/{collection}/engines/{engine_id}/assistants/default_assistant:streamAssist"
     
-    # Get credentials
-    # 1. Try User Credentials from ToolContext (Agent Engine Identity Propagation)
-    creds = get_user_credentials(tool_context)
-    
-    # 2. Fallback to Service Account / ADC
-    if not creds:
-        logger.info("No user credentials found in context. Falling back to Application Default Credentials.")
-        scopes = ["https://www.googleapis.com/auth/cloud-platform"]
-        creds, _ = google.auth.default(scopes=scopes)
+    # Try Service Account / ADC
+    scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+    creds, _ = google.auth.default(scopes=scopes)
 
-    # Refresh if needed (for ADC; User creds from context usually are simple tokens but might need refresh if expired and we have refresh token - but simple Credentials wrapping token won't refresh)
-    # Actually, Credentials(token=...) is read-only. We rely on valid token.
-    if not creds.valid and creds.refresh_token:
-        auth_req = google.auth.transport.requests.Request()
-        creds.refresh(auth_req)
-    
-    # If we still don't have a valid token (e.g. user token expired and no refresh), we might fail.
-    # But for ADC, it handles refresh.
-    
     # For now, just use the token property.
-    token = creds.token
+    token = getattr(creds, 'token', None)
     # If creds came from google.auth.default(), we definitely need to ensure it's refreshed.
     if not token:
         # Force refresh for ADC
          auth_req = google.auth.transport.requests.Request()
          creds.refresh(auth_req)
-         token = creds.token
+         token = getattr(creds, 'token', None)
     
     headers = {
         "Authorization": f"Bearer {token}",
@@ -674,13 +590,6 @@ def query_gemini_enterprise(tool_context: ToolContext, query_text: str) -> str:
                  items = [data]
             else:
                  items = data
-            
-            # DEBUG: Save response to file for inspection
-            try:
-                with open("debug_response.json", "w") as f:
-                    json.dump(items, f, indent=2)
-            except Exception as e:
-                logger.warning(f"Failed to save debug response: {e}")
 
             full_response_text = ""
             unique_sources = {} # Map URI to Title to avoid duplicates
@@ -723,7 +632,7 @@ def query_gemini_enterprise(tool_context: ToolContext, query_text: str) -> str:
                                 if "text" in content:
                                      full_response_text += content["text"]
 
-                                # Check for citations in reply item ? (Unknown, but safe to check)
+                                # Check for citations in reply item
                                 if "citations" in reply_item:
                                      for citation in reply_item["citations"]:
                                           for source in citation.get("sources", []):
@@ -740,8 +649,6 @@ def query_gemini_enterprise(tool_context: ToolContext, query_text: str) -> str:
                              title = source.get("title")
                              if uri:
                                  unique_sources[uri] = title or uri
-
-            # Format the final output with sources
 
             # Format the final output with sources
             final_output = full_response_text.strip()
@@ -766,8 +673,6 @@ def query_gemini_enterprise(tool_context: ToolContext, query_text: str) -> str:
 
     if (config.tools.some(t => t.type === 'A2AClientTool')) {
         code += `
-import google.oauth2.id_token
-
 def create_a2a_tool(url: str, tool_name: str):
     """Creates a callable function tool to interact with an A2A agent."""
     
@@ -811,347 +716,38 @@ def create_a2a_tool(url: str, tool_name: str):
 `;
     }
 
-    if (config.enableMonitoring) {
-        code += `
-from google.cloud import monitoring_v3
-import time
-
-def check_health(tool_context: ToolContext, project_id: str = None) -> str:
-    """Checks the health of applications in the GCP project by listing alert policies."""
-    try:
-        project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
-        credential = get_user_credentials(tool_context)
-        if not credential: return "Error: Authentication required."
-        client = monitoring_v3.AlertPolicyServiceClient(credentials=credential)
-        policies = client.list_alert_policies(request={"name": f"projects/{project_id}"})
-        active_policies = [f"- {p.display_name} (Enabled)" for p in policies if p.enabled]
-        return f"Alert Policies:\\n" + "\\n".join(active_policies) if active_policies else "No enabled alert policies."
-    except Exception as e:
-        return f"Error checking health: {str(e)}"
-
-def get_service_metrics(tool_context: ToolContext, service_name: str, metric_type: str = "cpu", duration_minutes: int = 60, project_id: str = None) -> str:
-    """Retrieves metrics for a specific Cloud Run service. metric_type can be cpu, memory, latency, requests."""
-    try:
-        project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
-        credential = get_user_credentials(tool_context)
-        if not credential: return "Error: Authentication required."
-        client = monitoring_v3.MetricServiceClient(credentials=credential)
-        metrics_map = {
-            "cpu": "run.googleapis.com/container/cpu/utilizations",
-            "memory": "run.googleapis.com/container/memory/utilizations",
-            "latency": "run.googleapis.com/request_latencies",
-            "requests": "run.googleapis.com/request_count"
-        }
-        if metric_type not in metrics_map: return f"Error: Unknown metric {metric_type}"
-        now = time.time()
-        interval = monitoring_v3.TimeInterval({"end_time": {"seconds": int(now)}, "start_time": {"seconds": int(now) - (duration_minutes * 60)}})
-        filter_str = f'metric.type = "{metrics_map[metric_type]}" AND resource.labels.service_name = "{service_name}"'
-        aggregation = monitoring_v3.Aggregation({
-            "alignment_period": {"seconds": duration_minutes * 60},
-            "per_series_aligner": monitoring_v3.Aggregation.Aligner.ALIGN_PERCENTILE_99 if metric_type != "requests" else monitoring_v3.Aggregation.Aligner.ALIGN_SUM,
-            "cross_series_reducer": monitoring_v3.Aggregation.Reducer.REDUCE_MEAN if metric_type != "requests" else monitoring_v3.Aggregation.Reducer.REDUCE_SUM
-        })
-        results = []
-        page_result = client.list_time_series(request={"name": f"projects/{project_id}", "filter": filter_str, "interval": interval, "aggregation": aggregation})
-        for ts in page_result:
-            for point in ts.points:
-                val = point.value
-                val_str = f"{val.double_value:.4f}" if val.double_value else f"{val.int64_value}"
-                results.append(f"Metric: {metric_type.upper()}, Value: {val_str}")
-                break
-        return f"Metrics for {service_name}:\\n" + "\\n".join(results) if results else "No data found."
-    except Exception as e:
-        return f"Error getting service metrics: {e}"
-`;
-    }
-
-    if (config.enableResourceDiscovery) {
-        code += `
-import google.cloud.run_v2 as run_v2
-import google.cloud.resourcemanager_v3 as resourcemanager_v3
-
-def resolve_project_id(tool_context: ToolContext, name_or_id: str) -> str:
-    """Resolves a Project Name or ID to a Project ID."""
-    if " " in name_or_id or any(c.isupper() for c in name_or_id):
-        try:
-            credential = get_user_credentials(tool_context)
-            if not credential: return "Error: Authentication required."
-            client = resourcemanager_v3.ProjectsClient(credentials=credential)
-            request = resourcemanager_v3.SearchProjectsRequest(query=f"lifecycleState:ACTIVE AND displayName='{name_or_id}'")
-            page_result = client.search_projects(request=request)
-            for project in page_result: return project.project_id
-            return f"Error: No project found with display name '{name_or_id}'"
-        except Exception as e: return f"Error resolving project: {str(e)}"
-    return name_or_id
-
-def list_services(tool_context: ToolContext, project_id: str = None) -> str:
-    """List Cloud Run services in the configured project across ALL regions."""
-    try:
-        project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
-        credential = get_user_credentials(tool_context)
-        if not credential: return "Error: Authentication required."
-        client = run_v2.ServicesClient(credentials=credential)
-        parent = f"projects/{project_id}/locations/-"
-        request = run_v2.ListServicesRequest(parent=parent)
-        page_result = client.list_services(request=request)
-        services = []
-        for service in page_result:
-            conditions = {c.type_: c.state for c in service.conditions}
-            succeeded = run_v2.Condition.State.CONDITION_SUCCEEDED
-            is_ready = False
-            if "Ready" in conditions: is_ready = (conditions["Ready"] == succeeded)
-            elif "RoutesReady" in conditions and "ConfigurationsReady" in conditions: is_ready = (conditions["RoutesReady"] == succeeded and conditions["ConfigurationsReady"] == succeeded)
-            status = "Ready" if is_ready else "Not Ready"
-            region = service.name.split('/')[3]
-            service_name = service.name.split('/')[-1]
-            services.append(f"- {service_name} ({region}): {status} ({service.uri})")
-        return "Cloud Run Services:\\n" + "\\n".join(services) if services else "No Cloud Run services found."
-    except Exception as e:
-        return f"Error listing Cloud Run services: {str(e)}"
-
-def list_projects(tool_context: ToolContext, filter_str: str = "lifecycleState:ACTIVE") -> str:
-    """List accessible Google Cloud projects."""
-    try:
-        credential = get_user_credentials(tool_context)
-        if not credential: return "Error: Authentication required."
-        client = resourcemanager_v3.ProjectsClient(credentials=credential)
-        request = resourcemanager_v3.SearchProjectsRequest(query=filter_str)
-        page_result = client.search_projects(request=request)
-        projects = [f"- {p.display_name} ({p.project_id})" for p in page_result]
-        return "Projects:\\n" + "\\n".join(projects) if projects else "No projects found."
-    except Exception as e:
-        return f"Error listing projects: {str(e)}"
-`;
-    }
-
-    if (config.enableSecurityCenter) {
-        code += `
-import google.cloud.securitycenter as securitycenter
-
-def list_active_findings(tool_context: ToolContext, category: str = None, project_id: str = None) -> str:
-    """Lists active, unmuted security findings for the project."""
-    try:
-        project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
-        credential = get_user_credentials(tool_context)
-        if not credential: return "Error: Authentication required."
-        client = securitycenter.SecurityCenterClient(credentials=credential)
-        source_name = f"projects/{project_id}/sources/-"
-        filter_str = 'state="ACTIVE" AND mute="UNMUTED"'
-        if category: filter_str += f' AND category="{category}"'
-        req = securitycenter.ListFindingsRequest(parent=source_name, filter=filter_str, page_size=100)
-        findings_by_category = {}
-        count = 0
-        for result in client.list_findings(request=req):
-            finding = result.finding
-            cat = finding.category
-            resource = finding.resource_name
-            severity = finding.severity.name if hasattr(finding.severity, 'name') else str(finding.severity)
-            if cat not in findings_by_category: findings_by_category[cat] = []
-            findings_by_category[cat].append(f"[{severity}] {resource}")
-            count += 1
-            if count >= 20: break
-        if count == 0: return f"No active, unmuted security findings found for project {project_id}."
-        output_lines = [f"Active Security Findings for {project_id}:"]
-        for cat, items in findings_by_category.items():
-            output_lines.append(f"\\nCategory: {cat}")
-            for item in items: output_lines.append(f"  - {item}")
-        if count >= 20: output_lines.append("\\n(Output truncated)")
-        return "\\n".join(output_lines)
-    except Exception as e:
-        if "PermissionDenied" in str(e) or "disabled" in str(e).lower():
-            return f"Unable to list findings. Security Command Center might not be active or you lack permissions for project {project_id}."
-        return f"Error fetching security findings: {str(e)}"
-`;
-    }
-
-    if (config.enableRecommender) {
-        code += `
-import google.cloud.recommender_v1 as recommender_v1
-import google.cloud.run_v2 as run_v2
-
-def list_recommendations(tool_context: ToolContext, project_id: str = None) -> str:
-    """List active recommendations for Cloud Run services, focusing on security and identity."""
-    try:
-        project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
-        credential = get_user_credentials(tool_context)
-        if not credential: return "Error: Authentication required."
-        regions = set()
-        try:
-            run_client = run_v2.ServicesClient(credentials=credential)
-            page_result = run_client.list_services(request=run_v2.ListServicesRequest(parent=f"projects/{project_id}/locations/-"))
-            for service in page_result:
-                parts = service.name.split("/")
-                if len(parts) > 3: regions.add(parts[3])
-        except Exception: pass
-        if not regions: regions.add(os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"))
-        recommender_client = recommender_v1.RecommenderClient(credentials=credential)
-        recommenders = ["google.run.service.IdentityRecommender", "google.run.service.SecurityRecommender"]
-        results = []
-        for location in regions:
-            for r_id in recommenders:
-                try:
-                    request = recommender_v1.ListRecommendationsRequest(parent=f"projects/{project_id}/locations/{location}/recommenders/{r_id}")
-                    for rec in recommender_client.list_recommendations(request=request):
-                        target_resource = "Unknown Resource"
-                        if rec.content and rec.content.overview:
-                            target_resource = rec.content.overview.get("serviceName") or rec.content.overview.get("service") or rec.content.overview.get("resourceName") or "Unknown Resource"
-                        if "/" in target_resource: target_resource = target_resource.split("/")[-1]
-                        results.append(f"- [{location}] {target_resource}: {rec.description} (Priority: {rec.priority.name})")
-                except Exception: pass
-        return "Active Cloud Run Recommendations:\\n" + "\\n".join(results) if results else "No active security or identity recommendations found for Cloud Run."
-    except Exception as e:
-        return f"Error listing recommendations: {str(e)}"
-
-def list_cost_recommendations(tool_context: ToolContext, project_id: str = None) -> str:
-    """List active cost recommendations for the project."""
-    try:
-        project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
-        location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-        zones = [f"{location}-{suffix}" for suffix in ["a", "b", "c", "f"]]
-        credential = get_user_credentials(tool_context)
-        if not credential: return "Error: Authentication required."
-        recommender_client = recommender_v1.RecommenderClient(credentials=credential)
-        recommenders = [
-            "google.compute.instance.IdleResourceRecommender", 
-            "google.compute.instance.MachineTypeRecommender",
-            "google.compute.address.IdleResourceRecommender",
-            "google.compute.disk.IdleResourceRecommender"
-        ]
-        results = []
-        total_savings = 0.0
-        currency = "USD"
-        for zone in zones:
-            for r_id in recommenders:
-                try:
-                    request = recommender_v1.ListRecommendationsRequest(parent=f"projects/{project_id}/locations/{zone}/recommenders/{r_id}")
-                    for rec in recommender_client.list_recommendations(request=request):
-                        impact = 0.0
-                        if rec.primary_impact.cost_projection.cost.units: impact += float(rec.primary_impact.cost_projection.cost.units)
-                        if rec.primary_impact.cost_projection.cost.nanos: impact += float(rec.primary_impact.cost_projection.cost.nanos) / 1e9
-                        savings = -impact if impact < 0 else 0
-                        if savings > 0:
-                            total_savings += savings
-                            if rec.primary_impact.cost_projection.cost.currency_code: currency = rec.primary_impact.cost_projection.cost.currency_code
-                        target = "Unknown"
-                        if rec.content.overview:
-                             target = rec.content.overview.get("resourceName") or rec.content.overview.get("resource") or "Unknown"
-                        if "/" in target: target = target.split("/")[-1]
-                        results.append(f"- [{zone}] {target}: {rec.description} (Est. Savings: {savings:.2f} {currency}/mo)")
-                except Exception: pass
-        if not results: return f"No active cost recommendations found in {location} zones."
-        return f"Active Cost Recommendations (Total Est. Savings: {total_savings:.2f} {currency}/mo):\\n" + "\\n".join(results)
-    except Exception as e:
-        return f"Error listing cost recommendations: {str(e)}"
-`;
-    }
-
-    if (config.enableServiceHealth) {
-        code += `
-from google.cloud import servicehealth_v1
-
-def check_service_health(tool_context: ToolContext, project_id: str = None) -> str:
-    """Checks for active Google Cloud Service Health events affecting the project."""
-    try:
-        project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
-        credential = get_user_credentials(tool_context)
-        if not credential: return "Error: Authentication required."
-        client = servicehealth_v1.ServiceHealthClient(credentials=credential)
-        parent = f"projects/{project_id}/locations/global"
-        request = servicehealth_v1.ListEventsRequest(parent=parent, filter='state="ACTIVE"')
-        results = [f"- [{e.category.name}][{e.state.name}] {e.title}: {e.description} (Updated: {e.update_time})" for e in client.list_events(request=request)]
-        return f"Active Service Health Events for {project_id}:\\n" + "\\n".join(results) if results else f"No active service health events found for project {project_id}."
-    except Exception as e:
-        return f"Error checking service health: {str(e)}"
-`;
-    }
-
-    if (config.enableNetworkManagement) {
-        code += `
-from google.cloud import network_management_v1
-
-def run_connectivity_test(tool_context: ToolContext, source_ip: str = None, source_network: str = None, destination_ip: str = None, destination_port: int = None, protocol: str = "TCP", project_id: str = None) -> str:
-    """Runs a network connectivity test."""
-    try:
-        project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
-        credential = get_user_credentials(tool_context)
-        if not credential: return "Error: Authentication required."
-        client = network_management_v1.ReachabilityServiceClient(credentials=credential)
-        parent = f"projects/{project_id}/locations/global"
-        
-        endpoint_source = network_management_v1.Endpoint()
-        if source_ip: endpoint_source.ip_address = source_ip
-        if source_network: endpoint_source.network = source_network
-        
-        endpoint_destination = network_management_v1.Endpoint()
-        if destination_ip: endpoint_destination.ip_address = destination_ip
-        if destination_port: endpoint_destination.port = destination_port
-        
-        connectivity_test = network_management_v1.ConnectivityTest(
-            source=endpoint_source,
-            destination=endpoint_destination,
-            protocol=protocol
-        )
-        
-        request = network_management_v1.CreateConnectivityTestRequest(
-            parent=parent,
-            test_id="adk-temp-test",
-            connectivity_test=connectivity_test
-        )
-        # Note: Proper implementation requires polling the LRO, skipping full implementation for brevity.
-        return "Not fully implemented in template."
-    except Exception as e:
-        return f"Error running connectivity test: {str(e)}"
-`;
-    }
-
-
-
     if (config.enableBigQueryMcp) {
         code += `
-from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
+def get_bq_mcp_toolset() -> McpToolset:
+    """
+    Returns the BigQuery MCP Toolset configured to use the Google Cloud OneMCP API via SSE.
+    Provides functions: list_dataset_ids, list_table_ids, get_dataset_info, get_table_info, execute_sql.
+    """
 
-def get_bigquery_mcp_toolset() -> McpToolset:
-    """Creates and returns the BigQuery Managed MCP toolset."""
-    connection_params = StreamableHTTPConnectionParams(
-        url="https://bigquery.googleapis.com/mcp",
-        auth_provider_type="google_credentials",
-        timeout=30.0
+    def auth_header_provider(context: Any) -> Dict[str, str]:
+        """Provider for dynamic auth headers based on context."""
+        creds = get_user_credentials(context)
+        if creds and creds.token:
+             return {"Authorization": f"Bearer {creds.token}"}
+        return {}
+
+    return McpToolset(
+        connection_params=StreamableHTTPConnectionParams(
+            url="https://bigquery.googleapis.com/mcp",
+        ),
+        tool_name_prefix="bq_",
+        header_provider=auth_header_provider
     )
-    return McpToolset(connection_params=connection_params, tool_name_prefix="bigquery_")
 `;
     }
 
     if (config.enableEmailTool) {
         code += `
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-
-def send_email(tool_context: ToolContext, recipient: str, subject: str, html_body: str) -> str:
-    """Sends an HTML email."""
-    sender_email = os.getenv("SENDER_EMAIL")
-    smtp_server = os.getenv("SMTP_SERVER")
-    smtp_port = os.getenv("SMTP_PORT", 587)
-    smtp_user = os.getenv("SMTP_USER")
-    smtp_password = os.getenv("SMTP_PASSWORD")
-
-    if not all([sender_email, smtp_server, smtp_user, smtp_password]):
-        return "Error: Email configuration missing in environment."
-
-    try:
-        message = MIMEMultipart("alternative")
-        message["Subject"] = subject
-        message["From"] = sender_email
-        message["To"] = recipient
-        message.attach(MIMEText(html_body, "html"))
-
-        with smtplib.SMTP(smtp_server, int(smtp_port)) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.sendmail(sender_email, recipient, message.as_string())
-        return "Email sent successfully."
-    except Exception as e:
-        return f"Error sending email: {str(e)}"
+def send_email(recipient: str, subject: str, body: str) -> str:
+    """Sends an email to the specified recipient."""
+    # Placeholder implementation
+    print(f"Sending email to {recipient}: {subject}")
+    return f"Email sent to {recipient}"
 `;
     }
 
@@ -1187,7 +783,7 @@ const generateAdkPythonCode = (config: AdkAgentConfig): string => {
         if (tool.type === 'VertexAiSearchTool' && tool.dataStoreId) {
             toolImports.add('from google.adk.tools import VertexAiSearchTool');
             toolInitializations.push(
-                `${tool.variableName} = VertexAiSearchTool(\n    data_store_id="${tool.dataStoreId}"\n)`
+                `${tool.variableName} = VertexAiSearchTool(\n    data_store_id="${tool.dataStoreId}",\n    bypass_multi_tools_limit=True\n)`
             );
             toolListForAgent.push(tool.variableName);
         } else if (tool.type === 'A2AClientTool' && tool.url) {
@@ -1200,7 +796,11 @@ const generateAdkPythonCode = (config: AdkAgentConfig): string => {
     });
 
     if (config.useGoogleSearch) {
-        toolImports.add('from google.adk.tools import google_search');
+        // Use class-based instantiation to bypass multi-tool limit
+        toolImports.add('from google.adk.tools import google_search_tool');
+        toolInitializations.push(
+            `google_search = google_search_tool.GoogleSearchTool(bypass_multi_tools_limit=True)`
+        );
         toolListForAgent.push('google_search');
     }
 
@@ -1220,57 +820,13 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
         toolListForAgent.push('query_gemini_enterprise');
     }
 
-    if (config.enableCloudLogging) {
-        toolsImport.add('read_recent_logs');
-        toolListForAgent.push('read_recent_logs');
-    }
 
-    if (config.enableCloudStorage) {
-        toolsImport.add('list_gcs_buckets');
-        toolsImport.add('list_gcs_objects');
-        toolListForAgent.push('list_gcs_buckets');
-        toolListForAgent.push('list_gcs_objects');
-    }
-
-    if (config.enableMonitoring) {
-        toolsImport.add('check_health');
-        toolsImport.add('get_service_metrics');
-        toolListForAgent.push('check_health', 'get_service_metrics');
-    }
-
-    if (config.enableResourceDiscovery) {
-        toolsImport.add('list_services');
-        toolsImport.add('list_projects');
-        toolsImport.add('resolve_project_id');
-        toolListForAgent.push('list_services', 'list_projects', 'resolve_project_id');
-    }
-
-    if (config.enableSecurityCenter) {
-        toolsImport.add('list_active_findings');
-        toolListForAgent.push('list_active_findings');
-    }
-
-    if (config.enableRecommender) {
-        toolsImport.add('list_recommendations');
-        toolsImport.add('list_cost_recommendations');
-        toolListForAgent.push('list_recommendations', 'list_cost_recommendations');
-    }
-
-    if (config.enableServiceHealth) {
-        toolsImport.add('check_service_health');
-        toolListForAgent.push('check_service_health');
-    }
-
-    if (config.enableNetworkManagement) {
-        toolsImport.add('run_connectivity_test');
-        toolListForAgent.push('run_connectivity_test');
-    }
 
 
 
     if (config.enableBigQueryMcp) {
-        toolsImport.add('get_bigquery_mcp_toolset');
-        toolListForAgent.push('get_bigquery_mcp_toolset()');
+        toolsImport.add('get_bq_mcp_toolset');
+        toolListForAgent.push('get_bq_mcp_toolset()');
     }
 
     if (config.enableEmailTool) {
@@ -1291,10 +847,10 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
     const imports = [
         'import os',
         'from dotenv import load_dotenv',
+        'from google.adk.agents import BaseAgent',
+        'from pydantic import PrivateAttr',
+        'from typing import Any',
         agentImport,
-        'from dotenv import load_dotenv',
-        agentImport,
-        'from vertexai.preview import reasoning_engines',
         config.enableThinking ? 'from google.adk.planners import BuiltInPlanner' : '',
         config.enableThinking ? 'from google.genai import types as genai_types' : '',
         ...Array.from(toolImports),
@@ -1303,11 +859,6 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
 
     if (toolsImport.size > 0) {
         imports.push(`from tools import ${Array.from(toolsImport).join(', ')}`);
-    }
-
-    const hasPlugins = pluginList.length > 0;
-    if (hasPlugins) {
-        imports.push(adkAppImport);
     }
 
     return `
@@ -1331,71 +882,85 @@ thinking_planner = BuiltInPlanner(
 )
 ` : ''}
 
-# Define the root agent
-root_agent = ${agentClass}(
-    name=${formatPythonString(config.name)},
-    description=${formatPythonString(config.description)},
-    model=os.getenv("MODEL", ${formatPythonString(modelName)}),
-    instruction=${formatPythonString(config.instruction)},
-    tools=[${toolListForAgent.join(', ')}],
-    ${config.enableThinking ? 'planner=thinking_planner,' : ''}
-)
 
-${hasPlugins ? `
-# Define the ADK App with plugins
-adk_app = App(
-    name=${formatPythonString(config.name)},
-    root_agent=root_agent,
-    plugins=[${pluginList.join(', ')}],
-)
-` : ''}
 
-${config.enableStreaming ? `
-# Streaming Wrapper
-from typing import Generator
+# Wrapper for Synchronous Execution (Reasoning Engine Requirement for some runtimes)
+class SyncAgentWrapper(BaseAgent):
+    """
+    Wraps an async agent (or standard agent) to provide a synchronous query interface
+    compatible with Vertex AI Reasoning Engine's strict expectations.
+    Defined here to ensure it is picklable (top-level class in agent module).
+    """
+    _lazy_agent: Any = PrivateAttr(default=None)
 
-class StreamingAgentWrapper:
-    def __init__(self, agent):
-        self.agent = agent
+    def query(self, input: str = "", message: str = "", **kwargs) -> str:
+        if self._lazy_agent is None:
+            self.set_up()
 
-    def query(self, input: str, **kwargs) -> Generator[str, None, None]:
-        # Use the underlying model's start_chat and send_message with stream=True
-        # This bypasses the agent's query/run method to force streaming from the model
-        # Note: This is a simplification. For full agent features like tool use + streaming, 
-        # one would typically need a streaming-compatible runner or updated Agent class.
-        # This wrapper assumes direct model interaction for streaming as a fallback.
-        
-        # If the agent has a model with start_chat, use it.
-        if hasattr(self.agent, 'model') and hasattr(self.agent.model, 'start_chat'):
-            chat = self.agent.model.start_chat()
-            response_stream = chat.send_message(input, stream=True, **kwargs)
-            for chunk in response_stream:
-                if chunk.text:
-                    yield chunk.text
+        # Handle both 'input' (RE) and 'message' (legacy/other)
+        prompt = input or message
+        return self._lazy_agent.query(prompt, **kwargs)
+
+    def set_up(self):
+        """
+        Called by Reasoning Engine infrastructure during initialization or lazily.
+        """
+        if self._lazy_agent is None:
+            self._lazy_agent = create_agent()
+
+    async def _run_async_impl(self, input: str = "", message: str = "", **kwargs):
+        if self._lazy_agent is None:
+            self.set_up()
+
+        prompt = input or message
+        # Delegate to the lazy agent's async implementation if available
+        if hasattr(self._lazy_agent, "run_async"):
+            async for event in self._lazy_agent.run_async(prompt, **kwargs):
+                yield event
         else:
-            # Fallback to non-streaming if model doesn't support it easily
-            yield self.agent.query(input, **kwargs)
+            # Fallback for sync-only agents
+            response = await asyncio.to_thread(self._lazy_agent.query, prompt, **kwargs)
+            yield response
 
-    def __getattr__(self, name):
-        return getattr(self.agent, name)
-` : ''}
+# Define the agent factory
+def create_agent():
+    return ${agentClass}(
+        name=${formatPythonString(config.name)},
+        description=${formatPythonString(config.description)},
+        model=os.getenv("MODEL", ${formatPythonString(modelName)}),
+        instruction=${formatPythonString(config.instruction)},
+        tools=[${toolListForAgent.join(', ')}],
+        ${config.enableThinking ? 'planner=thinking_planner,' : ''}
+    )
 
-# Define the App for Vertex AI Agent Engine
-# Note: Root agent is wrapped in AdkApp as requested.
-# If streaming is enabled, wrap the agent.
-# Note: AdkApp expects 'agent' to have a 'query' method.
-final_agent = ${config.enableStreaming ? 'StreamingAgentWrapper(root_agent)' : 'root_agent'}
-${hasPlugins ? 'final_agent = adk_app' : ''} # Plugins take precedence if wrapping agent, but typically plug-ins wrap root_agent inside AdkApp logic.
-# Actually AdkApp takes 'agent'. If we use plugins, 'adk_app' IS the app. 
-# But 'reasoning_engines.AdkApp' wraps an agent. 
-# If we have plugins, 'adk_app' is an instance of 'google.adk.apps.App'.
-# Reasoning Engine's AdkApp expects a 'google.adk.agents.Agent' or compatible.
-
-app = reasoning_engines.AdkApp(
-    agent=${hasPlugins ? 'adk_app' : 'final_agent'},
-    enable_tracing=False
-)
 `.trim();
+};
+
+
+const generateAppPy = (): string => {
+    return `
+import asyncio
+import logging
+import os
+
+try:
+    import nest_asyncio
+    nest_asyncio.apply()
+except ImportError:
+    pass
+
+from agent import SyncAgentWrapper
+
+logger = logging.getLogger(__name__)
+
+# Wrap for deployment (lazy)
+# Wrap for deployment (lazy)
+app = SyncAgentWrapper(name="lazy_app")
+`.trim();
+};
+
+const generateInitPy = (): string => {
+    return ``;
 };
 
 const generateAdkDeployScript = (config: AdkAgentConfig): string => {
@@ -1416,23 +981,24 @@ logger.info(f"Initializing Vertex AI: project={project_id}, location={location},
 vertexai.init(project=project_id, location=location, staging_bucket=staging_bucket)
 
 try:
-    import agent
-    if hasattr(agent, 'app'):
+    import app
+    if hasattr(app, 'app'):
         # If the user defined an App, use it.
-        app_obj = agent.app
-        logger.info("Imported 'app' from agent.py")
+        app_obj = app.app
+    logger.info(f"Imported 'app' from app.py. Attributes: {dir(app_obj)}")
+    if hasattr(app_obj, '_lazy_agent'):
+        logger.info(f"App has _lazy_agent. Initial state: {app_obj._lazy_agent}")
+    if hasattr(app_obj, 'agent'):
+        logger.info("WARNING: App still has 'agent' attribute!")
     else:
-        # Fallback to root_agent
-        logger.info("Imported 'root_agent' from agent.py")
-        app_obj = agent.root_agent
-        
-    logger.info("Agent imported successfully.")
+    logger.error("No 'app' variable found in app.py")
+        raise AttributeError("No 'app' variable")
 except ImportError as e:
-    logger.error(f"Failed to import agent: {e}")
+    logger.error(f"Failed to import app: {e}")
     raise
 
 # Read requirements
-reqs = ["google-cloud-aiplatform[adk,agent_engines]>=1.75.0", "google-adk>=0.1.0", "python-dotenv"]
+    reqs = ["google-cloud-aiplatform[adk,agent_engines]>=1.75.0", "google-adk>=0.1.0", "python-dotenv", "nest_asyncio"]
 if os.path.exists("requirements.txt"):
     with open("requirements.txt", "r") as f:
         for line in f:
@@ -1477,25 +1043,9 @@ if os.path.exists(".env"):
     except Exception as e:
         logger.warning(f"Failed to parse .env file: {e}")
 
-# --- CRITICAL FIX FOR Pydantic ValidationError ---
-# We check if the app_obj is already an AdkApp instance by checking key attributes or class name.
-# This prevents 'double-wrapping' which causes the 'Input should be a valid dictionary or instance of BaseAgent' error.
-is_already_adk_app = (
-    hasattr(app_obj, 'agent') or
-    hasattr(app_obj, '_agent') or
-    app_obj.__class__.__name__ == 'AdkApp'
-)
-
-if is_already_adk_app:
-     app_to_deploy = app_obj
-     logger.info(f"App is already an AdkApp instance ({type(app_obj).__name__}). Proceeding to deploy...")
-else:
-     logger.info("Wrapping agent in AdkApp for deployment...")
-     app_to_deploy = reasoning_engines.AdkApp(agent=app_obj, enable_tracing=False)
-
 logger.info("Creating Agent Engine...")
 
-# Detect extra packages (like auth_utils.py)
+# Detect extra packages
 extra_packages = []
 for f in os.listdir("."):
     if f in ["deploy_re.py", ".env", "requirements.txt", ".git", ".adk", "venv", ".venv", "__pycache__", "node_modules"]:
@@ -1522,113 +1072,83 @@ print(f"Resource Name: {remote_app.resource_name}")
 };
 
 const generateAdkEnvFile = (config: AdkAgentConfig, projectNumber: string, location: string, stagingBucket: string): string => {
-    let content = `GOOGLE_GENAI_USE_VERTEXAI=TRUE
-MODEL="${config.model}"
-GOOGLE_CLOUD_PROJECT="${projectNumber}"
-GOOGLE_CLOUD_LOCATION="${location}"
-STAGING_BUCKET="${stagingBucket || 'gs://YOUR_BUCKET_NAME'}"
-AGENT_DISPLAY_NAME="${config.name}"`;
+    let env = `GOOGLE_CLOUD_PROJECT = ${projectNumber}
+    GOOGLE_CLOUD_LOCATION = ${location}
+    STAGING_BUCKET = ${stagingBucket}`;
 
     if (config.enableOAuth && config.authId) {
-        content += `\nAUTH_ID="${config.authId}"`;
+        env += `\nAUTH_ID = ${config.authId}`;
     }
-    
-
-    
 
     if (config.enableDiscoveryApi) {
-        content += `
-DISCOVERY_ENGINE_PROJECT_ID="${config.discoveryConfig.projectId}"
-DISCOVERY_ENGINE_LOCATION="${config.discoveryConfig.location}"
-DISCOVERY_ENGINE_COLLECTION="${config.discoveryConfig.collection}"
-DISCOVERY_ENGINE_ENGINE_ID="${config.discoveryConfig.engineId}"
-DISCOVERY_ENGINE_DATA_STORE_IDS="${config.discoveryConfig.dataStoreIds}"`;
+        env += `
+
+# Discovery Engine
+    DISCOVERY_ENGINE_PROJECT_ID = ${config.discoveryConfig.projectId || projectNumber}
+    DISCOVERY_ENGINE_LOCATION = ${config.discoveryConfig.location || 'global'}
+    DISCOVERY_ENGINE_COLLECTION = ${config.discoveryConfig.collection || 'default_collection'}
+    DISCOVERY_ENGINE_ENGINE_ID = ${config.discoveryConfig.engineId || 'your-engine-id'}
+    DISCOVERY_ENGINE_DATA_STORE_IDS = ${config.discoveryConfig.dataStoreIds || ''}`;
     }
 
-    if (config.enableTelemetry) {
-        content += `\nGOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true`;
-    }
-    if (config.enableMessageLogging) {
-        content += `\nOTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`;
+    if (config.enableBigQueryMcp) {
+        env += `
+
+# BigQuery
+    BQ_USER_PROJECT = ${projectNumber}`;
     }
 
-    return content.trim();
+    return env;
 };
 
 const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
-    const requirements = new Set([
-        'google-cloud-aiplatform[adk,agent_engines]>=1.75.0', 
-        'python-dotenv',
-        'google-adk>=0.1.0'
-    ]);
-    if (config.enableOAuth || config.tools.some(t => t.type === 'A2AClientTool')) {
-        requirements.add('google-auth-oauthlib>=1.2.2');
-        requirements.add('google-api-python-client');
-        requirements.add('google-auth');
+    const defaultDeps = [
+        "google-adk>=0.1.0",
+        "google-cloud-aiplatform[adk,agent_engines]>=1.75.0",
+        "python-dotenv",
+        "nest_asyncio",
+        "google-auth",
+        "requests",
+        "google-genai",
+        "cloudpickle"
+    ];
+
+    if (config.enableOAuth) {
+        defaultDeps.push("google-auth-oauthlib>=1.2.2", "google-api-python-client");
     }
 
-    if (config.tools.some(t => t.type === 'A2AClientTool') || config.enableDiscoveryApi) {
-        requirements.add('requests');
+    if (config.enableBigQueryMcp) {
+        defaultDeps.push("google-cloud-bigquery");
     }
 
-    if (config.enableCloudLogging) {
-        requirements.add('google-cloud-logging');
-    }
-    if (config.enableCloudStorage) {
-        requirements.add('google-cloud-storage');
-    }
+    // A2A clients usually need requests or aiohttp, already got requests.
 
-    if (config.enableMonitoring) {
-        requirements.add('google-cloud-monitoring');
-    }
-    if (config.enableResourceDiscovery) {
-        requirements.add('google-cloud-run');
-        requirements.add('google-cloud-resource-manager>=1.0.0');
-    }
-    if (config.enableSecurityCenter) {
-        requirements.add('google-cloud-securitycenter');
-    }
-    if (config.enableRecommender) {
-        requirements.add('google-cloud-recommender');
-        requirements.add('google-cloud-run'); // Also uses run client
-    }
-    if (config.enableServiceHealth) {
-        requirements.add('google-cloud-servicehealth>=0.1.0');
-    }
-    if (config.enableNetworkManagement) {
-        requirements.add('google-cloud-network-management>=1.0.0');
-    }
-
-
-    return Array.from(requirements).join('\n');
+    return defaultDeps.join('\n');
 };
 
 const generateAdkReadmeFile = (config: AdkAgentConfig): string => {
-    return `
-# Agent Quickstart
+    return `# ${config.name || 'Custom Agent' }
 
-This agent was created using the Gemini Enterprise Manager Agent Builder (ADK).
+## Setup
+    1. Create a virtual environment: \`python3 -m venv venv && source venv/bin/activate\`
+2. Install dependencies: \`pip install -r requirements.txt\`
+3. Set environment variables in \`.env\`.
+
+## Files
+- \`app.py\`: The asynchronous sync wrapper and deployment entrypoint.
+- \`agent.py\`: Defines the agent instruction, model, and tool bindings.
+- \`.env\`: Local environment variables.
+- \`requirements.txt\`: Python dependencies.
+- \`auth.py\`: Common authentication utilities (if needed).
+- \`tools.py\`: Tool definitions.
+- \`__init__.py\`: Empty init file.
 
 ## Deployment
-
-1.  **Install ADK:**
-    \`\`\`sh
-    pip install "google-cloud-aiplatform[adk,agent_engines]>=1.75.0"
-    \`\`\`
-
-2.  **Install dependencies:**
-    \`\`\`sh
-    pip install -r requirements.txt
-    \`\`\`
-
-3.  **Deploy to Vertex AI:**
-    Ensure you have set \`GOOGLE_CLOUD_PROJECT\`, \`GOOGLE_CLOUD_LOCATION\`, and \`STAGING_BUCKET\` in your \`.env\` file.
-    
-    Run the deploy script:
-    \`\`\`sh
-    python deploy_re.py
-    \`\`\`
-`.trim();
+Run the deployment script to deploy the agent to Vertex AI Agent Engine:
+\`\`\`bash
+python deploy_re.py
+\`\`\`
+`;
 };
 
 
@@ -1649,11 +1169,6 @@ const GCP_LOGS_READER_TEMPLATE: AgentTemplate = {
         model: 'gemini-2.5-flash',
         instruction: 'You are a Google Cloud Logging expert. Your goal is to help users find and analyze logs from their GCP projects. You have access to tools for reading logs and searching Google. Always verify the project ID before querying.',
         useGoogleSearch: true,
-        enableOAuth: true,
-        authId: 'default',
-        enableCloudLogging: true,
-        enableTelemetry: true,
-        enableMessageLogging: true,
         tools: []
     }
 };
@@ -1683,18 +1198,7 @@ Report formatting guidelines:
 * For lists of findings or resources, use bullet points.
 * Always cite the exact project ID and environment details where you found the information.`,
         useGoogleSearch: true,
-        enableOAuth: true,
-        authId: 'default',
-        enableCloudLogging: true,
-        enableTelemetry: true,
-        enableMonitoring: true,
-        enableSecurityCenter: true,
-        enableRecommender: true,
-        enableServiceHealth: true,
-        enableNetworkManagement: true,
-        enableResourceDiscovery: true,
         enableBigQueryMcp: false,
-        enableEmailTool: false,
         tools: []
     }
 };
@@ -1721,18 +1225,7 @@ Report formatting guidelines:
 * Always explain your SQL logic briefly.
 * Present query results in clear markdown tables if possible.`,
         useGoogleSearch: true,
-        enableOAuth: true,
-        authId: 'default',
-        enableCloudLogging: true,
-        enableTelemetry: true,
-        enableMonitoring: false,
-        enableSecurityCenter: false,
-        enableRecommender: false,
-        enableServiceHealth: false,
-        enableNetworkManagement: false,
-        enableResourceDiscovery: false,
         enableBigQueryMcp: true,
-        enableEmailTool: false,
         tools: []
     }
 };
@@ -1747,7 +1240,7 @@ interface AgentBuilderPageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
   context?: any;
-  onBuildTriggered?: (buildId: string) => void;
+    onBuildTriggered?: (buildId: string, projectId?: string) => void;
 }
 
 const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setProjectNumber, context, onBuildTriggered }) => {
@@ -1793,7 +1286,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         tools: [],
         useGoogleSearch: false,
         enableOAuth: false,
-        authId: '',
+        authId: 'temp_oauth',
         enableDiscoveryApi: false,
         discoveryConfig: {
             projectId: '',
@@ -1802,28 +1295,20 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
             engineId: '',
             dataStoreIds: ''
         },
-        enableCloudLogging: false,
-        enableCloudStorage: false,
-        enableTelemetry: false,
-        enableMessageLogging: false,
         enableBqAnalytics: false,
         bqDatasetId: '',
         bqTableId: '',
         enableThinking: false,
         thinkingBudget: 1024,
         enableStreaming: false,
-        enableMonitoring: false,
-        enableSecurityCenter: false,
-        enableRecommender: false,
-        enableServiceHealth: false,
-        enableNetworkManagement: false,
-        enableResourceDiscovery: false,
         enableBigQueryMcp: false,
-        enableEmailTool: false
+        enableEmailTool: false,
+        enableTelemetry: true,
+        enableMessageLogging: false
     });
     const [vertexLocation, setVertexLocation] = useState('us-central1');
-    const [adkGeneratedCode, setAdkGeneratedCode] = useState({ agent: '', env: '', requirements: '', readme: '', deploy_re: '', auth_utils: '', tools: '' });
-    const [adkActiveTab, setAdkActiveTab] = useState<'agent' | 'env' | 'requirements' | 'readme' | 'deploy_re' | 'auth_utils' | 'tools'>('agent');
+    const [adkGeneratedCode, setAdkGeneratedCode] = useState({ app: '', agent: '', env: '', requirements: '', readme: '', deploy_re: '', auth: '', tools: '', init: '' });
+    const [adkActiveTab, setAdkActiveTab] = useState<'app' | 'agent' | 'env' | 'requirements' | 'readme' | 'deploy_re' | 'auth' | 'tools' | 'init'>('app');
     const [adkCopySuccess, setAdkCopySuccess] = useState('');
 
     // Discovery Engine State
@@ -1900,6 +1385,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     const [isAdkDeployModalOpen, setIsAdkDeployModalOpen] = useState(false);
     const [rewritingField, setRewritingField] = useState<string | null>(null);
 
+    // Deployment Progress State
+    const [buildId, setBuildId] = useState<string | null>(null);
+    const [isBuildVisible, setIsBuildVisible] = useState(false);
+
 
     
     // --- Common Logic ---
@@ -1963,9 +1452,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         const reqsCode = generateAdkRequirementsFile(adkConfig);
         const readmeCode = generateAdkReadmeFile(adkConfig);
         const deployCode = generateAdkDeployScript(adkConfig);
-        const authUtilsCode = generateAuthUtils();
+        const authCode = generateAuthPy();
         const toolsCode = generateToolsPy(adkConfig);
-        setAdkGeneratedCode({ agent: agentCode, env: envCode, requirements: reqsCode, readme: readmeCode, deploy_re: deployCode, auth_utils: authUtilsCode, tools: toolsCode });
+        const initCode = generateInitPy();
+        setAdkGeneratedCode({ app: generateAppPy(), agent: agentCode, env: envCode, requirements: reqsCode, readme: readmeCode, deploy_re: deployCode, auth: authCode, tools: toolsCode, init: initCode });
     }, [adkConfig, projectNumber, vertexLocation, stagingBucket]);
 
     // ADK Data Store & Buckets Fetching
@@ -2035,7 +1525,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
           try {
               // We need to resolve the project string first if currently a number, 
               // but here we just try api.listBuckets which likely expects an ID string or number.
-              // If projectNumber is actually a number, listBuckets usually works if valid.
               // Best effort:
               const b = await api.listBuckets(projectNumber);
               const items = b.items || [];
@@ -2081,7 +1570,18 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                 }
             }));
         } else if (type === 'checkbox') {
-             setAdkConfig(prev => ({...prev, [name]: (e.target as HTMLInputElement).checked }));
+            const isChecked = (e.target as HTMLInputElement).checked;
+
+            // Link BigQuery MCP to OAuth
+            if (name === 'enableBigQueryMcp' && isChecked) {
+                setAdkConfig(prev => ({
+                    ...prev,
+                    [name]: isChecked,
+                    enableOAuth: true
+                }));
+            } else {
+                setAdkConfig(prev => ({ ...prev, [name]: isChecked }));
+            }
         } else if (name === 'name') {
              const sanitizedValue = value.replace(/\s+/g, '_');
              setAdkConfig(prev => ({...prev, [name]: sanitizedValue }));
@@ -2157,36 +1657,39 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         URL.revokeObjectURL(url);
     };
 
-    const handleDownloadAdk = async () => {
+    const handleDownloadAdkZip = () => {
         const zip = new JSZip();
-        zip.file('agent.py', adkGeneratedCode.agent);
-        zip.file('.env', adkGeneratedCode.env);
-        zip.file('requirements.txt', adkGeneratedCode.requirements);
-        zip.file('README.md', adkGeneratedCode.readme);
-        zip.file('deploy_re.py', adkGeneratedCode.deploy_re);
-        if (adkConfig.enableOAuth) {
-            zip.file('auth_utils.py', adkGeneratedCode.auth_utils);
-        }
-        zip.file('tools.py', adkGeneratedCode.tools);
-        const blob = await zip.generateAsync({ type: 'blob' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${adkConfig.name || 'agent'}-source.zip`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        zip.file("app.py", adkGeneratedCode.app);
+        zip.file("agent.py", adkGeneratedCode.agent);
+        zip.file(".env", adkGeneratedCode.env);
+        zip.file("requirements.txt", adkGeneratedCode.requirements);
+        zip.file("auth.py", adkGeneratedCode.auth);
+        zip.file("tools.py", adkGeneratedCode.tools);
+        zip.file("__init__.py", adkGeneratedCode.init);
+        zip.file("deploy_re.py", generateAdkDeployScript(adkConfig));
+        zip.file("README.md", generateAdkReadmeFile(adkConfig));
+
+        zip.generateAsync({ type: "blob" })
+            .then(function (content) {
+                const url = URL.createObjectURL(content);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${adkConfig.name || 'adk_agent'}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
     };
 
     const adkCodeDisplay = { 
+        app: adkGeneratedCode.app,
         agent: adkGeneratedCode.agent, 
         env: adkGeneratedCode.env, 
         requirements: adkGeneratedCode.requirements, 
-        readme: adkGeneratedCode.readme,
-        deploy_re: adkGeneratedCode.deploy_re,
-        auth_utils: adkGeneratedCode.auth_utils,
-        tools: adkGeneratedCode.tools
+        auth: adkGeneratedCode.auth,
+        tools: adkGeneratedCode.tools,
+        init: adkGeneratedCode.init
     }[adkActiveTab];
 
     const a2aCodeDisplay = { 
@@ -2197,17 +1700,14 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     }[a2aActiveTab];
 
     const adkFilesForBuild = [
+        { name: 'app.py', content: adkGeneratedCode.app },
         { name: 'agent.py', content: adkGeneratedCode.agent },
         { name: '.env', content: adkGeneratedCode.env },
         { name: 'requirements.txt', content: adkGeneratedCode.requirements },
-        { name: 'README.md', content: adkGeneratedCode.readme },
-        { name: 'deploy_re.py', content: adkGeneratedCode.deploy_re },
-        { name: 'tools.py', content: adkGeneratedCode.tools }
+        { name: 'auth.py', content: adkGeneratedCode.auth },
+        { name: 'tools.py', content: adkGeneratedCode.tools },
+        { name: '__init__.py', content: adkGeneratedCode.init }
     ];
-
-    if (adkConfig.enableOAuth) {
-        adkFilesForBuild.push({ name: 'auth_utils.py', content: adkGeneratedCode.auth_utils });
-    }
 
     const a2aFilesForBuild = [
         { name: 'main.py', content: a2aGeneratedCode.main },
@@ -2218,10 +1718,80 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     ];
 
     const handleBuildTriggered = (id: string) => {
-        if (onBuildTriggered) onBuildTriggered(id);
+        // Use Global Handler
+        const pid = deployProjectId || projectNumber;
+        if (onBuildTriggered) onBuildTriggered(id, pid);
+
         setIsA2aDeployModalOpen(false);
         setIsAdkDeployModalOpen(false);
     };
+
+    const handleCheckBuildStatus = async () => {
+        if (!deployProjectId && !projectNumber) {
+            alert("Project ID not set.");
+            return;
+        }
+        const pid = deployProjectId || projectNumber;
+        let foundAny = false;
+
+        try {
+            // Check for running builds first
+            const running = await api.listCloudBuilds(pid, 'status="WORKING"');
+            if (running.builds && running.builds.length > 0) {
+                console.log(`handleCheckBuildStatus: FOUND ${running.builds.length} WORKING builds`);
+                running.builds.forEach((b: any) => {
+                    if (onBuildTriggered) onBuildTriggered(b.id, pid);
+                });
+                foundAny = true;
+            }
+
+            // Check for queued builds
+            const queued = await api.listCloudBuilds(pid, 'status="QUEUED"');
+            if (queued.builds && queued.builds.length > 0) {
+                console.log(`handleCheckBuildStatus: FOUND ${queued.builds.length} QUEUED builds`);
+                queued.builds.forEach((b: any) => {
+                    if (onBuildTriggered) onBuildTriggered(b.id, pid);
+                });
+                foundAny = true;
+            }
+
+            // Fallback: Fetch latest if nothing active found yet
+            if (!foundAny) {
+                console.log("No active (WORKING/QUEUED) builds. Fetching recent history...");
+                const recent = await api.listCloudBuilds(pid);
+                const build = recent.builds?.[0];
+
+                if (build) {
+                    console.log("handleCheckBuildStatus: FOUND recent build:", build.id, build.status);
+                    if (onBuildTriggered) onBuildTriggered(build.id, pid);
+                    foundAny = true;
+                }
+            }
+
+            if (!foundAny) {
+                alert("No active or queued builds found.");
+            }
+        } catch (e: any) {
+            alert(`Failed to check builds: ${e.message}`);
+        }
+    };
+
+    const ADK_TABS = [
+        { id: 'app', label: 'app.py' },
+        { id: 'agent', label: 'agent.py' },
+        { id: 'env', label: '.env' },
+        { id: 'requirements', label: 'requirements.txt' },
+        { id: 'auth', label: 'auth.py' },
+        { id: 'tools', label: 'tools.py' },
+        { id: 'init', label: '__init__.py' },
+    ];
+
+    const A2A_TABS = [
+        { id: 'main', label: 'main.py' },
+        { id: 'dockerfile', label: 'Dockerfile' },
+        { id: 'requirements', label: 'requirements.txt' },
+        { id: 'env', label: 'env.yaml' },
+    ];
 
     return (
         <div className="space-y-6 flex flex-col lg:h-full">
@@ -2231,6 +1801,14 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                     <button onClick={() => setBuilderTab('adk')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${builderTab === 'adk' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>ADK Agent (Engine)</button>
                     <button onClick={() => setBuilderTab('a2a')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${builderTab === 'a2a' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>A2A Function (Cloud Run)</button>
                 </div>
+
+                <button
+                    onClick={handleCheckBuildStatus}
+                    className="ml-4 px-3 py-1 bg-gray-700 hover:bg-gray-600 text-xs text-gray-300 rounded border border-gray-600"
+                    title="Check for active builds if status window is missing"
+                >
+                    Check Build Status
+                </button>
             </div>
             
             {/* Deploy Modals */}
@@ -2346,19 +1924,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                 </div>
                                 <div className="space-y-2 pt-2 border-t border-gray-600">
                                     <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="useGoogleSearch" checked={adkConfig.useGoogleSearch} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable Google Search Tool</span></label>
-                                    <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="enableOAuth" checked={adkConfig.enableOAuth} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable OAuth (For Reference)</span></label>
-                                    {adkConfig.enableOAuth && (
-                                        <div className="pl-7 space-y-2">
-                                            <input type="text" name="authId" value={adkConfig.authId} onChange={handleAdkConfigChange} placeholder="Authorization Resource ID" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" />
-
-
-                                            <label className="flex items-center space-x-3 cursor-pointer mt-2">
-                                                <input type="checkbox" name="enableDiscoveryApi" checked={adkConfig.enableDiscoveryApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" disabled />
-                                                <span className="text-sm text-gray-500 line-through">Enable Discovery Engine API (Disabled)</span>
-                                            </label>
-
-                                        </div>
-                                    )}
 
                                             <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
                                         <h4 className="text-xs font-semibold text-gray-400">Agent Capabilities</h4>
@@ -2388,41 +1953,27 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                     </div>
 
                                     <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
-                                        <h4 className="text-xs font-semibold text-gray-400">GCP Integrations (Tools)</h4>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableMonitoring" checked={adkConfig.enableMonitoring} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Cloud Monitoring & Metrics</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableResourceDiscovery" checked={adkConfig.enableResourceDiscovery} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Resource Discovery (Projects, Cloud Run)</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableSecurityCenter" checked={adkConfig.enableSecurityCenter} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Security Command Center Findings</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableRecommender" checked={adkConfig.enableRecommender} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Recommender (Security, Identity, Cost)</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableServiceHealth" checked={adkConfig.enableServiceHealth} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Google Cloud Service Health Events</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableNetworkManagement" checked={adkConfig.enableNetworkManagement} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Network Connectivity Tests</span>
-                                        </label>
-
+                                        <h4 className="text-xs font-semibold text-gray-400">Integrations (Tools)</h4>
                                         <label className="flex items-center space-x-3 cursor-pointer">
                                             <input type="checkbox" name="enableBigQueryMcp" checked={adkConfig.enableBigQueryMcp} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
                                             <span className="text-sm text-gray-300">BigQuery Managed MCP</span>
                                         </label>
-
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableEmailTool" checked={adkConfig.enableEmailTool} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Email Notifications (SMTP)</span>
-                                        </label>
+                                        <div className="flex items-center space-x-3 mt-2">
+                                            <label className="flex items-center space-x-3 cursor-pointer">
+                                                <input type="checkbox" name="enableOAuth" checked={adkConfig.enableOAuth} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                                <span className="text-sm text-gray-300">Enable OAuth Flow</span>
+                                            </label>
+                                            {adkConfig.enableOAuth && (
+                                                <input
+                                                    type="text"
+                                                    name="authId"
+                                                    value={adkConfig.authId}
+                                                    onChange={handleAdkConfigChange}
+                                                    placeholder="Auth ID (e.g. bqtest)"
+                                                    className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-32"
+                                                />
+                                            )}
+                                        </div>
                                     </div>
 
                                     <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
@@ -2488,8 +2039,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                             className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full placeholder-gray-400 focus:outline-none focus:border-blue-500"
                                         />
                                         <div className="flex gap-2">
-                                            <select 
-                                                value={toolBuilderConfig.dataStoreId} 
+                                            <select
+                                                value={toolBuilderConfig.dataStoreId}
                                                 onChange={(e) => setToolBuilderConfig({...toolBuilderConfig, dataStoreId: e.target.value})}
                                                 className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full"
                                                 disabled={isLoadingDataStores}
@@ -2503,7 +2054,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                                     })
                                                 }
                                             </select>
-                                            <button 
+                                            <button
                                                 onClick={() => handleAddTool({ type: 'VertexAiSearchTool', dataStoreId: toolBuilderConfig.dataStoreId, variableName: `search_tool_${(builderTab === 'a2a' ? a2aConfig.tools : adkConfig.tools).length + 1}` })}
                                                 disabled={!toolBuilderConfig.dataStoreId}
                                                 className="px-2 py-1 bg-teal-600 text-white text-xs rounded hover:bg-teal-700 disabled:opacity-50"
@@ -2524,8 +2075,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                             className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full placeholder-gray-400 focus:outline-none focus:border-blue-500"
                                         />
                                         <div className="flex gap-2">
-                                            <select 
-                                                value={selectedA2aService} 
+                                            <select
+                                                value={selectedA2aService}
                                                 onChange={(e) => setSelectedA2aService(e.target.value)}
                                                 className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full"
                                                 disabled={isLoadingServices}
@@ -2578,7 +2129,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                         <h2 className="text-lg font-semibold text-white mb-3 shrink-0">2. Generated Source Code</h2>
                         <div className="flex justify-between items-center mb-2 shrink-0">
                             <div className="flex border-b border-gray-700">
-                                {(builderTab === 'adk' ? ADK_TABS.filter(t => t.id !== 'auth_utils' || adkConfig.enableOAuth) : A2A_TABS).map(tab => (
+                                {(builderTab === 'adk' ? ADK_TABS.filter(t => t.id !== 'auth' || adkConfig.enableOAuth) : A2A_TABS).map(tab => (
                                     <button 
                                         key={tab.id} 
                                         onClick={() => builderTab === 'adk' ? setAdkActiveTab(tab.id as any) : setA2aActiveTab(tab.id as any)} 
@@ -2621,7 +2172,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                         {builderTab === 'adk' ? 'Option B: Manual Deployment (README)' : 'Option B: Manual Deployment (CLI Script)'}
                                     </h3>
                                     <div className="flex gap-2">
-                                        <button onClick={builderTab === 'adk' ? handleDownloadAdk : handleDownloadA2a} className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500">Download .zip</button>
+                                        <button onClick={builderTab === 'adk' ? handleDownloadAdkZip : handleDownloadA2a} className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500">Download .zip</button>
                                         <button 
                                             onClick={() => handleCopy(builderTab === 'adk' ? adkGeneratedCode.readme : a2aGeneratedCode.gcloud, builderTab === 'adk' ? setAdkCopySuccess : setA2aCopySuccess)} 
                                             className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500"
@@ -2630,14 +2181,16 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                         </button>
                                     </div>
                                 </div>
-                                <div className="bg-black rounded-md overflow-y-auto flex-1 min-h-0 border border-gray-800">
-                                    <pre className="p-3 text-xs text-gray-300 whitespace-pre-wrap font-mono"><code>{builderTab === 'adk' ? adkGeneratedCode.readme : a2aGeneratedCode.gcloud}</code></pre>
+                                <div className="bg-black rounded-md flex-1 min-h-0 border border-gray-800 flex items-center justify-center p-4">
+                                    <p className="text-sm text-gray-400 text-center">Export as .zip for manual inspection or deployment.</p>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
+
+
         </div>
     );
 };

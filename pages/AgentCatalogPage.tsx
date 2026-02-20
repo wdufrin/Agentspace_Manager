@@ -10,7 +10,7 @@ interface AgentCatalogPageProps {
   projectNumber: string;
   setProjectNumber: (projectNumber: string) => void;
   accessToken: string;
-  onBuildTriggered: (buildId: string) => void;
+    onBuildTriggered: (buildId: string, projectId?: string) => void;
 }
 
 interface GitAgentDir {
@@ -179,8 +179,8 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
   const [selectedGitAgentName, setSelectedGitAgentName] = useState<string>('');
   const [selectedGitFiles, setSelectedGitFiles] = useState<{name: string, content: string}[]>([]);
 
-  const handleBuildTriggered = (buildId: string) => {
-      onBuildTriggered(buildId); // Notify parent
+    const handleBuildTriggered = (buildId: string, projectId?: string) => {
+        onBuildTriggered(buildId, projectId); // Notify parent
       setIsDeployModalOpen(false); // Close modal
   };
 
@@ -362,7 +362,7 @@ const AgentCatalogPage: React.FC<AgentCatalogPageProps> = ({ projectNumber, setP
                 agentName={selectedGitAgentName}
                 files={selectedGitFiles}
                 projectNumber={projectNumber}
-                onBuildTriggered={handleBuildTriggered}
+                  onBuildTriggered={(buildId) => handleBuildTriggered(buildId, projectNumber)}
             />
         )}
 

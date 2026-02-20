@@ -7,7 +7,7 @@ import StepConfig from '../components/agent-starter-pack/StepConfig';
 import StepAdvanced from '../components/agent-starter-pack/StepAdvanced';
 import StepDeploy from '../components/agent-starter-pack/StepDeploy';
 import StepCustomize from '../components/agent-starter-pack/StepCustomize';
-import CloudBuildProgress from '../components/agent-builder/CloudBuildProgress';
+
 import { SampleService, SampleAgent, SampleFile } from '../services/sampleService';
 
 export interface Template {
@@ -87,13 +87,13 @@ const MODEL_OPTIONS = ['Gemini 2.5 Flash', 'Gemini 2.5 Pro'];
 interface AgentStarterPackPageProps {
     projectNumber: string;
     accessToken: string;
-    onBuildTriggered: (buildId: string) => void;
+    onBuildTriggered: (buildId: string, projectId?: string) => void;
 }
 
 const AgentStarterPackPage: React.FC<AgentStarterPackPageProps> = ({ projectNumber, accessToken, onBuildTriggered }) => {
     // --- State ---
     const [currentStep, setCurrentStep] = useState(1);
-    const [activeBuildId, setActiveBuildId] = useState<string | null>(null);
+    // const [activeBuildId, setActiveBuildId] = useState<string | null>(null); // REMOVED
 
     // Step 1: Template / Sample
     const [sourceType, setSourceType] = useState<'template' | 'sample'>('template');
@@ -385,8 +385,8 @@ jobs:
             const buildId = buildOp.metadata?.build?.id;
 
             if (buildId) {
-                setActiveBuildId(buildId);
-                onBuildTriggered(buildId);
+                // setActiveBuildId(buildId); // REMOVED
+                onBuildTriggered(buildId, projectId);
             } else {
                 alert('Build triggered but ID missing.');
             }
@@ -509,14 +509,6 @@ jobs:
 
     return (
         <div className="h-full flex flex-col p-6 max-w-7xl mx-auto w-full relative">
-            {activeBuildId && (
-                <CloudBuildProgress
-                    projectId={projectId}
-                    buildId={activeBuildId}
-                    onClose={() => setActiveBuildId(null)}
-                />
-            )}
-
             {/* Header */}
             <div className="mb-8">
                 <h1 className="text-3xl font-bold text-white mb-2">Agent Starter Pack</h1>

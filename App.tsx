@@ -92,14 +92,19 @@ const InnerApp: React.FC = () => {
   const [architectureError, setArchitectureError] = useState<string | null>(null);
 
   // Global State for Cloud Build Progress
-  const [activeBuilds, setActiveBuilds] = useState<string[]>([]);
+    const [activeBuilds, setActiveBuilds] = useState<{ id: string, projectId: string }[]>([]);
 
-  const handleBuildTriggered = (buildId: string) => {
-      setActiveBuilds(prev => [...prev, buildId]);
+    const handleBuildTriggered = (buildId: string, buildProjectId?: string) => {
+        const pid = buildProjectId || projectNumber || projectId; // Fallback to global context
+        setActiveBuilds(prev => {
+            // Deduplicate
+            if (prev.some(b => b.id === buildId)) return prev;
+            return [...prev, { id: buildId, projectId: pid }];
+        });
   };
 
   const handleRemoveBuild = (buildId: string) => {
-      setActiveBuilds(prev => prev.filter(id => id !== buildId));
+      setActiveBuilds(prev => prev.filter(b => b.id !== buildId));
   };
 
 
@@ -637,7 +642,7 @@ const InnerApp: React.FC = () => {
       case Page.AGENT_BUILDER:
         return <AgentBuilderPage {...projectProps} context={pageContext} onBuildTriggered={handleBuildTriggered} />;
       case Page.AGENT_CATALOG:
-        return <AgentCatalogPage {...projectProps} accessToken={accessToken} onBuildTriggered={handleBuildTriggered} />;
+            return <AgentCatalogPage {...projectProps} accessToken={accessToken} onBuildTriggered={(id) => handleBuildTriggered(id, projectNumber)} />;
         case Page.AGENT_STARTER_PACK:
             return <AgentStarterPackPage {...projectProps} onBuildTriggered={handleBuildTriggered} />;
       case Page.CLOUD_RUN_AGENTS:
@@ -897,12 +902,12 @@ const InnerApp: React.FC = () => {
       
       {/* Global Build Progress Indicators */}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 items-end">
-          {activeBuilds.map(id => (
+              {activeBuilds.map(build => (
               <CloudBuildProgress 
-                  key={id} 
-                  projectId={projectNumber} 
-                  buildId={id} 
-                  onClose={() => handleRemoveBuild(id)} 
+                  key={build.id}
+                  projectId={build.projectId}
+                  buildId={build.id}
+                  onClose={() => handleRemoveBuild(build.id)} 
               />
           ))}
       </div>

@@ -113,12 +113,21 @@ const AgentDeploymentModal: React.FC<AgentDeploymentModalProps> = ({ isOpen, onC
         
         // Detect Main File and Entry Point (Recursive Search)
         let mainFileContent = '';
-        let detectedFile = files.find(f => f.name === 'agent.py' || f.name.endsWith('/agent.py'));
+
+        // Priority 1: app.py (Standard ADK Entry Point)
+        let detectedFile = files.find(f => f.name === 'app.py' || f.name.endsWith('/app.py'));
+
+        // Priority 2: agent.py
+        if (!detectedFile) {
+            detectedFile = files.find(f => f.name === 'agent.py' || f.name.endsWith('/agent.py'));
+        }
         
+        // Priority 3: main.py
         if (!detectedFile) {
             detectedFile = files.find(f => f.name === 'main.py' || f.name.endsWith('/main.py'));
         }
 
+        // Priority 4: Search content
         if (!detectedFile) {
             detectedFile = files.find(f => f.name.endsWith('.py') && 
                (f.content.includes('AdkApp(') || f.content.includes('ReasoningEngine.create(') || f.content.includes('Agent(') || f.content.includes('to_a2a(')));

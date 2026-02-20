@@ -916,6 +916,14 @@ export const createCloudBuild = async (projectId: string, buildConfig: any) => {
     return gapiRequest<any>(`https://cloudbuild.googleapis.com/v1/projects/${projectId}/builds`, 'POST', projectId, undefined, buildConfig);
 };
 
+export const listCloudBuilds = async (projectId: string, filter?: string) => {
+    let url = `https://cloudbuild.googleapis.com/v1/projects/${projectId}/builds`;
+    if (filter) {
+        url += `?filter=${encodeURIComponent(filter)}`;
+    }
+    return gapiRequest<any>(url, 'GET', projectId);
+};
+
 export const getCloudBuild = async (projectId: string, buildId: string) => {
     return gapiRequest<any>(`https://cloudbuild.googleapis.com/v1/projects/${projectId}/builds/${buildId}`, 'GET', projectId);
 };
