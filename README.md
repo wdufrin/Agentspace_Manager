@@ -22,8 +22,12 @@ It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates dir
 
 ### 🛠️ Builder & Catalog
 *   **Agent Builder**: A low-code tool to generate and deploy agents.
+    *   **Quick Start Templates**: Deploy pre-built templates like the `GCP Health Monitoring Agent` or `GCP Logs Reader`.
     *   **ADK Agents**: Generates Python code (`agent.py`, `requirements.txt`) for Vertex AI Agent Engines.
-        *   Supports **Google Search**, **Data Store**, **OAuth**, and **BigQuery** tools.
+        *   Supports **Google Search**, **Data Store**, **OAuth**, and **BigQuery**.
+        *   **GCP Integrations**: Built-in specialized tools for **Security Command Center**, **Recommender**, **Service Health**, and **Network Management**.
+        *   **Capabilities**: Includes utilities like rich HTML **Email Sending** via the Gmail API.
+        *   **MCP Support**: Native toggles for enabling Cloud Logging, Cloud Monitoring, and other Google-managed MCP servers.
     *   **Cloud Build Integration**: One-click deployment to Google Cloud.
 *   **Agent Catalog**: Browse sample agents from GitHub repositories and deploy them directly to your project.
 
