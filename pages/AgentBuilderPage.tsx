@@ -833,11 +833,56 @@ def get_${name}_mcp_toolset() -> McpToolset:
 
     if (config.enableEmailTool) {
         code += `
-def send_email(recipient: str, subject: str, body: str) -> str:
-    """Sends an email to the specified recipient."""
-    # Placeholder implementation
-    print(f"Sending email to {recipient}: {subject}")
-    return f"Email sent to {recipient}"
+import base64
+from email.message import EmailMessage
+import markdown
+import traceback
+from googleapiclient.discovery import build
+import sys
+
+def send_email(tool_context: ToolContext, to: str, subject: str, body: str) -> str:
+    """
+    Sends a rich HTML email using the user's Gmail account.
+    """
+    try:
+        credentials = get_user_credentials(tool_context)
+        if not credentials:
+            return "Error: Authentication required."
+
+        message = EmailMessage()
+        message['To'] = to
+        message['Subject'] = subject
+        message.set_content("This email contains HTML content. Please view it in a compatible client.\\n\\n" + body)
+
+        html_body = markdown.markdown(body, extensions=['extra'])
+        html_template = f"""
+        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f9f9f9; padding: 20px;">
+            <div style="max-width: 800px; margin: 0 auto; background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <style>
+                    table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
+                    th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }}
+                    th {{ background-color: #f8f9fa; font-weight: 600; color: #444; }}
+                    tr:hover {{ background-color: #f5f5f5; }}
+                    code {{ background-color: #f1f1f1; padding: 2px 5px; border-radius: 3px; font-family: 'Consolas', monospace; }}
+                </style>
+                {html_body}
+                <div style="margin-top: 30px; font-size: 12px; color: #888; text-align: center; border-top: 1px solid #eee; padding-top: 10px;">
+                    Sent by GCP Health Agent
+                </div>
+            </div>
+        </div>
+        """
+        message.add_alternative(html_template, subtype='html')
+
+        encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        service = build('gmail', 'v1', credentials=credentials)
+        res = service.users().messages().send(userId="me", body={'raw': encoded_message}).execute()
+        return f"Email sent successfully. Message Id: {res['id']}"
+
+    except Exception as e:
+        print(f"DEBUG_EMAIL_ERROR: {str(e)}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return f"Error sending email: {type(e).__name__}: {str(e)}"
 `;
     }
 
@@ -1170,6 +1215,7 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
         agentImport,
         config.enableThinking ? 'from google.adk.planners import BuiltInPlanner' : '',
         config.enableThinking ? 'from google.genai import types as genai_types' : '',
+        config.enableEmailTool ? 'from google.adk.types import Manifest' : '',
         ...Array.from(toolImports),
         ...Array.from(pluginsImports),
     ].filter(Boolean);
@@ -1196,6 +1242,16 @@ thinking_planner = BuiltInPlanner(
         include_thoughts=True,
         thinking_budget=${config.thinkingBudget},
     )
+)
+` : ''}
+
+${config.enableEmailTool ? `
+# Define Email Manifest with Gmail Scopes
+email_manifest = Manifest(
+    oauth_scopes=[
+        "https://www.googleapis.com/auth/cloud-platform",
+        "https://www.googleapis.com/auth/gmail.send"
+    ]
 )
 ` : ''}
 
@@ -1248,6 +1304,7 @@ def create_agent():
         instruction=${formatPythonString(config.instruction)},
         tools=[${toolListForAgent.join(', ')}],
         ${config.enableThinking ? 'planner=thinking_planner,' : ''}
+        ${config.enableEmailTool ? 'manifest=email_manifest,' : ''}
     )
 
 `.trim();
@@ -1454,6 +1511,10 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
         defaultDeps.push("google-cloud-network-management");
     }
 
+    if (config.enableEmailTool) {
+        defaultDeps.push("markdown");
+    }
+
     // A2A clients usually need requests or aiohttp, already got requests.
 
     return defaultDeps.join('\n');
@@ -1541,6 +1602,7 @@ Report formatting guidelines:
         enableCloudMonitoringMcp: true,
         enableResourceManagerMcp: true,
         enableOAuth: true,
+        enableEmailTool: true,
         tools: []
     }
 };
@@ -2399,6 +2461,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                         <label className="flex items-center space-x-3 cursor-pointer">
                                             <input type="checkbox" name="enableNetworkManagementApi" checked={adkConfig.enableNetworkManagementApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
                                             <span className="text-sm text-gray-300">Enable Network Management Tool</span>
+                                        </label>
+
+                                        <label className="flex items-center space-x-3 cursor-pointer">
+                                            <input type="checkbox" name="enableEmailTool" checked={adkConfig.enableEmailTool} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Email Sending Tool</span>
                                         </label>
 
                                         <div className="flex items-center space-x-3 mt-2">
