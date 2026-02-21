@@ -1215,7 +1215,6 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
         agentImport,
         config.enableThinking ? 'from google.adk.planners import BuiltInPlanner' : '',
         config.enableThinking ? 'from google.genai import types as genai_types' : '',
-        config.enableEmailTool ? 'from google.adk.types import Manifest' : '',
         ...Array.from(toolImports),
         ...Array.from(pluginsImports),
     ].filter(Boolean);
@@ -1244,18 +1243,6 @@ thinking_planner = BuiltInPlanner(
     )
 )
 ` : ''}
-
-${config.enableEmailTool ? `
-# Define Email Manifest with Gmail Scopes
-email_manifest = Manifest(
-    oauth_scopes=[
-        "https://www.googleapis.com/auth/cloud-platform",
-        "https://www.googleapis.com/auth/gmail.send"
-    ]
-)
-` : ''}
-
-
 
 # Wrapper for Synchronous Execution (Reasoning Engine Requirement for some runtimes)
 class SyncAgentWrapper(BaseAgent):
@@ -1303,8 +1290,7 @@ def create_agent():
         model=os.getenv("MODEL", ${formatPythonString(modelName)}),
         instruction=${formatPythonString(config.instruction)},
         tools=[${toolListForAgent.join(', ')}],
-        ${config.enableThinking ? 'planner=thinking_planner,' : ''}
-        ${config.enableEmailTool ? 'manifest=email_manifest,' : ''}
+    ${ config.enableThinking ? 'planner=thinking_planner,' : '' }
     )
 
 `.trim();
