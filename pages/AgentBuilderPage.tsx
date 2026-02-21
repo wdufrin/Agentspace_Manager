@@ -1443,7 +1443,7 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
     }
 
     if (config.enableRecommenderApi) {
-        defaultDeps.push("google-cloud-recommender");
+        defaultDeps.push("google-cloud-recommender", "google-cloud-run");
     }
 
     if (config.enableServiceHealthApi) {
