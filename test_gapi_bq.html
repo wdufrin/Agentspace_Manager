@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html><head><script src="https://apis.google.com/js/api.js"></script></head><body>
+<script>
+gapi.load('client', async () => {
+  await gapi.client.init({});
+  // Try overriding the hostname rewrite by using an IP or trailing dot, or modifying 'gapi.client'
+  console.log("Ready");
+});
+</script>
+</body></html>

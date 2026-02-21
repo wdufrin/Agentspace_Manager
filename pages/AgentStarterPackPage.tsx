@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import * as api from '../services/apiService';
-import { ProjectInput } from '../components/ProjectInput';
+import { Config } from '../types';
+import ProjectInput from '../components/ProjectInput';
 import WizardStepper from '../components/agent-starter-pack/WizardStepper';
 import StepTemplate from '../components/agent-starter-pack/StepTemplate';
 import StepConfig from '../components/agent-starter-pack/StepConfig';
@@ -464,7 +465,7 @@ jobs:
             case 3:
                 return (
                     <StepCustomize
-                        config={{ projectId, location }} // Minimal config for API
+                        config={{ projectId, appLocation: location } as unknown as Config} // Minimal config for API
                         files={generatedFiles}
                         setFiles={setGeneratedFiles}
                         onNext={handleNext}

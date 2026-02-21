@@ -57,6 +57,10 @@ export const initGapiClient = (accessToken: string): Promise<void> => {
                 await loadGapiScript();
                 window.gapi.load('client', async () => {
                     try {
+                        if (window.gapi.config) {
+                            window.gapi.config.update('client/cors', true);
+                        }
+
                         await window.gapi.client.init({
                             discoveryDocs: DISCOVERY_DOCS,
                         });

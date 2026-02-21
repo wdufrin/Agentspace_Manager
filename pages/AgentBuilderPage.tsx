@@ -5,6 +5,7 @@ import * as api from '../services/apiService';
 import AgentDeploymentModal from '../components/agent-catalog/AgentDeploymentModal';
 import A2aDeployModal from '../components/a2a/A2aDeployModal';
 import ProjectInput from '../components/ProjectInput';
+import { McpServiceCheck } from '../components/McpServiceCheck';
 
 
 declare var JSZip: any;
@@ -52,6 +53,21 @@ interface AdkAgentConfig {
     enableStreaming: boolean;
     enableBigQueryMcp: boolean;
     enableEmailTool: boolean;
+    enableSecurityCommandCenterApi: boolean;
+    enableRecommenderApi: boolean;
+    enableServiceHealthApi: boolean;
+    enableNetworkManagementApi: boolean;
+    enableCloudLoggingMcp: boolean;
+    enableBigtableAdminMcp: boolean;
+    enableCloudSqlMcp: boolean;
+    enableCloudMonitoringMcp: boolean;
+    enableComputeEngineMcp: boolean;
+    enableFirestoreMcp: boolean;
+    enableGkeMcp: boolean;
+    enableResourceManagerMcp: boolean;
+    enableSpannerMcp: boolean;
+    enableDeveloperKnowledgeMcp: boolean;
+    enableMapsGroundingMcp: boolean;
     enableTelemetry: boolean;
     enableMessageLogging: boolean;
 }
@@ -510,6 +526,35 @@ except ImportError:
     def get_user_credentials(context): return None
 
 logger = logging.getLogger(__name__)
+
+def get_logging_mcp_toolset() -> McpToolset:
+    """
+    Creates and returns the Cloud Logging MCP toolset.
+    """
+
+    def auth_header_provider(context: Any) -> Dict[str, str]:
+        """Provider for dynamic auth headers based on context."""
+        creds = get_user_credentials(context)
+        headers = {}
+        if creds and creds.token:
+             headers["Authorization"] = f"Bearer {creds.token}"
+
+        # Add x-goog-user-project for quota attribution (critical for some APIs)
+        project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+        if project_id:
+            headers["x-goog-user-project"] = project_id
+
+        return headers
+
+    return McpToolset(
+        connection_params=StreamableHTTPConnectionParams(
+            url="https://logging.googleapis.com/mcp",
+            timeout=120.0, # Increased timeout for cold starts
+        ),
+        tool_name_prefix="logging_",
+        header_provider=auth_header_provider
+    )
+
 `;
 
     if (config.enableDiscoveryApi) {
@@ -741,6 +786,51 @@ def get_bq_mcp_toolset() -> McpToolset:
 `;
     }
 
+    const mcpServices = [
+        { key: 'enableBigtableAdminMcp', name: 'bigtable', url: 'https://bigtableadmin.googleapis.com/mcp' },
+        { key: 'enableCloudSqlMcp', name: 'sqladmin', url: 'https://sqladmin.googleapis.com/mcp' },
+        { key: 'enableCloudMonitoringMcp', name: 'monitoring', url: 'https://monitoring.googleapis.com/mcp' },
+        { key: 'enableComputeEngineMcp', name: 'compute', url: 'https://compute.googleapis.com/mcp' },
+        { key: 'enableFirestoreMcp', name: 'firestore', url: 'https://firestore.googleapis.com/mcp' },
+        { key: 'enableGkeMcp', name: 'gke', url: 'https://container.googleapis.com/mcp' },
+        { key: 'enableResourceManagerMcp', name: 'resourcemanager', url: 'https://cloudresourcemanager.googleapis.com/mcp' },
+        { key: 'enableSpannerMcp', name: 'spanner', url: 'https://spanner.googleapis.com/mcp' },
+        { key: 'enableDeveloperKnowledgeMcp', name: 'developerknowledge', url: 'https://developerknowledge.googleapis.com/mcp' },
+        { key: 'enableMapsGroundingMcp', name: 'mapstools', url: 'https://mapstools.googleapis.com/mcp' },
+    ];
+
+    mcpServices.forEach(({ key, name, url }) => {
+        if ((config as any)[key]) {
+            code += `
+def get_${name}_mcp_toolset() -> McpToolset:
+    """
+    Returns the ${name} MCP Toolset.
+    """
+
+    def auth_header_provider(context: Any) -> Dict[str, str]:
+        creds = get_user_credentials(context)
+        headers = {}
+        if creds and creds.token:
+             headers["Authorization"] = f"Bearer {creds.token}"
+
+        project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+        if project_id:
+            headers["x-goog-user-project"] = project_id
+
+        return headers
+
+    return McpToolset(
+        connection_params=StreamableHTTPConnectionParams(
+            url="${url}",
+            timeout=120.0,
+        ),
+        tool_name_prefix="${name}_",
+        header_provider=auth_header_provider
+    )
+`;
+        }
+    });
+
     if (config.enableEmailTool) {
         code += `
 def send_email(recipient: str, subject: str, body: str) -> str:
@@ -748,6 +838,186 @@ def send_email(recipient: str, subject: str, body: str) -> str:
     # Placeholder implementation
     print(f"Sending email to {recipient}: {subject}")
     return f"Email sent to {recipient}"
+`;
+    }
+
+    if (config.enableSecurityCommandCenterApi) {
+        code += `
+import google.cloud.securitycenter as securitycenter
+
+def list_active_findings(tool_context: ToolContext, category: str = None, project_id: str = None) -> str:
+    """Lists active, unmuted security findings for the project."""
+    try:
+        project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
+        credential = get_user_credentials(tool_context)
+        if not credential: return "Error: Authentication required."
+        client = securitycenter.SecurityCenterClient(credentials=credential)
+        source_name = f"projects/{project_id}/sources/-"
+        filter_str = 'state="ACTIVE" AND mute="UNMUTED"'
+        if category: filter_str += f' AND category="{category}"'
+        req = securitycenter.ListFindingsRequest(parent=source_name, filter=filter_str, page_size=100)
+        findings_by_category = {}
+        count = 0
+        for result in client.list_findings(request=req):
+            finding = result.finding
+            cat = finding.category
+            resource = finding.resource_name
+            severity = finding.severity.name if hasattr(finding.severity, 'name') else str(finding.severity)
+            if cat not in findings_by_category: findings_by_category[cat] = []
+            findings_by_category[cat].append(f"[{severity}] {resource}")
+            count += 1
+            if count >= 20: break
+        if count == 0: return f"No active, unmuted security findings found for project {project_id}."
+        output_lines = [f"Active Security Findings for {project_id}:"]
+        for cat, items in findings_by_category.items():
+            output_lines.append(f"\\nCategory: {cat}")
+            for item in items: output_lines.append(f"  - {item}")
+        if count >= 20: output_lines.append("\\n(Output truncated)")
+        return "\\n".join(output_lines)
+    except Exception as e:
+        if "PermissionDenied" in str(e) or "disabled" in str(e).lower():
+            return f"Unable to list findings. Security Command Center might not be active or you lack permissions for project {project_id}."
+        return f"Error fetching security findings: {str(e)}"
+`;
+    }
+
+    if (config.enableRecommenderApi) {
+        code += `
+import google.cloud.recommender_v1 as recommender_v1
+import google.cloud.run_v2 as run_v2
+
+def list_recommendations(tool_context: ToolContext, project_id: str = None) -> str:
+    """List active recommendations for Cloud Run services, focusing on security and identity."""
+    try:
+        project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
+        credential = get_user_credentials(tool_context)
+        if not credential: return "Error: Authentication required."
+        regions = set()
+        try:
+            run_client = run_v2.ServicesClient(credentials=credential)
+            page_result = run_client.list_services(request=run_v2.ListServicesRequest(parent=f"projects/{project_id}/locations/-"))
+            for service in page_result:
+                parts = service.name.split("/")
+                if len(parts) > 3: regions.add(parts[3])
+        except Exception: pass
+        if not regions: regions.add(os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"))
+        recommender_client = recommender_v1.RecommenderClient(credentials=credential)
+        recommenders = ["google.run.service.IdentityRecommender", "google.run.service.SecurityRecommender"]
+        results = []
+        for location in regions:
+            for r_id in recommenders:
+                try:
+                    request = recommender_v1.ListRecommendationsRequest(parent=f"projects/{project_id}/locations/{location}/recommenders/{r_id}")
+                    for rec in recommender_client.list_recommendations(request=request):
+                        target_resource = "Unknown Resource"
+                        if rec.content and rec.content.overview:
+                            target_resource = rec.content.overview.get("serviceName") or rec.content.overview.get("service") or rec.content.overview.get("resourceName") or "Unknown Resource"
+                        if "/" in target_resource: target_resource = target_resource.split("/")[-1]
+                        results.append(f"- [{location}] {target_resource}: {rec.description} (Priority: {rec.priority.name})")
+                except Exception: pass
+        return "Active Cloud Run Recommendations:\\n" + "\\n".join(results) if results else "No active security or identity recommendations found for Cloud Run."
+    except Exception as e:
+        return f"Error listing recommendations: {str(e)}"
+
+def list_cost_recommendations(tool_context: ToolContext, project_id: str = None) -> str:
+    """List active cost recommendations for the project."""
+    try:
+        project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
+        location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+        zones = [f"{location}-{suffix}" for suffix in ["a", "b", "c", "f"]]
+        credential = get_user_credentials(tool_context)
+        if not credential: return "Error: Authentication required."
+        recommender_client = recommender_v1.RecommenderClient(credentials=credential)
+        recommenders = [
+            "google.compute.instance.IdleResourceRecommender",
+            "google.compute.instance.MachineTypeRecommender",
+            "google.compute.address.IdleResourceRecommender",
+            "google.compute.disk.IdleResourceRecommender"
+        ]
+        results = []
+        total_savings = 0.0
+        currency = "USD"
+        for zone in zones:
+            for r_id in recommenders:
+                try:
+                    request = recommender_v1.ListRecommendationsRequest(parent=f"projects/{project_id}/locations/{zone}/recommenders/{r_id}")
+                    for rec in recommender_client.list_recommendations(request=request):
+                        impact = 0.0
+                        if rec.primary_impact.cost_projection.cost.units: impact += float(rec.primary_impact.cost_projection.cost.units)
+                        if rec.primary_impact.cost_projection.cost.nanos: impact += float(rec.primary_impact.cost_projection.cost.nanos) / 1e9
+                        savings = -impact if impact < 0 else 0
+                        if savings > 0:
+                            total_savings += savings
+                            if rec.primary_impact.cost_projection.cost.currency_code: currency = rec.primary_impact.cost_projection.cost.currency_code
+                        target = "Unknown"
+                        if rec.content.overview:
+                             target = rec.content.overview.get("resourceName") or rec.content.overview.get("resource") or "Unknown"
+                        if "/" in target: target = target.split("/")[-1]
+                        results.append(f"- [{zone}] {target}: {rec.description} (Est. Savings: {savings:.2f} {currency}/mo)")
+                except Exception: pass
+        if not results: return f"No active cost recommendations found in {location} zones."
+        return f"Active Cost Recommendations (Total Est. Savings: {total_savings:.2f} {currency}/mo):\\n" + "\\n".join(results)
+    except Exception as e:
+        return f"Error listing cost recommendations: {str(e)}"
+`;
+    }
+
+    if (config.enableServiceHealthApi) {
+        code += `
+from google.cloud import servicehealth_v1
+
+def check_service_health(tool_context: ToolContext, project_id: str = None) -> str:
+    """Checks for active Google Cloud Service Health events affecting the project."""
+    try:
+        project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
+        credential = get_user_credentials(tool_context)
+        if not credential: return "Error: Authentication required."
+        client = servicehealth_v1.ServiceHealthClient(credentials=credential)
+        parent = f"projects/{project_id}/locations/global"
+        request = servicehealth_v1.ListEventsRequest(parent=parent, filter='state="ACTIVE"')
+        results = [f"- [{e.category.name}][{e.state.name}] {e.title}: {e.description} (Updated: {e.update_time})" for e in client.list_events(request=request)]
+        return f"Active Service Health Events for {project_id}:\\n" + "\\n".join(results) if results else f"No active service health events found for project {project_id}."
+    except Exception as e:
+        return f"Error checking service health: {str(e)}"
+`;
+    }
+
+    if (config.enableNetworkManagementApi) {
+        code += `
+from google.cloud import network_management_v1
+
+def run_connectivity_test(tool_context: ToolContext, source_ip: str = None, source_network: str = None, destination_ip: str = None, destination_port: int = None, protocol: str = "TCP", project_id: str = None) -> str:
+    """Runs a network connectivity test."""
+    try:
+        project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
+        credential = get_user_credentials(tool_context)
+        if not credential: return "Error: Authentication required."
+        client = network_management_v1.ReachabilityServiceClient(credentials=credential)
+        parent = f"projects/{project_id}/locations/global"
+
+        endpoint_source = network_management_v1.Endpoint()
+        if source_ip: endpoint_source.ip_address = source_ip
+        if source_network: endpoint_source.network = source_network
+
+        endpoint_destination = network_management_v1.Endpoint()
+        if destination_ip: endpoint_destination.ip_address = destination_ip
+        if destination_port: endpoint_destination.port = destination_port
+
+        connectivity_test = network_management_v1.ConnectivityTest(
+            source=endpoint_source,
+            destination=endpoint_destination,
+            protocol=protocol
+        )
+
+        request = network_management_v1.CreateConnectivityTestRequest(
+            parent=parent,
+            test_id="adk-temp-test",
+            connectivity_test=connectivity_test
+        )
+        # Note: Proper implementation requires polling the LRO, skipping full implementation for brevity.
+        return "Not fully implemented in template."
+    except Exception as e:
+        return f"Error running connectivity test: {str(e)}"
 `;
     }
 
@@ -829,9 +1099,56 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
         toolListForAgent.push('get_bq_mcp_toolset()');
     }
 
+    if (config.enableCloudLoggingMcp) {
+        toolsImport.add('get_logging_mcp_toolset');
+        toolListForAgent.push('get_logging_mcp_toolset()');
+    }
+
+    const mcpServicesForAgent = [
+        { key: 'enableBigtableAdminMcp', name: 'bigtable' },
+        { key: 'enableCloudSqlMcp', name: 'sqladmin' },
+        { key: 'enableCloudMonitoringMcp', name: 'monitoring' },
+        { key: 'enableComputeEngineMcp', name: 'compute' },
+        { key: 'enableFirestoreMcp', name: 'firestore' },
+        { key: 'enableGkeMcp', name: 'gke' },
+        { key: 'enableResourceManagerMcp', name: 'resourcemanager' },
+        { key: 'enableSpannerMcp', name: 'spanner' },
+        { key: 'enableDeveloperKnowledgeMcp', name: 'developerknowledge' },
+        { key: 'enableMapsGroundingMcp', name: 'mapstools' },
+    ];
+
+    mcpServicesForAgent.forEach(({ key, name }) => {
+        if ((config as any)[key]) {
+            toolsImport.add(`get_${name} _mcp_toolset`);
+            toolListForAgent.push(`get_${name} _mcp_toolset()`);
+        }
+    });
+
     if (config.enableEmailTool) {
         toolsImport.add('send_email');
         toolListForAgent.push('send_email');
+    }
+
+    if (config.enableSecurityCommandCenterApi) {
+        toolsImport.add('list_active_findings');
+        toolListForAgent.push('list_active_findings');
+    }
+
+    if (config.enableRecommenderApi) {
+        toolsImport.add('list_recommendations');
+        toolsImport.add('list_cost_recommendations');
+        toolListForAgent.push('list_recommendations');
+        toolListForAgent.push('list_cost_recommendations');
+    }
+
+    if (config.enableServiceHealthApi) {
+        toolsImport.add('check_service_health');
+        toolListForAgent.push('check_service_health');
+    }
+
+    if (config.enableNetworkManagementApi) {
+        toolsImport.add('run_connectivity_test');
+        toolListForAgent.push('run_connectivity_test');
     }
 
 
@@ -1167,8 +1484,9 @@ const GCP_LOGS_READER_TEMPLATE: AgentTemplate = {
         name: 'GCP_Logs_Reader',
         description: 'An expert agent for analyzing Google Cloud Logs.',
         model: 'gemini-2.5-flash',
-        instruction: 'You are a Google Cloud Logging expert. Your goal is to help users find and analyze logs from their GCP projects. You have access to tools for reading logs and searching Google. Always verify the project ID before querying.',
+        instruction: 'You are a Google Cloud Logging expert. Your goal is to help users find and analyze logs from their GCP projects.\n\nYou have access to the "logging_list_log_entries" tool (via Cloud Logging MCP). Use it to query logs.\n\nIMPORTANT:\n- The tool name is exactly "logging_list_log_entries" (one underscore). Do NOT use double underscores.\n- ALways specify a `resource_names` argument (e.g., ["projects/YOUR_PROJECT_ID"]).\n- Use the `filter` argument to narrow down logs (e.g., `severity>=WARNING`, `resource.type="cloud_run_revision"`).\n- The tool returns raw JSON. Summarize the interesting parts for the user; do not output the full JSON unless asked.\n- Always verify the project ID before querying.',
         useGoogleSearch: true,
+        enableCloudLoggingMcp: true,
         tools: []
     }
 };
@@ -1199,6 +1517,14 @@ Report formatting guidelines:
 * Always cite the exact project ID and environment details where you found the information.`,
         useGoogleSearch: true,
         enableBigQueryMcp: false,
+        enableSecurityCommandCenterApi: true,
+        enableRecommenderApi: true,
+        enableServiceHealthApi: true,
+        enableNetworkManagementApi: true,
+        enableCloudLoggingMcp: true,
+        enableCloudMonitoringMcp: true,
+        enableResourceManagerMcp: true,
+        enableOAuth: true,
         tools: []
     }
 };
@@ -1226,6 +1552,7 @@ Report formatting guidelines:
 * Present query results in clear markdown tables if possible.`,
         useGoogleSearch: true,
         enableBigQueryMcp: true,
+        enableOAuth: true,
         tools: []
     }
 };
@@ -1303,8 +1630,23 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         enableStreaming: false,
         enableBigQueryMcp: false,
         enableEmailTool: false,
+        enableSecurityCommandCenterApi: false,
+        enableRecommenderApi: false,
+        enableServiceHealthApi: false,
+        enableNetworkManagementApi: false,
         enableTelemetry: true,
-        enableMessageLogging: false
+        enableMessageLogging: false,
+        enableCloudLoggingMcp: false,
+        enableBigtableAdminMcp: false,
+        enableCloudSqlMcp: false,
+        enableCloudMonitoringMcp: false,
+        enableComputeEngineMcp: false,
+        enableFirestoreMcp: false,
+        enableGkeMcp: false,
+        enableResourceManagerMcp: false,
+        enableSpannerMcp: false,
+        enableDeveloperKnowledgeMcp: false,
+        enableMapsGroundingMcp: false
     });
     const [vertexLocation, setVertexLocation] = useState('us-central1');
     const [adkGeneratedCode, setAdkGeneratedCode] = useState({ app: '', agent: '', env: '', requirements: '', readme: '', deploy_re: '', auth: '', tools: '', init: '' });
@@ -1572,8 +1914,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         } else if (type === 'checkbox') {
             const isChecked = (e.target as HTMLInputElement).checked;
 
-            // Link BigQuery MCP to OAuth
-            if (name === 'enableBigQueryMcp' && isChecked) {
+            // Link MCPs and APIs to OAuth
+            if ((name.endsWith('Mcp') || name.endsWith('Api')) && isChecked) {
                 setAdkConfig(prev => ({
                     ...prev,
                     [name]: isChecked,
@@ -1843,16 +2185,59 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                         onChange={(e) => {
                                             const template = TEMPLATES.find(t => t.id === e.target.value);
                                             if (template) {
-                                                setAdkConfig(prev => ({
-                                                    ...prev,
-                                                    ...template.config,
-                                                    // Preserve specific fields we don't want to overwrite blindly if they have values?
-                                                    // For now, template overwrites defaults.
-                                                    discoveryConfig: {
-                                                        ...prev.discoveryConfig,
-                                                        ...(template.config.discoveryConfig || {})
-                                                    }
-                                                }));
+                                                setAdkConfig(prev => {
+                                                    const cleanConfig: AdkAgentConfig = {
+                                                        name: '',
+                                                        description: 'An agent that can do awesome things.',
+                                                        model: 'gemini-2.5-flash',
+                                                        instruction: 'You are an awesome and helpful agent.',
+                                                        tools: [],
+                                                        useGoogleSearch: false,
+                                                        enableOAuth: false,
+                                                        authId: 'temp_oauth',
+                                                        enableDiscoveryApi: false,
+                                                        discoveryConfig: {
+                                                            projectId: '',
+                                                            location: 'global',
+                                                            collection: 'default_collection',
+                                                            engineId: '',
+                                                            dataStoreIds: ''
+                                                        },
+                                                        enableBqAnalytics: false,
+                                                        bqDatasetId: '',
+                                                        bqTableId: '',
+                                                        enableThinking: false,
+                                                        thinkingBudget: 1024,
+                                                        enableStreaming: false,
+                                                        enableBigQueryMcp: false,
+                                                        enableEmailTool: false,
+                                                        enableSecurityCommandCenterApi: false,
+                                                        enableRecommenderApi: false,
+                                                        enableServiceHealthApi: false,
+                                                        enableNetworkManagementApi: false,
+                                                        enableTelemetry: true,
+                                                        enableMessageLogging: false,
+                                                        enableCloudLoggingMcp: false,
+                                                        enableBigtableAdminMcp: false,
+                                                        enableCloudSqlMcp: false,
+                                                        enableCloudMonitoringMcp: false,
+                                                        enableComputeEngineMcp: false,
+                                                        enableFirestoreMcp: false,
+                                                        enableGkeMcp: false,
+                                                        enableResourceManagerMcp: false,
+                                                        enableSpannerMcp: false,
+                                                        enableDeveloperKnowledgeMcp: false,
+                                                        enableMapsGroundingMcp: false
+                                                    };
+                                                    return {
+                                                        ...cleanConfig,
+                                                        ...template.config,
+                                                        discoveryConfig: {
+                                                            ...cleanConfig.discoveryConfig,
+                                                            ...(template.config.discoveryConfig || {})
+                                                        }
+                                                    };
+                                                });
                                             }
                                         }}
                                         className="bg-gray-800 border border-gray-500 rounded-md px-3 py-2 text-sm text-white w-full hover:border-blue-500 focus:border-blue-500 transition-colors"
@@ -1954,10 +2339,52 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
 
                                     <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
                                         <h4 className="text-xs font-semibold text-gray-400">Integrations (Tools)</h4>
+                                        <McpServiceCheck
+                                            projectId={deployProjectId || ''}
+                                            serviceName="bigquery.googleapis.com"
+                                            mcpEndpoint="https://bigquery.googleapis.com/mcp"
+                                            label="BigQuery Managed MCP"
+                                            checked={adkConfig.enableBigQueryMcp}
+                                            onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableBigQueryMcp', type: 'checkbox', checked } } as any)}
+                                        />
+                                        <McpServiceCheck
+                                            projectId={deployProjectId || ''}
+                                            serviceName="logging.googleapis.com"
+                                            mcpEndpoint="https://logging.googleapis.com/mcp"
+                                            label="Cloud Logging Managed MCP"
+                                            checked={adkConfig.enableCloudLoggingMcp}
+                                            onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableCloudLoggingMcp', type: 'checkbox', checked } } as any)}
+                                        />
+                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="bigtableadmin.googleapis.com" mcpEndpoint="https://bigtableadmin.googleapis.com/mcp" label="Bigtable Admin MCP" checked={adkConfig.enableBigtableAdminMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableBigtableAdminMcp', type: 'checkbox', checked } } as any)} />
+                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="sqladmin.googleapis.com" mcpEndpoint="https://sqladmin.googleapis.com/mcp" label="Cloud SQL Admin MCP" checked={adkConfig.enableCloudSqlMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableCloudSqlMcp', type: 'checkbox', checked } } as any)} />
+                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="monitoring.googleapis.com" mcpEndpoint="https://monitoring.googleapis.com/mcp" label="Cloud Monitoring MCP" checked={adkConfig.enableCloudMonitoringMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableCloudMonitoringMcp', type: 'checkbox', checked } } as any)} />
+                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="compute.googleapis.com" mcpEndpoint="https://compute.googleapis.com/mcp" label="Compute Engine MCP" checked={adkConfig.enableComputeEngineMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableComputeEngineMcp', type: 'checkbox', checked } } as any)} />
+                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="firestore.googleapis.com" mcpEndpoint="https://firestore.googleapis.com/mcp" label="Firestore MCP" checked={adkConfig.enableFirestoreMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableFirestoreMcp', type: 'checkbox', checked } } as any)} />
+                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="container.googleapis.com" mcpEndpoint="https://container.googleapis.com/mcp" label="GKE MCP" checked={adkConfig.enableGkeMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableGkeMcp', type: 'checkbox', checked } } as any)} />
+                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="cloudresourcemanager.googleapis.com" mcpEndpoint="https://cloudresourcemanager.googleapis.com/mcp" label="Resource Manager MCP" checked={adkConfig.enableResourceManagerMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableResourceManagerMcp', type: 'checkbox', checked } } as any)} />
+                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="spanner.googleapis.com" mcpEndpoint="https://spanner.googleapis.com/mcp" label="Spanner MCP" checked={adkConfig.enableSpannerMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableSpannerMcp', type: 'checkbox', checked } } as any)} />
+                                        <h4 className="text-xs font-semibold text-gray-400 mt-2">Google MCPs</h4>
+                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="developerknowledge.googleapis.com" mcpEndpoint="https://developerknowledge.googleapis.com/mcp" label="Developer Knowledge MCP" checked={adkConfig.enableDeveloperKnowledgeMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableDeveloperKnowledgeMcp', type: 'checkbox', checked } } as any)} />
+                                        <McpServiceCheck projectId={deployProjectId || ''} serviceName="mapstools.googleapis.com" mcpEndpoint="https://mapstools.googleapis.com/mcp" label="Maps Grounding Lite MCP" checked={adkConfig.enableMapsGroundingMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableMapsGroundingMcp', type: 'checkbox', checked } } as any)} />
+
+                                        <h4 className="text-xs font-semibold text-gray-400 mt-2">Custom APIs</h4>
                                         <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableBigQueryMcp" checked={adkConfig.enableBigQueryMcp} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">BigQuery Managed MCP</span>
+                                            <input type="checkbox" name="enableSecurityCommandCenterApi" checked={adkConfig.enableSecurityCommandCenterApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Security Command Center Tool</span>
                                         </label>
+                                        <label className="flex items-center space-x-3 cursor-pointer">
+                                            <input type="checkbox" name="enableRecommenderApi" checked={adkConfig.enableRecommenderApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Recommender Tool</span>
+                                        </label>
+                                        <label className="flex items-center space-x-3 cursor-pointer">
+                                            <input type="checkbox" name="enableServiceHealthApi" checked={adkConfig.enableServiceHealthApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Service Health Tool</span>
+                                        </label>
+                                        <label className="flex items-center space-x-3 cursor-pointer">
+                                            <input type="checkbox" name="enableNetworkManagementApi" checked={adkConfig.enableNetworkManagementApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Network Management Tool</span>
+                                        </label>
+
                                         <div className="flex items-center space-x-3 mt-2">
                                             <label className="flex items-center space-x-3 cursor-pointer">
                                                 <input type="checkbox" name="enableOAuth" checked={adkConfig.enableOAuth} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
