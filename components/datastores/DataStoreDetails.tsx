@@ -4,6 +4,7 @@ import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
 import DocumentList from './DocumentList';
 import DocumentDetails from './DocumentDetails';
+import DataStoreQueryModal from './DataStoreQueryModal';
 
 interface DataStoreDetailsProps {
     dataStore: DataStore;
@@ -49,6 +50,7 @@ const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, 
 
     const [isUploading, setIsUploading] = useState(false);
     const [uploadLogs, setUploadLogs] = useState<string[]>([]);
+    const [isQueryModalOpen, setIsQueryModalOpen] = useState(false);
 
     const dataStoreId = dataStore.name.split('/').pop() || '';
 
@@ -217,6 +219,15 @@ const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, 
             
             <div className="mt-8 flex flex-wrap gap-4 border-t border-gray-700 pt-6">
                 <button
+                    onClick={() => setIsQueryModalOpen(true)}
+                    className="px-5 py-2.5 bg-teal-600 text-white font-semibold rounded-md hover:bg-teal-700 flex items-center gap-2"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    Query Data Store
+                </button>
+                <button
                     onClick={() => onEdit(dataStore)}
                     disabled={isDeleting}
                     className="px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 disabled:bg-indigo-800"
@@ -231,6 +242,13 @@ const DataStoreDetails: React.FC<DataStoreDetailsProps> = ({ dataStore, config, 
                     {isDeleting ? 'Deleting...' : 'Delete Data Store'}
                 </button>
             </div>
+
+            <DataStoreQueryModal
+                isOpen={isQueryModalOpen}
+                onClose={() => setIsQueryModalOpen(false)}
+                dataStore={dataStore}
+                config={config}
+            />
 
             <div className="mt-6 border-t border-gray-700 pt-6">
                 <h3 className="text-lg font-semibold text-white">Documents</h3>
