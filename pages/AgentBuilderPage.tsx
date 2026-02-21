@@ -1438,6 +1438,22 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
         defaultDeps.push("google-cloud-bigquery");
     }
 
+    if (config.enableSecurityCommandCenterApi) {
+        defaultDeps.push("google-cloud-securitycenter");
+    }
+
+    if (config.enableRecommenderApi) {
+        defaultDeps.push("google-cloud-recommender");
+    }
+
+    if (config.enableServiceHealthApi) {
+        defaultDeps.push("google-cloud-servicehealth");
+    }
+
+    if (config.enableNetworkManagementApi) {
+        defaultDeps.push("google-cloud-network-management");
+    }
+
     // A2A clients usually need requests or aiohttp, already got requests.
 
     return defaultDeps.join('\n');
