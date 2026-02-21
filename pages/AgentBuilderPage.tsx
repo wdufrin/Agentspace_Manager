@@ -1119,8 +1119,8 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
 
     mcpServicesForAgent.forEach(({ key, name }) => {
         if ((config as any)[key]) {
-            toolsImport.add(`get_${name} _mcp_toolset`);
-            toolListForAgent.push(`get_${name} _mcp_toolset()`);
+            toolsImport.add(`get_${name}_mcp_toolset`);
+            toolListForAgent.push(`get_${name}_mcp_toolset()`);
         }
     });
 
