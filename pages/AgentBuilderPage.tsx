@@ -52,6 +52,7 @@ interface AdkAgentConfig {
     thinkingBudget: number;
     enableStreaming: boolean;
     enableBigQueryMcp: boolean;
+    enableCodeExecution: boolean;
     enableEmailTool: boolean;
     enableSecurityCommandCenterApi: boolean;
     enableRecommenderApi: boolean;
@@ -101,9 +102,9 @@ const A2A_TABS = [
 // --- A2A Generators ---
 const generateMainPy = (config: A2aConfig): string => {
     const { instruction, enableCors, useGoogleSearch, tools } = config;
-    
+
     const hasTools = useGoogleSearch || tools.length > 0;
-    
+
     let toolImports = '';
     if (hasTools) {
         toolImports = `
@@ -136,7 +137,7 @@ def after_request(response):
     if (hasTools) {
         let toolCode: string[] = [];
         toolCode.push('if Tool:'); // Only proceed if Tool class exists
-        
+
         if (useGoogleSearch) {
             toolCode.push('    try:');
             toolCode.push('        if GoogleSearchRetrieval:');
@@ -147,7 +148,7 @@ def after_request(response):
             toolCode.push('    except Exception as e:');
             toolCode.push('        print(f"Warning: Failed to enable Google Search: {e}")');
         }
-        
+
         tools.forEach(tool => {
             if (tool.type === 'VertexAiSearchTool' && tool.dataStoreId) {
                 toolCode.push('    try:');
@@ -161,7 +162,7 @@ def after_request(response):
                 toolCode.push(`        print(f"Warning: Failed to enable Data Store ${tool.dataStoreId}: {e}")`);
             }
         });
-        
+
         if (toolCode.length > 1) { // Check if we added more than just the guard check
             toolsInit = `tools = []\n${toolCode.join('\n')}`;
         }
@@ -416,7 +417,7 @@ google-cloud-aiplatform>=1.75.0
 
 const generateGcloudCommand = (config: A2aConfig, projectId: string): string => {
     const authFlag = config.allowUnauthenticated ? '--allow-unauthenticated' : '--no-allow-unauthenticated';
-    
+
     return `
 #!/bin/bash
 # This script deploys the Cloud Run service and then updates it
@@ -507,7 +508,7 @@ def get_user_credentials(tool_context: ToolContext) -> Optional[Credentials]:
 `;
 };
 
-const generateToolsPy = (config: AdkAgentConfig): string => {
+const generateToolsPy = (config: AdkAgentConfig, useRelativeImports: boolean = false): string => {
     let code = `import os
 import logging
 import json
@@ -520,7 +521,7 @@ from google.adk.tools import ToolContext
 from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
 
 try:
-    from auth import get_user_credentials
+    from ${useRelativeImports ? '.' : ''}auth import get_user_credentials
 except ImportError:
     # Handle case where auth.py might not be generated or needed
     def get_user_credentials(context): return None
@@ -1069,7 +1070,7 @@ def run_connectivity_test(tool_context: ToolContext, source_ip: str = None, sour
     return code;
 };
 
-const generateAdkPythonCode = (config: AdkAgentConfig): string => {
+const generateAdkPythonCode = (config: AdkAgentConfig, useRelativeImports: boolean = false): string => {
     const toolImports = new Set<string>();
     const toolInitializations: string[] = [];
     const toolListForAgent: string[] = [];
@@ -1088,6 +1089,62 @@ const generateAdkPythonCode = (config: AdkAgentConfig): string => {
 
     toolImports.add('import google.auth');
 
+    if (config.enableCodeExecution) {
+        toolImports.add('from google.adk.tools import AgentTool');
+        toolImports.add('from google.adk.code_executors.built_in_code_executor import BuiltInCodeExecutor');
+
+        toolInitializations.push(`def code_executor_agent():
+    instruction = (
+        "You are a Python Data Science and Visualization Expert. Your goal is to transform "
+        "raw data into actionable visual insights.\\n\\n"
+        "OPERATIONAL GUIDELINES:\\n"
+        "1. DATA PROCESSING: Use 'pandas' and 'numpy' for all data manipulation.\\n"
+        "2. VISUALIZATION STANDARDS: Use 'matplotlib' and 'seaborn' for plotting.\\n"
+        "   - Every chart MUST have: A descriptive Title, X/Y Axis Labels, and a Legend if multiple series exist.\\n"
+        "   - Styling: Use 'sns.set_theme(style=\\'whitegrid\\')' for a clean, professional look.\\n"
+        "3. ARTIFACT GENERATION: You MUST save your final plot as a PNG file to artifacts (e.g., 'chart.png'). "
+        "This file will be automatically processed as an artifact for the user.\\n"
+    )
+ 
+    return Agent(
+        name='code_exec_agent',
+        model="gemini-2.5-flash", 
+        description="Data Visualization and Analysis Expert. Delegate to this agent for generating charts, plots, and complex Python calculations.",
+        code_executor=BuiltInCodeExecutor(),
+        instruction=instruction
+    )
+
+def architecture_diagram_agent():
+    instruction = (
+        "You are an Architecture and Systems Design Visualization Expert. Your goal is to transform "
+        "structural and architectural concepts into clear visual diagrams.\\n\\n"
+        "OPERATIONAL GUIDELINES:\\n"
+        "1. DIAGRAM GENERATION: You MUST use 'matplotlib' (specifically 'matplotlib.patches' and 'matplotlib.pyplot') to programmatically draw diagrams.\\n"
+        "   - DO NOT use 'graphviz', 'dot', or 'networkx'. These libraries are NOT available in this environment.\\n"
+        "   - Construct diagrams by manually calculating coordinates and drawing shapes (e.g., FancyBboxPatch for nodes) and connecting them with arrows (e.g., FancyArrowPatch for edges).\\n"
+        "2. VISUALIZATION STANDARDS:\\n"
+        "   - Clearly label all nodes by placing text at the calculated coordinates.\\n"
+        "   - Use distinct shapes or colors to represent different types of components (e.g., databases vs. servers).\\n"
+        "   - Keep layouts organized (e.g. hierarchical or grid) and minimize edge crossings where possible.\\n"
+        "   - Ensure the matplotlib plot has no axes (plt.axis('off')) for a clean diagram look.\\n"
+        "3. ARTIFACT GENERATION: You MUST save your final diagram as a PNG file to artifacts (e.g., 'architecture.png') using plt.savefig(). "
+        "This file will be automatically processed as an artifact for the user.\\n"
+    )
+ 
+    return Agent(
+        name='architecture_diagram_agent',
+        model="gemini-2.5-flash", 
+        description="Architecture and Diagram Expert. Delegate to this agent for generating system architectures, flowcharts, and structural diagrams using Python.",
+        code_executor=BuiltInCodeExecutor(),
+        instruction=instruction
+    )
+
+code_exec_tool = AgentTool(code_executor_agent())
+architecture_tool = AgentTool(architecture_diagram_agent())`);
+
+        toolListForAgent.push('code_exec_tool');
+        toolListForAgent.push('architecture_tool');
+    }
 
     // Inject A2A Helper Function Import
     if (config.tools.some(t => t.type === 'A2AClientTool')) {
@@ -1111,11 +1168,22 @@ const generateAdkPythonCode = (config: AdkAgentConfig): string => {
     });
 
     if (config.useGoogleSearch) {
-        // Use class-based instantiation to bypass multi-tool limit
         toolImports.add('from google.adk.tools import google_search_tool');
-        toolInitializations.push(
-            `google_search = google_search_tool.GoogleSearchTool(bypass_multi_tools_limit=True)`
-        );
+
+        // Check if there are other tools that could cause a conflict
+        const hasOtherTools = config.tools.length > 0 ||
+            config.enableBigQueryMcp ||
+            config.enableCloudLoggingMcp ||
+            config.enableDiscoveryApi ||
+            config.enableEmailTool ||
+            config.enableCodeExecution;
+
+        let initCode = `google_search = google_search_tool.GoogleSearchTool()`;
+        if (hasOtherTools) {
+            initCode += `\ngoogle_search.bypass_multi_tools_limit = True`;
+        }
+
+        toolInitializations.push(initCode);
         toolListForAgent.push('google_search');
     }
 
@@ -1141,12 +1209,14 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
 
     if (config.enableBigQueryMcp) {
         toolsImport.add('get_bq_mcp_toolset');
-        toolListForAgent.push('get_bq_mcp_toolset()');
+        toolInitializations.push('bq_mcp_toolset = get_bq_mcp_toolset()');
+        toolListForAgent.push('bq_mcp_toolset');
     }
 
     if (config.enableCloudLoggingMcp) {
         toolsImport.add('get_logging_mcp_toolset');
-        toolListForAgent.push('get_logging_mcp_toolset()');
+        toolInitializations.push('logging_mcp_toolset = get_logging_mcp_toolset()');
+        toolListForAgent.push('logging_mcp_toolset');
     }
 
     const mcpServicesForAgent = [
@@ -1165,7 +1235,8 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
     mcpServicesForAgent.forEach(({ key, name }) => {
         if ((config as any)[key]) {
             toolsImport.add(`get_${name}_mcp_toolset`);
-            toolListForAgent.push(`get_${name}_mcp_toolset()`);
+            toolInitializations.push(`${name}_mcp_toolset = get_${name}_mcp_toolset()`);
+            toolListForAgent.push(`${name}_mcp_toolset`);
         }
     });
 
@@ -1196,7 +1267,6 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
         toolListForAgent.push('run_connectivity_test');
     }
 
-
     const formatPythonString = (str: string) => {
         const needsTripleQuotes = str.includes('\n') || str.includes('"');
         if (needsTripleQuotes) {
@@ -1205,6 +1275,18 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
         }
         return `"${str.replace(/"/g, '\\"')}"`;
     };
+
+    let finalInstruction = config.instruction;
+    if (config.enableCodeExecution) {
+        finalInstruction += `\n\nAdditionally, you have access to two specialized Python code execution sub-agents:
+- \`code_exec_agent\`: A specialized Python Data Science Expert for generating charts, graphs, and plots from data.
+- \`architecture_diagram_agent\`: A specialized expert for generating system architectures, flowcharts, and structural diagrams.
+
+When asked to analyze data or create a visualization:
+- For charts and data plots: Provide the query results to \`code_exec_agent\` and ask it to generate the requested chart.
+- For system architectures, schemas, or flowcharts: Provide the structural information to \`architecture_diagram_agent\` and ask it to generate the diagram.
+DO NOT output raw DOT code or raw python code to the user. Always delegate explicitly to the appropriate sub-agent tool to generate the visual artifact.`;
+    }
 
     const imports = [
         'import os',
@@ -1220,7 +1302,7 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
     ].filter(Boolean);
 
     if (toolsImport.size > 0) {
-        imports.push(`from tools import ${Array.from(toolsImport).join(', ')}`);
+        imports.push(`from ${useRelativeImports ? '.' : ''}tools import ${Array.from(toolsImport).join(', ')}`);
     }
 
     return `
@@ -1288,16 +1370,17 @@ def create_agent():
         name=${formatPythonString(config.name)},
         description=${formatPythonString(config.description)},
         model=os.getenv("MODEL", ${formatPythonString(modelName)}),
-        instruction=${formatPythonString(config.instruction)},
+        instruction=${formatPythonString(finalInstruction)},
         tools=[${toolListForAgent.join(', ')}],
-    ${ config.enableThinking ? 'planner=thinking_planner,' : '' }
+    ${config.enableThinking ? '    planner=thinking_planner,' : ''}
     )
 
+root_agent = create_agent()
 `.trim();
 };
 
 
-const generateAppPy = (): string => {
+const generateAppPy = (useRelativeImports: boolean = false): string => {
     return `
 import asyncio
 import logging
@@ -1309,7 +1392,7 @@ try:
 except ImportError:
     pass
 
-from agent import SyncAgentWrapper
+from ${useRelativeImports ? '.' : ''}agent import SyncAgentWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -1432,12 +1515,13 @@ print(f"Resource Name: {remote_app.resource_name}")
 };
 
 const generateAdkEnvFile = (config: AdkAgentConfig, projectNumber: string, location: string, stagingBucket: string): string => {
-    let env = `GOOGLE_CLOUD_PROJECT = ${projectNumber}
-    GOOGLE_CLOUD_LOCATION = ${location}
-    STAGING_BUCKET = ${stagingBucket}`;
+    let env = `GOOGLE_CLOUD_PROJECT = "${projectNumber}"
+            GOOGLE_CLOUD_LOCATION = "${location}"
+            STAGING_BUCKET = "${stagingBucket}"
+            GOOGLE_GENAI_USE_VERTEXAI = "true"`;
 
     if (config.enableOAuth && config.authId) {
-        env += `\nAUTH_ID = ${config.authId}`;
+        env += `\nAUTH_ID = "${config.authId}"`;
     }
 
     if (config.enableDiscoveryApi) {
@@ -1501,13 +1585,17 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
         defaultDeps.push("markdown");
     }
 
+    if (config.enableCodeExecution) {
+        defaultDeps.push("networkx", "matplotlib", "pandas", "seaborn");
+    }
+
     // A2A clients usually need requests or aiohttp, already got requests.
 
     return defaultDeps.join('\n');
 };
 
 const generateAdkReadmeFile = (config: AdkAgentConfig): string => {
-    return `# ${config.name || 'Custom Agent' }
+    return `# ${config.name || 'Custom Agent'}
 
 ## Setup
     1. Create a virtual environment: \`python3 -m venv venv && source venv/bin/activate\`
@@ -1531,6 +1619,57 @@ python deploy_re.py
 `;
 };
 
+const generateLaunchScript = (): string => {
+    return `#!/bin/bash
+
+# Ensure we are in the script's directory or project root
+cd "$(dirname "$0")/.."
+
+# Check if adk is in the path
+if ! command -v adk &> /dev/null; then
+    # Try to find it in the common venv locations
+    if [ -f "../../.venv/bin/adk" ]; then
+        export PATH="../../.venv/bin:$PATH"
+    elif [ -f ".venv/bin/adk" ]; then
+        export PATH=".venv/bin:$PATH"
+    else
+        echo "WARNING: 'adk' command not found in PATH or standard venv locations."
+        echo "Please ensure you have activated your virtual environment."
+    fi
+fi
+
+# Get the access token from gcloud
+echo "Fetching GCP access token..."
+TOKEN=$(gcloud auth print-access-token)
+
+if [ -z "$TOKEN" ]; then
+    echo "Error: Failed to get access token. Please run 'gcloud auth login' first."
+    exit 1
+fi
+
+# Export it as GCP_ACCESS_TOKEN (which auth_utils.py is configured to check)
+
+# Load AUTH_ID from .env if present
+if [ -f .env ]; then
+    # Grep AUTH_ID, remove quotes if any
+    ENV_AUTH_ID=$(grep -E '^[[:space:]]*AUTH_ID[[:space:]]*=' .env | sed -E 's/^[[:space:]]*AUTH_ID[[:space:]]*=[[:space:]]*//' | sed -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+fi
+
+# Default to bqtest if not set
+AUTH_ID=\${ENV_AUTH_ID:-test}
+
+# Export the token to the variable named by AUTH_ID
+echo "Exporting token to environment variable: $AUTH_ID"
+export $AUTH_ID="$TOKEN"
+
+echo "Launching ADK Web from one level above..."
+# We assume the user wants to run the 'app.py' in the current directory
+# Adjust the app path if necessary, e.g. gcp_health_agent.app
+cd ..
+adk web
+`;
+};
+
 
 interface AgentTemplate {
     id: string;
@@ -1550,6 +1689,7 @@ const GCP_LOGS_READER_TEMPLATE: AgentTemplate = {
         instruction: 'You are a Google Cloud Logging expert. Your goal is to help users find and analyze logs from their GCP projects.\n\nYou have access to the "logging_list_log_entries" tool (via Cloud Logging MCP). Use it to query logs.\n\nIMPORTANT:\n- The tool name is exactly "logging_list_log_entries" (one underscore). Do NOT use double underscores.\n- ALways specify a `resource_names` argument (e.g., ["projects/YOUR_PROJECT_ID"]).\n- Use the `filter` argument to narrow down logs (e.g., `severity>=WARNING`, `resource.type="cloud_run_revision"`).\n- The tool returns raw JSON. Summarize the interesting parts for the user; do not output the full JSON unless asked.\n- Always verify the project ID before querying.',
         useGoogleSearch: true,
         enableCloudLoggingMcp: true,
+        enableCodeExecution: false,
         tools: []
     }
 };
@@ -1589,6 +1729,7 @@ Report formatting guidelines:
         enableResourceManagerMcp: true,
         enableOAuth: true,
         enableEmailTool: true,
+        enableCodeExecution: false,
         tools: []
     }
 };
@@ -1598,25 +1739,26 @@ const GCP_BIGQUERY_AGENT_TEMPLATE: AgentTemplate = {
     name: 'GCP BigQuery Expert Agent',
     description: 'An agent that leverages BigQuery OneMCP to analyze data, write queries, and explore datasets.',
     config: {
-        name: 'GCP_BigQuery_Expert',
-        description: 'An expert data analyst agent that has access to BigQuery.',
+        name: 'GCP_BigQuery_Orchestrator',
+        description: 'An orchestrator agent that writes Python to analyze data and create visualizations.',
         model: 'gemini-2.5-flash',
         instruction: `You are an expert Google Cloud Data Architect and BigQuery Analyst.
-Your goal is to help users analyze data, write optimized SQL queries, and explore datasets using your BigQuery Managed MCP tool.
+You have access to a BigQuery toolset to interact with datasets and a Google Search tool for external information.
+Additionally, you have access to two specialized Python code execution sub-agents:
+- \`code_exec_agent\`: A specialized Python Data Science Expert for generating charts, graphs, and plots from data.
+- \`architecture_diagram_agent\`: A specialized expert for generating system architectures, flowcharts, and structural diagrams.
 
-When asked to analyze data or write a query:
-1. First, search for relevant datasets and tables if the user hasn't explicitly provided them.
-2. Examine the schema of the tables you plan to query.
-3. Write clean, optimized Standard SQL.
-4. Execute the query using your BigQuery tool to provide the results back to the user.
-
-Report formatting guidelines:
-* Format your answers cleanly using Markdown.
-* Always explain your SQL logic briefly.
-* Present query results in clear markdown tables if possible.`,
+When asked to analyze data or create a visualization:
+1.  **Explore**: Use the BigQuery tool to list datasets and table schemas if needed.
+2.  **Query**: Use the BigQuery tool to execute an optimized Standard SQL query and get the results.
+3.  **Choose the Right Tool**:
+    - For charts and data plots (bar charts, line graphs, scatter plots): Provide the query results to \`code_exec_agent\` and ask it to generate the requested chart.
+    - For system architectures, schemas, or flowcharts: Provide the structural information to \`architecture_diagram_agent\` and ask it to generate the diagram.
+4.  **Explain**: Present the insights and explain the visualization to the user.`,
         useGoogleSearch: true,
         enableBigQueryMcp: true,
         enableOAuth: true,
+        enableCodeExecution: true,
         tools: []
     }
 };
@@ -1628,15 +1770,15 @@ const TEMPLATES: AgentTemplate[] = [
 ];
 
 interface AgentBuilderPageProps {
-  projectNumber: string;
-  setProjectNumber: (projectNumber: string) => void;
-  context?: any;
+    projectNumber: string;
+    setProjectNumber: (projectNumber: string) => void;
+    context?: any;
     onBuildTriggered?: (buildId: string, projectId?: string) => void;
 }
 
 const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setProjectNumber, context, onBuildTriggered }) => {
     const [builderTab, setBuilderTab] = useState<'a2a' | 'adk'>('adk');
-    
+
     // --- A2A State ---
     const [a2aConfig, setA2aConfig] = useState<A2aConfig>({
         serviceName: 'my-a2a-function',
@@ -1651,10 +1793,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         useGoogleSearch: false,
         tools: [],
     });
-    
+
     const [deployProjectId, setDeployProjectId] = useState(projectNumber);
     const [isResolvingId, setIsResolvingId] = useState(false);
-    
+
     const [a2aGeneratedCode, setA2aGeneratedCode] = useState({
         main: '',
         dockerfile: '',
@@ -1662,7 +1804,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         gcloud: '',
         yaml: '',
     });
-    
+
     const [a2aActiveTab, setA2aActiveTab] = useState<'main' | 'dockerfile' | 'requirements' | 'env'>('main');
     const [a2aCopySuccess, setA2aCopySuccess] = useState('');
     const [isFixMode, setIsFixMode] = useState(false);
@@ -1693,6 +1835,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         thinkingBudget: 1024,
         enableStreaming: false,
         enableBigQueryMcp: false,
+        enableCodeExecution: false,
         enableEmailTool: false,
         enableSecurityCommandCenterApi: false,
         enableRecommenderApi: false,
@@ -1796,7 +1939,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     const [isBuildVisible, setIsBuildVisible] = useState(false);
 
 
-    
+
     // --- Common Logic ---
     const fetchProjectId = async () => {
         if (!projectNumber) return;
@@ -1814,7 +1957,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     };
 
     useEffect(() => {
-        setDeployProjectId(projectNumber); 
+        setDeployProjectId(projectNumber);
         fetchProjectId();
     }, [projectNumber]);
 
@@ -1866,86 +2009,86 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
 
     // ADK Data Store & Buckets Fetching
     const apiConfig = useMemo(() => ({
-      projectId: projectNumber,
-      appLocation: 'global',
-      collectionId: '',
-      appId: '',
-      assistantId: ''
+        projectId: projectNumber,
+        appLocation: 'global',
+        collectionId: '',
+        appId: '',
+        assistantId: ''
     }), [projectNumber]);
 
     useEffect(() => {
-      if (!projectNumber) return;
-      
-      const fetchData = async () => {
-        setIsLoadingDataStores(true);
-        setDataStores([]);
-        
-        const locations = ['global', 'us', 'eu'];
-        const dsResults: (DataStore & { location: string })[] = [];
+        if (!projectNumber) return;
 
-        await Promise.all(locations.map(async (loc) => {
-             const dsConfig = {
-                projectId: projectNumber,
-                appLocation: loc,
-                collectionId: 'default_collection',
-                appId: '',
-                assistantId: ''
-             };
-             try {
-                 const res = await api.listResources('dataStores', dsConfig);
-                 if (res.dataStores) {
-                     res.dataStores.forEach((ds: any) => dsResults.push({ ...ds, location: loc }));
-                 }
-             } catch(e) { }
-        }));
-        
-        setDataStores(dsResults);
-        if (dsResults.length === 1 && !toolBuilderConfig.dataStoreId) {
-            setToolBuilderConfig(prev => ({...prev, dataStoreId: dsResults[0].name}));
-        }
-        setIsLoadingDataStores(false);
+        const fetchData = async () => {
+            setIsLoadingDataStores(true);
+            setDataStores([]);
 
-        setIsLoadingServices(true);
-        setCloudRunServices([]);
-        const regions = ['us-central1', 'us-east1', 'europe-west1', 'asia-east1']; 
-        const services: CloudRunService[] = [];
-        
-        await Promise.all(regions.map(async (region) => {
+            const locations = ['global', 'us', 'eu'];
+            const dsResults: (DataStore & { location: string })[] = [];
+
+            await Promise.all(locations.map(async (loc) => {
+                const dsConfig = {
+                    projectId: projectNumber,
+                    appLocation: loc,
+                    collectionId: 'default_collection',
+                    appId: '',
+                    assistantId: ''
+                };
+                try {
+                    const res = await api.listResources('dataStores', dsConfig);
+                    if (res.dataStores) {
+                        res.dataStores.forEach((ds: any) => dsResults.push({ ...ds, location: loc }));
+                    }
+                } catch (e) { }
+            }));
+
+            setDataStores(dsResults);
+            if (dsResults.length === 1 && !toolBuilderConfig.dataStoreId) {
+                setToolBuilderConfig(prev => ({ ...prev, dataStoreId: dsResults[0].name }));
+            }
+            setIsLoadingDataStores(false);
+
+            setIsLoadingServices(true);
+            setCloudRunServices([]);
+            const regions = ['us-central1', 'us-east1', 'europe-west1', 'asia-east1'];
+            const services: CloudRunService[] = [];
+
+            await Promise.all(regions.map(async (region) => {
+                try {
+                    const res = await api.listCloudRunServices({ projectId: projectNumber } as any, region);
+                    if (res.services) services.push(...res.services);
+                } catch (e) { }
+            }));
+
+            const a2a = services.filter(s => {
+                const envVars = s.template?.containers?.[0]?.env || [];
+                const getEnv = (name: string) => envVars.find(e => e.name === name)?.value;
+                return !!(getEnv('AGENT_URL') || getEnv('PROVIDER_ORGANIZATION') || s.name.toLowerCase().includes('a2a'));
+            });
+
+            setCloudRunServices(a2a);
+            setIsLoadingServices(false);
+
+            // Fetch Buckets
+            setIsLoadingBuckets(true);
             try {
-                const res = await api.listCloudRunServices({ projectId: projectNumber } as any, region);
-                if (res.services) services.push(...res.services);
-            } catch (e) {}
-        }));
-        
-        const a2a = services.filter(s => {
-             const envVars = s.template?.containers?.[0]?.env || [];
-             const getEnv = (name: string) => envVars.find(e => e.name === name)?.value;
-             return !!(getEnv('AGENT_URL') || getEnv('PROVIDER_ORGANIZATION') || s.name.toLowerCase().includes('a2a'));
-        });
-        
-        setCloudRunServices(a2a);
-        setIsLoadingServices(false);
+                // We need to resolve the project string first if currently a number, 
+                // but here we just try api.listBuckets which likely expects an ID string or number.
+                // Best effort:
+                const b = await api.listBuckets(projectNumber);
+                const items = b.items || [];
+                setBuckets(items);
+                if (items.length > 0 && !stagingBucket) {
+                    setStagingBucket(`gs://${items[0].name}`);
+                }
+            } catch (e) {
+                console.error("Failed to fetch buckets", e);
+            } finally {
+                setIsLoadingBuckets(false);
+            }
+        };
 
-          // Fetch Buckets
-          setIsLoadingBuckets(true);
-          try {
-              // We need to resolve the project string first if currently a number, 
-              // but here we just try api.listBuckets which likely expects an ID string or number.
-              // Best effort:
-              const b = await api.listBuckets(projectNumber);
-              const items = b.items || [];
-              setBuckets(items);
-              if (items.length > 0 && !stagingBucket) {
-                  setStagingBucket(`gs://${items[0].name}`);
-              }
-          } catch (e) {
-              console.error("Failed to fetch buckets", e);
-          } finally {
-              setIsLoadingBuckets(false);
-          }
-      };
-      
-      fetchData();
+        fetchData();
     }, [projectNumber]);
 
 
@@ -1955,12 +2098,12 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     const handleA2aConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
         if (type === 'checkbox') {
-             setA2aConfig(prev => ({...prev, [name]: (e.target as HTMLInputElement).checked }));
+            setA2aConfig(prev => ({ ...prev, [name]: (e.target as HTMLInputElement).checked }));
         } else if (name === 'serviceName') {
             const sanitizedValue = value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').substring(0, 63);
-            setA2aConfig(prev => ({...prev, [name]: sanitizedValue }));
+            setA2aConfig(prev => ({ ...prev, [name]: sanitizedValue }));
         } else {
-            setA2aConfig(prev => ({...prev, [name]: value as any }));
+            setA2aConfig(prev => ({ ...prev, [name]: value as any }));
         }
     };
 
@@ -1989,10 +2132,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                 setAdkConfig(prev => ({ ...prev, [name]: isChecked }));
             }
         } else if (name === 'name') {
-             const sanitizedValue = value.replace(/\s+/g, '_');
-             setAdkConfig(prev => ({...prev, [name]: sanitizedValue }));
+            const sanitizedValue = value.replace(/\s+/g, '_');
+            setAdkConfig(prev => ({ ...prev, [name]: sanitizedValue }));
         } else {
-            setAdkConfig(prev => ({...prev, [name]: value as any }));
+            setAdkConfig(prev => ({ ...prev, [name]: value as any }));
         }
     };
 
@@ -2014,7 +2157,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
 
     const handleRewrite = async (field: 'instruction') => {
         setRewritingField(field);
-        
+
         const currentInstruction = builderTab === 'a2a' ? a2aConfig.instruction : adkConfig.instruction;
         const prompt = `You are an expert prompt engineer. Your task is to rewrite the following system instruction to be highly effective for a Large Language Model (LLM).
         Structure the rewritten prompt clearly.
@@ -2065,15 +2208,16 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
 
     const handleDownloadAdkZip = () => {
         const zip = new JSZip();
-        zip.file("app.py", adkGeneratedCode.app);
-        zip.file("agent.py", adkGeneratedCode.agent);
+        zip.file("app.py", generateAppPy(true));
+        zip.file("agent.py", generateAdkPythonCode(adkConfig, true));
         zip.file(".env", adkGeneratedCode.env);
         zip.file("requirements.txt", adkGeneratedCode.requirements);
         zip.file("auth.py", adkGeneratedCode.auth);
-        zip.file("tools.py", adkGeneratedCode.tools);
+        zip.file("tools.py", generateToolsPy(adkConfig, true));
         zip.file("__init__.py", adkGeneratedCode.init);
         zip.file("deploy_re.py", generateAdkDeployScript(adkConfig));
         zip.file("README.md", generateAdkReadmeFile(adkConfig));
+        zip.file("scripts/launch.sh", generateLaunchScript());
 
         zip.generateAsync({ type: "blob" })
             .then(function (content) {
@@ -2088,21 +2232,21 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
             });
     };
 
-    const adkCodeDisplay = { 
+    const adkCodeDisplay = {
         app: adkGeneratedCode.app,
-        agent: adkGeneratedCode.agent, 
-        env: adkGeneratedCode.env, 
-        requirements: adkGeneratedCode.requirements, 
+        agent: adkGeneratedCode.agent,
+        env: adkGeneratedCode.env,
+        requirements: adkGeneratedCode.requirements,
         auth: adkGeneratedCode.auth,
         tools: adkGeneratedCode.tools,
         init: adkGeneratedCode.init
     }[adkActiveTab];
 
-    const a2aCodeDisplay = { 
-        main: a2aGeneratedCode.main, 
-        dockerfile: a2aGeneratedCode.dockerfile, 
-        requirements: a2aGeneratedCode.requirements, 
-        env: a2aGeneratedCode.yaml 
+    const a2aCodeDisplay = {
+        main: a2aGeneratedCode.main,
+        dockerfile: a2aGeneratedCode.dockerfile,
+        requirements: a2aGeneratedCode.requirements,
+        env: a2aGeneratedCode.yaml
     }[a2aActiveTab];
 
     const adkFilesForBuild = [
@@ -2216,11 +2360,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                     Check Build Status
                 </button>
             </div>
-            
+
             {/* Deploy Modals */}
             <AgentDeploymentModal isOpen={isAdkDeployModalOpen} onClose={() => setIsAdkDeployModalOpen(false)} agentName={adkConfig.name || 'my-agent'} files={adkFilesForBuild} projectNumber={projectNumber} onBuildTriggered={handleBuildTriggered} initialBucket={stagingBucket ? stagingBucket.replace('gs://', '') : undefined} />
             <A2aDeployModal isOpen={isA2aDeployModalOpen} onClose={() => setIsA2aDeployModalOpen(false)} projectNumber={projectNumber} serviceName={a2aConfig.serviceName} region={a2aConfig.region} files={a2aFilesForBuild} onBuildTriggered={handleBuildTriggered} />
-            
+
             {isFixMode && builderTab === 'a2a' && (
                 <div className="bg-yellow-900/30 border border-yellow-700 p-4 rounded-lg shrink-0">
                     <h3 className="text-yellow-400 font-bold mb-1">Fixing Service: {a2aConfig.serviceName}</h3>
@@ -2230,7 +2374,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
 
             {/* Layout Container */}
             <div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-0">
-                
+
                 {/* Left Column: Configuration (Box 1) */}
                 <div className="bg-gray-800 p-4 rounded-lg shadow-md lg:w-1/3 flex flex-col overflow-y-auto border border-gray-700">
                     <h2 className="text-lg font-semibold text-white mb-3 shrink-0">1. Configure Agent</h2>
@@ -2239,7 +2383,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                             <label className="block text-sm font-medium text-gray-400 mb-1">Project Number</label>
                             <ProjectInput value={projectNumber} onChange={setProjectNumber} />
                         </div>
-                        
+
                         {builderTab === 'adk' ? (
                             <>
                                 {/* Templates Selection */}
@@ -2274,6 +2418,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                                         thinkingBudget: 1024,
                                                         enableStreaming: false,
                                                         enableBigQueryMcp: false,
+                                                        enableCodeExecution: false,
                                                         enableEmailTool: false,
                                                         enableSecurityCommandCenterApi: false,
                                                         enableRecommenderApi: false,
@@ -2374,7 +2519,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                 <div className="space-y-2 pt-2 border-t border-gray-600">
                                     <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="useGoogleSearch" checked={adkConfig.useGoogleSearch} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" /><span className="text-sm text-gray-300">Enable Google Search Tool</span></label>
 
-                                            <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
+                                    <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
                                         <h4 className="text-xs font-semibold text-gray-400">Agent Capabilities</h4>
                                         <div className="flex items-center space-x-2">
                                             <label className="flex items-center space-x-3 cursor-pointer">
@@ -2398,6 +2543,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                         <label className="flex items-center space-x-3 cursor-pointer">
                                             <input type="checkbox" name="enableStreaming" checked={adkConfig.enableStreaming} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
                                             <span className="text-sm text-gray-300">Enable Streaming Responses</span>
+                                        </label>
+                                        <label className="flex items-center space-x-3 cursor-pointer">
+                                            <input type="checkbox" name="enableCodeExecution" checked={adkConfig.enableCodeExecution} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Code Execution Sub-Agent</span>
                                         </label>
                                     </div>
 
@@ -2474,15 +2623,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
 
                                     <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
                                         <h4 className="text-xs font-semibold text-gray-400">Observability</h4>
-                                                <label className="flex items-center space-x-3 cursor-pointer" title="Populates the agent observability dashboard and traces pages.">
-                                                    <input type="checkbox" name="enableTelemetry" checked={adkConfig.enableTelemetry} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                                    <span className="text-sm text-gray-300">Enable OpenTelemetry Traces & Logs</span>
-                                                </label>
-                                                <label className="flex items-center space-x-3 cursor-pointer" title="Enabling this will collect and store the full content of user prompts and responses. Ensure you have necessary user consents.">
-                                                    <input type="checkbox" name="enableMessageLogging" checked={adkConfig.enableMessageLogging} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                                    <span className="text-sm text-gray-300">Log Prompts & Responses (Sensitive)</span>
-                                                </label>
-                                            </div>
+                                        <label className="flex items-center space-x-3 cursor-pointer" title="Populates the agent observability dashboard and traces pages.">
+                                            <input type="checkbox" name="enableTelemetry" checked={adkConfig.enableTelemetry} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable OpenTelemetry Traces & Logs</span>
+                                        </label>
+                                        <label className="flex items-center space-x-3 cursor-pointer" title="Enabling this will collect and store the full content of user prompts and responses. Ensure you have necessary user consents.">
+                                            <input type="checkbox" name="enableMessageLogging" checked={adkConfig.enableMessageLogging} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Log Prompts & Responses (Sensitive)</span>
+                                        </label>
+                                    </div>
 
 
                                 </div>
@@ -2537,7 +2686,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                         <div className="flex gap-2">
                                             <select
                                                 value={toolBuilderConfig.dataStoreId}
-                                                onChange={(e) => setToolBuilderConfig({...toolBuilderConfig, dataStoreId: e.target.value})}
+                                                onChange={(e) => setToolBuilderConfig({ ...toolBuilderConfig, dataStoreId: e.target.value })}
                                                 className="bg-gray-600 border border-gray-500 rounded-md px-2 py-1 text-xs text-white w-full"
                                                 disabled={isLoadingDataStores}
                                             >
@@ -2583,7 +2732,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                                     .map(s => <option key={s.name} value={s.uri}>{s.name.split('/').pop()}</option>)
                                                 }
                                             </select>
-                                            <button 
+                                            <button
                                                 onClick={() => handleAddTool({ type: 'A2AClientTool', url: selectedA2aService, variableName: `a2a_agent_${(builderTab === 'a2a' ? a2aConfig.tools : adkConfig.tools).length + 1}` })}
                                                 disabled={!selectedA2aService}
                                                 className="px-2 py-1 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 disabled:opacity-50"
@@ -2594,7 +2743,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <div className="mt-3 space-y-2">
                                 {(builderTab === 'a2a' ? a2aConfig.tools : adkConfig.tools).map((tool, i) => (
                                     <div key={i} className="flex justify-between items-center bg-gray-900 px-3 py-2 rounded border border-gray-700">
@@ -2626,14 +2775,13 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                         <div className="flex justify-between items-center mb-2 shrink-0">
                             <div className="flex border-b border-gray-700">
                                 {(builderTab === 'adk' ? ADK_TABS.filter(t => t.id !== 'auth' || adkConfig.enableOAuth) : A2A_TABS).map(tab => (
-                                    <button 
-                                        key={tab.id} 
-                                        onClick={() => builderTab === 'adk' ? setAdkActiveTab(tab.id as any) : setA2aActiveTab(tab.id as any)} 
-                                        className={`px-3 py-2 text-xs font-medium transition-colors ${
-                                            (builderTab === 'adk' ? adkActiveTab : a2aActiveTab) === tab.id 
-                                            ? 'border-b-2 border-blue-500 text-white' 
+                                    <button
+                                        key={tab.id}
+                                        onClick={() => builderTab === 'adk' ? setAdkActiveTab(tab.id as any) : setA2aActiveTab(tab.id as any)}
+                                        className={`px-3 py-2 text-xs font-medium transition-colors ${(builderTab === 'adk' ? adkActiveTab : a2aActiveTab) === tab.id
+                                            ? 'border-b-2 border-blue-500 text-white'
                                             : 'text-gray-400 hover:text-white'
-                                        }`}
+                                            }`}
                                     >
                                         {tab.label}
                                     </button>
@@ -2643,8 +2791,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
 
 
                             {/* Location */}
-                            <button 
-                                onClick={() => handleCopy(builderTab === 'adk' ? adkCodeDisplay : a2aCodeDisplay, builderTab === 'adk' ? setAdkCopySuccess : setA2aCopySuccess)} 
+                            <button
+                                onClick={() => handleCopy(builderTab === 'adk' ? adkCodeDisplay : a2aCodeDisplay, builderTab === 'adk' ? setAdkCopySuccess : setA2aCopySuccess)}
                                 className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500"
                             >
                                 {(builderTab === 'adk' ? adkCopySuccess : a2aCopySuccess) || 'Copy'}
@@ -2669,8 +2817,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                     </h3>
                                     <div className="flex gap-2">
                                         <button onClick={builderTab === 'adk' ? handleDownloadAdkZip : handleDownloadA2a} className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500">Download .zip</button>
-                                        <button 
-                                            onClick={() => handleCopy(builderTab === 'adk' ? adkGeneratedCode.readme : a2aGeneratedCode.gcloud, builderTab === 'adk' ? setAdkCopySuccess : setA2aCopySuccess)} 
+                                        <button
+                                            onClick={() => handleCopy(builderTab === 'adk' ? adkGeneratedCode.readme : a2aGeneratedCode.gcloud, builderTab === 'adk' ? setAdkCopySuccess : setA2aCopySuccess)}
                                             className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500"
                                         >
                                             {(builderTab === 'adk' ? adkCopySuccess : a2aCopySuccess) || (builderTab === 'adk' ? 'Copy README' : 'Copy Script')}
