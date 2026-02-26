@@ -218,8 +218,8 @@ const InnerApp: React.FC = () => {
             const now = Date.now();
             const timeToExpiry = tokenExpiryRef.current - now;
 
-            // If expiring in less than 5 minutes (300,000 ms) and not already expired
-            if (timeToExpiry < 300000 && timeToExpiry > -60000) {
+            // If expiring in less than 30 minutes (1,800,000 ms) and not already expired
+            if (timeToExpiry < 1800000 && timeToExpiry > -60000) {
                 console.log("Token expiring soon, renewing on user activity...");
                 isRenewingRef.current = true;
                 tokenClient.current.requestAccessToken({ prompt: '' });

@@ -3,25 +3,43 @@ import { Authorization, Agent } from '../../types';
 
 interface AuthListProps {
   authorizations: Authorization[];
-  onDelete: (auth: Authorization) => void;
+  onDelete: (auth?: Authorization) => void;
   onEdit: (authId: string) => void;
   onCreateNew: () => void;
   authUsage: Record<string, Agent[]>;
   isScanningAgents: boolean;
   onView: (auth: Authorization) => void;
+  selectedIds: Set<string>;
+  onToggleSelect: (authId: string) => void;
+  onToggleSelectAll: () => void;
+  onDeleteSelected: () => void;
 }
 
-const AuthList: React.FC<AuthListProps> = ({ authorizations, onDelete, onEdit, onCreateNew, authUsage, isScanningAgents, onView }) => {
+const AuthList: React.FC<AuthListProps> = ({ authorizations, onDelete, onEdit, onCreateNew, authUsage, isScanningAgents, onView, selectedIds, onToggleSelect, onToggleSelectAll, onDeleteSelected }) => {
+  const isAllSelected = authorizations.length > 0 && selectedIds.size === authorizations.length;
   return (
     <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">
       <div className="p-4 flex justify-between items-center border-b border-gray-700">
         <h2 className="text-xl font-bold text-white">Authorization Resources</h2>
-        <button
-          onClick={onCreateNew}
-          className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-green-500"
-        >
-          Create New Authorization
-        </button>
+        <div className="flex items-center gap-4">
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-gray-300">{selectedIds.size} selected</span>
+              <button
+                onClick={onDeleteSelected}
+                className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-red-500"
+              >
+                Delete Selected
+              </button>
+            </div>
+          )}
+          <button
+            onClick={onCreateNew}
+            className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-green-500"
+          >
+            Create New Authorization
+          </button>
+        </div>
       </div>
       {authorizations.length === 0 && !isScanningAgents ? (
         <p className="text-gray-400 p-6 text-center">No authorizations found for the provided project number.</p>
@@ -30,6 +48,9 @@ const AuthList: React.FC<AuthListProps> = ({ authorizations, onDelete, onEdit, o
           <table className="min-w-full divide-y divide-gray-700">
             <thead className="bg-gray-700/50">
               <tr>
+                  <th scope="col" className="px-6 py-3 w-10">
+                    <input type="checkbox" checked={isAllSelected} onChange={onToggleSelectAll} className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600" />
+                  </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Auth ID</th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Region</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Client ID</th>
@@ -44,8 +65,12 @@ const AuthList: React.FC<AuthListProps> = ({ authorizations, onDelete, onEdit, o
                 const authId = auth.name.split('/').pop() || '';
                 const location = auth.name.match(/locations\/([a-zA-Z0-9-]+)\//)?.[1] || 'unknown';
                 const usingAgents = authUsage[auth.name] || [];
+                const isSelected = selectedIds.has(auth.name);
                 return (
-                  <tr key={auth.name} className="hover:bg-gray-700/50 transition-colors">
+                  <tr key={auth.name} className={`${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-700/50'} transition-colors`}>
+                    <td className="px-6 py-4">
+                      <input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(auth.name)} className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600" />
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white font-mono">{authId}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300 font-mono">
                       <span className={`px-2 py-1 rounded-full text-xs font-semibold ${location === 'global' ? 'bg-blue-900 text-blue-200' : 'bg-green-900 text-green-200'}`}>

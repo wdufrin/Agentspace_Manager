@@ -46,7 +46,7 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
   
   // State for delete confirmation modal
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [authToDelete, setAuthToDelete] = useState<Authorization | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
 
   const [showWorkforceValidator, setShowWorkforceValidator] = useState(false);
@@ -166,59 +166,59 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
     }
   }, [fetchData, projectNumber, hasLoaded, setAuthorizations, setAuthUsage, setHasLoaded]);
   
-  const requestDelete = (auth: Authorization) => {
-    setAuthToDelete(auth);
-    setIsDeleteModalOpen(true);
+  const handleToggleSelect = (authId: string) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(authId)) newSet.delete(authId);
+      else newSet.add(authId);
+      return newSet;
+    });
+  };
+
+  const handleToggleSelectAll = () => {
+    const displayedItems = authorizations.filter(auth => auth.name.includes(`/locations/${region}/`));
+    if (selectedIds.size === displayedItems.length && displayedItems.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(displayedItems.map(a => a.name)));
+    }
+  };
+
+  const openDeleteModal = (auth?: Authorization) => {
+    if (auth) {
+      setSelectedIds(new Set([auth.name]));
+    }
+    if (selectedIds.size > 0 || auth) {
+      setIsDeleteModalOpen(true);
+    }
   };
 
   const confirmDelete = async () => {
-    if (!authToDelete) return;
-    
-    const authId = authToDelete.name.split('/').pop() || '';
+    if (selectedIds.size === 0) return;
+
     setIsDeleting(true);
     setIsDeleteModalOpen(false);
     setError(null);
 
-    try {
+    const failures: string[] = [];
+    const authsToDelete = authorizations.filter(a => selectedIds.has(a.name));
+
+    for (const auth of authsToDelete) {
+      const authId = auth.name.split('/').pop() || '';
+      try {
         await api.deleteAuthorization(authId, apiConfig);
-        fetchData(); // Refresh list and usage map
-    } catch (err: any) {
-        let errorMessage = err.message || `Failed to delete authorization ${authId}.`;
-
-        if (errorMessage.includes("is used by another agent") || errorMessage.includes("is linked to a resource")) {
-            const agentNameMatch = errorMessage.match(/(projects\/[^\s]+)/);
-            if (agentNameMatch && agentNameMatch[0] && agentNameMatch[0].includes('/agents/')) {
-                const agentResourceName = agentNameMatch[0];
-                const agentId = agentResourceName.split('/').pop() || agentResourceName;
-                
-                errorMessage = `Cannot delete. Authorization is in use by agent with ID: ${agentId}. Please remove the dependency before deleting.`;
-
-                try {
-                    const agentParts = agentResourceName.split('/');
-                    if (agentParts.length > 3) {
-                        const agentLocation = agentParts[3];
-                        const agentConfig = { ...apiConfig, appLocation: agentLocation };
-                        const agentDetails = await api.getAgent(agentResourceName, agentConfig);
-                        errorMessage = `Cannot delete. Authorization is in use by agent: "${agentDetails.displayName}" (ID: ${agentId}). Please remove the dependency before deleting.`;
-                    }
-                } catch (agentFetchError: any) {
-                    console.error("Failed to fetch details for blocking agent:", agentFetchError.message);
-                    const lowerCaseMessage = agentFetchError.message ? agentFetchError.message.toLowerCase() : '';
-                    if (lowerCaseMessage.includes('not found')) {
-                        errorMessage = `Cannot delete. Authorization is in use by an agent (ID: ${agentId}) that appears to be recently deleted. Due to backend processing delays, this link can persist for some time. Please try again later (e.g., in an hour). To prevent this, edit agents to remove authorizations before deleting them in the future.`;
-                    } else if (lowerCaseMessage.includes('does not exist')) {
-                        errorMessage = `Cannot delete. Authorization is in use by an agent (ID: ${agentId}) whose parent App/Engine no longer exists. This can happen if the App/Engine was recently deleted. Due to backend processing delays, this link can persist for some time. Please try again later (e.g., in an hour).`;
-                    }
-                }
-            } else {
-                 errorMessage = "Cannot delete. This authorization is currently in use by another resource (e.g., an agent). Please remove the dependency before deleting.";
-            }
+        } catch (err: any) {
+          failures.push(`- ${authId}: ${err.message}`);
         }
-        setError(errorMessage);
-    } finally {
-        setIsDeleting(false);
-        setAuthToDelete(null);
     }
+
+    if (failures.length > 0) {
+      setError(`Failed to delete some authorizations:\n${failures.join('\n')}`);
+    }
+
+    setSelectedIds(new Set());
+    setIsDeleting(false);
+    fetchData(); // Refresh list and usage map
   };
 
   const handleEdit = async (authId: string) => {
@@ -292,12 +292,16 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
     return (
       <AuthList
         authorizations={displayedAuthorizations}
-        onDelete={requestDelete}
+        onDelete={openDeleteModal}
         onEdit={handleEdit}
         onView={handleView}
         onCreateNew={handleShowCreateForm}
         authUsage={authUsage}
         isScanningAgents={isScanningAgents}
+        selectedIds={selectedIds}
+        onToggleSelect={handleToggleSelect}
+        onToggleSelectAll={handleToggleSelectAll}
+        onDeleteSelected={() => openDeleteModal()}
       />
     );
   };
@@ -359,21 +363,28 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
       )}
       {renderContent()}
 
-      {authToDelete && (
+      {isDeleteModalOpen && (
         <ConfirmationModal
             isOpen={isDeleteModalOpen}
             onClose={() => setIsDeleteModalOpen(false)}
             onConfirm={confirmDelete}
-            title="Confirm Authorization Deletion"
+          title={`Confirm Deletion of ${selectedIds.size} Authorization(s)`}
             confirmText="Delete"
             isConfirming={isDeleting}
         >
-            <p>Are you sure you want to permanently delete this authorization?</p>
-            <div className="mt-2 p-3 bg-gray-700/50 rounded-md border border-gray-600">
-                <p className="font-bold text-white font-mono">{authToDelete.name.split('/').pop()}</p>
-                 <p className="text-xs text-gray-400 mt-1">Client ID: {authToDelete.serverSideOauth2.clientId}</p>
-            </div>
-            <p className="mt-4 text-sm text-yellow-300">This action cannot be undone and may break agents that rely on it.</p>
+          <p>Are you sure you want to permanently delete the following authorizations?</p>
+          <ul className="mt-2 p-3 bg-gray-700/50 rounded-md border border-gray-600 max-h-48 overflow-y-auto space-y-1">
+            {Array.from(selectedIds).map(id => {
+              const auth = authorizations.find(a => a.name === id);
+              return (
+                <li key={id} className="text-sm">
+                  <p className="font-bold text-white font-mono">{id.split('/').pop()}</p>
+                  {auth && <p className="text-xs text-gray-400 mt-1">Client ID: {auth.serverSideOauth2.clientId}</p>}
+                </li>
+              )
+            })}
+          </ul>
+          <p className="mt-4 text-sm text-yellow-300">This action cannot be undone and may break agents that rely on them.</p>
         </ConfirmationModal>
       )}
 
