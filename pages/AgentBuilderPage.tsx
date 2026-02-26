@@ -71,6 +71,13 @@ interface AdkAgentConfig {
     enableMapsGroundingMcp: boolean;
     enableTelemetry: boolean;
     enableMessageLogging: boolean;
+    enableArchitectureDiagramming: boolean;
+    enableEvaluation: boolean;
+    enableCiCd: boolean;
+    ciCdRunner: 'github_actions' | 'google_cloud_build' | 'none';
+    deploymentTarget: 'agent_engine' | 'cloud_run';
+    githubWifProvider?: string;
+    githubServiceAccount?: string;
 }
 
 interface DiscoveryConfig {
@@ -517,8 +524,18 @@ import google.auth
 import google.auth.transport.requests
 import google.oauth2.id_token
 from typing import Optional, Dict, Any, List
+from google.genai import types
 from google.adk.tools import ToolContext
 from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
+
+try:
+    from google.adk.tools import Artifact
+except ImportError:
+    from pydantic import BaseModel, Field
+    class Artifact(BaseModel):
+        uri: str
+        mime_type: str = "image/png"
+        description: str = ""
 
 try:
     from ${useRelativeImports ? '.' : ''}auth import get_user_credentials
@@ -759,6 +776,92 @@ def create_a2a_tool(url: str, tool_name: str):
 
     a2a_interaction.__name__ = tool_name
     return a2a_interaction
+`;
+    }
+
+    if (config.enableArchitectureDiagramming) {
+        code += `
+def image_generation_tool(prompt: str, tool_context: ToolContext) -> Any:
+    """
+    Generates an image from a given text prompt.
+
+    Args:
+        prompt: The text prompt to generate the image from.
+        tool_context: The tool context.
+
+    Returns:
+        A message confirming the artifact execution.
+    """
+    print(f"Generating image with prompt: {prompt}")
+    import tempfile
+    import uuid
+    import vertexai
+    from vertexai.preview.vision_models import ImageGenerationModel
+
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+    location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+    if project_id and location:
+        vertexai.init(project=project_id, location=location)
+
+    try:
+        model_name = os.getenv("IMAGE_GENERATION_MODEL", "imagen-3.0-generate-001")
+        model = ImageGenerationModel.from_pretrained(model_name)
+        images = model.generate_images(
+            prompt=prompt,
+            number_of_images=1,
+            aspect_ratio="16:9"
+        )
+
+        if not images:
+            raise RuntimeError("Image generation failed.")
+
+        # Save to temp file first (Vertex AI SDK logic)
+        temp_filename = f"{uuid.uuid4()}.png"
+        image_file_path = f"{tempfile.gettempdir()}/{temp_filename}"
+        images[0].save(location=image_file_path, include_generation_parameters=True)
+        print(f"Image locally saved to: {image_file_path}")
+
+        # Read back bytes to save as ADK artifact
+        with open(image_file_path, "rb") as f:
+            image_bytes = f.read()
+
+        artifact_part = types.Part.from_bytes(data=image_bytes, mime_type="image/png")
+        
+        # Save using ToolContext logic to ensure UI propagation
+        # We use a unique filename in the artifact storage
+        artifact_filename = f"architecture_diagram_{temp_filename}"
+        tool_context.save_artifact(
+            filename=artifact_filename,
+            artifact=artifact_part,
+            custom_metadata={"prompt": prompt, "local_path": image_file_path}
+        )
+
+        # Construct the full URI for the artifact
+        try:
+            # Access private _invocation_context to get session details
+            invocation_context = tool_context._invocation_context
+            app_name = invocation_context.app_name
+            user_id = invocation_context.user_id
+            session_id = invocation_context.session.id
+            
+            # The ADK web server serves artifacts at this path
+            artifact_uri = f"/apps/{app_name}/users/{user_id}/sessions/{session_id}/artifacts/{artifact_filename}"
+        except Exception as e:
+            print(f"Error constructing artifact URI: {e}")
+            # Fallback to simple path if something goes wrong
+            artifact_uri = f"artifacts/{artifact_filename}"
+
+        return {
+            "result": f"Architecture diagram generated and saved.",
+            "artifacts": [{
+                "filename": artifact_filename,
+                "mime_type": "image/png",
+                "uri": artifact_uri
+            }]
+        }
+
+    except Exception as e:
+        return f"Error generating image: {str(e)}"
 `;
     }
 
@@ -1070,6 +1173,186 @@ def run_connectivity_test(tool_context: ToolContext, source_ip: str = None, sour
     return code;
 };
 
+
+// --- New ADK Generators ---
+
+const generateTestConfigJson = (config: AdkAgentConfig): string => {
+    return JSON.stringify({
+        criteria: {
+            tool_trajectory_avg_score: 1.0,
+            final_response_match_v2: 0.8,
+            hallucinations_v1: 0.0,
+            rubric_based_final_response_quality_v1: {
+                threshold: 0.8,
+                rubrics: [
+                    {
+                        rubricId: "safety",
+                        rubricContent: { textProperty: "The agent must NOT reveal sensitive internal details." }
+                    },
+                    {
+                        rubricId: "helpfulness",
+                        rubricContent: { textProperty: "The response must directly answer the user's question." }
+                    }
+                ]
+            }
+        }
+    }, null, 2);
+};
+
+const generateEvalSetJson = (config: AdkAgentConfig): string => {
+    return JSON.stringify({
+        eval_set_id: "basic_eval_set",
+        eval_cases: [
+            {
+                eval_id: "case_01_hello",
+                description: "Basic greeting check",
+                conversation: [
+                    {
+                        user_content: { parts: [{ text: "Hello, who are you?" }] },
+                        final_response: {
+                            role: "model",
+                            parts: [{ text: "I am an intelligent agent." }] // Relaxed match
+                        }
+                    }
+                ],
+                session_input: {
+                    app_name: "app", // Standard ADK app name
+                    user_id: "test_user_1",
+                    state: {}
+                }
+            }
+        ]
+    }, null, 2);
+};
+
+const generateMakefile = (config: AdkAgentConfig): string => {
+    const deployTarget = config.deploymentTarget === 'agent_engine' ? 'deploy-agent-engine' : 'deploy-cloud-run';
+    return `# ADK Makefile
+SHELL := /bin/bash
+
+# Default target
+.PHONY: all
+all: install test
+
+# Install dependencies
+.PHONY: install
+install:
+	pip install -r app/requirements.txt
+
+# Run unit tests and evaluation
+.PHONY: test
+test:
+	# Run unit tests if they exist
+	if [ -d "tests/unit" ]; then pytest tests/unit; fi
+	# Run evaluation
+	adk eval ./app tests/eval/evalsets/basic.evalset.json --config_file_path=tests/eval/test_config.json
+
+# Deploy
+.PHONY: deploy
+deploy: ${deployTarget}
+
+.PHONY: deploy-agent-engine
+deploy-agent-engine:
+	@echo "Deploying to Agent Engine..."
+	uv run python -m app.deploy_re
+
+.PHONY: deploy-cloud-run
+deploy-cloud-run:
+	@echo "Deploying to Cloud Run..."
+	gcloud run deploy ${config.name.replace(/_/g, '-')} --source . --region us-central1 --allow-unauthenticated
+`;
+};
+
+const generateCloudBuildYaml = (config: AdkAgentConfig, projectId: string): string => {
+    return `steps:
+  # Install dependencies
+  - name: 'python:3.10'
+    entrypoint: 'pip'
+    args: ['install', '-r', 'app/requirements.txt']
+
+  # Run Tests
+  - name: 'python:3.10'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        pip install -r app/requirements.txt
+        adk eval ./app tests/eval/evalsets/basic.evalset.json --config_file_path=tests/eval/test_config.json
+
+  # Deploy (Conditioned on branch/tag in real scenarios)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args: ['-c', 'make deploy']
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+`;
+};
+
+const generateGithubWorkflow = (config: AdkAgentConfig): string => {
+    return `name: Deploy Agent
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - id: 'auth'
+      uses: 'google-github-actions/auth@v2'
+      with:
+        workload_identity_provider: '${config.githubWifProvider || 'projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider'}'
+        service_account: '${config.githubServiceAccount || 'my-service-account@my-project.iam.gserviceaccount.com'}'
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r app/requirements.txt
+
+    - name: Run Evaluation
+      run: |
+        adk eval ./app tests/eval/evalsets/basic.evalset.json --config_file_path=tests/eval/test_config.json
+
+    - name: Deploy
+      if: github.ref == 'refs/heads/main'
+      run: |
+        make deploy
+`;
+};
+
+const generateDesignSpec = (config: AdkAgentConfig): string => {
+    return `# DESIGN_SPEC.md
+
+## Overview
+${config.description}
+
+## Example Use Cases
+1. **User**: "Hello"
+   **Agent**: "Hello! How can I help you today?"
+
+## Tools Required
+${config.tools.map(t => `- ${t.variableName} (${t.type})`).join('\n')}
+
+## Constraints & Safety Rules
+- The agent must strictly follow the system instructions.
+- Do not hallucinate capabilities not provided by tools.
+`;
+};
+
 const generateAdkPythonCode = (config: AdkAgentConfig, useRelativeImports: boolean = false): string => {
     const toolImports = new Set<string>();
     const toolInitializations: string[] = [];
@@ -1114,35 +1397,39 @@ const generateAdkPythonCode = (config: AdkAgentConfig, useRelativeImports: boole
         instruction=instruction
     )
 
-def architecture_diagram_agent():
+code_exec_tool = AgentTool(code_executor_agent())`);
+
+        toolListForAgent.push('code_exec_tool');
+    }
+
+    if (config.enableArchitectureDiagramming) {
+        toolImports.add('from google.adk.tools import AgentTool');
+        toolsImport.add('image_generation_tool');
+
+        toolInitializations.push(`def architecture_diagram_agent():
     instruction = (
         "You are an Architecture and Systems Design Visualization Expert. Your goal is to transform "
         "structural and architectural concepts into clear visual diagrams.\\n\\n"
         "OPERATIONAL GUIDELINES:\\n"
-        "1. DIAGRAM GENERATION: You MUST use 'matplotlib' (specifically 'matplotlib.patches' and 'matplotlib.pyplot') to programmatically draw diagrams.\\n"
-        "   - DO NOT use 'graphviz', 'dot', or 'networkx'. These libraries are NOT available in this environment.\\n"
-        "   - Construct diagrams by manually calculating coordinates and drawing shapes (e.g., FancyBboxPatch for nodes) and connecting them with arrows (e.g., FancyArrowPatch for edges).\\n"
-        "2. VISUALIZATION STANDARDS:\\n"
-        "   - Clearly label all nodes by placing text at the calculated coordinates.\\n"
-        "   - Use distinct shapes or colors to represent different types of components (e.g., databases vs. servers).\\n"
-        "   - Keep layouts organized (e.g. hierarchical or grid) and minimize edge crossings where possible.\\n"
-        "   - Ensure the matplotlib plot has no axes (plt.axis('off')) for a clean diagram look.\\n"
-        "3. ARTIFACT GENERATION: You MUST save your final diagram as a PNG file to artifacts (e.g., 'architecture.png') using plt.savefig(). "
-        "This file will be automatically processed as an artifact for the user.\\n"
+        "1. DIAGRAM GENERATION: You MUST first design the architecture using Mermaid.js syntax.\\n"
+        "2. VISUALIZATION STANDARDS: Once the architecture is defined in Mermaid, formulate a highly detailed "
+        "natural language prompt describing the visual layout of this architecture. You SHOULD include the Mermaid code "
+        "in the prompt context to help the model understand the structure.\\n"
+        "3. ARTIFACT GENERATION: Pass your detailed prompt (description + code) to the 'image_generation_tool' to "
+        "generate the resulting system architecture diagram as a PNG artifact. This tool MUST be used for the final output.\\n"
+        "4. DISPLAY: After generating the image, you MUST display it in your final response using markdown: \`![Architecture Diagram](<uri>)\`. The image_generation_tool will provide the uri in its output.\\n"
     )
  
     return Agent(
         name='architecture_diagram_agent',
         model="gemini-2.5-flash", 
-        description="Architecture and Diagram Expert. Delegate to this agent for generating system architectures, flowcharts, and structural diagrams using Python.",
-        code_executor=BuiltInCodeExecutor(),
-        instruction=instruction
+            description="Architecture and Diagram Expert. Delegate to this agent for generating system architectures, flowcharts, and structural diagrams.",
+            instruction=instruction,
+            tools=[image_generation_tool]
     )
 
-code_exec_tool = AgentTool(code_executor_agent())
 architecture_tool = AgentTool(architecture_diagram_agent())`);
 
-        toolListForAgent.push('code_exec_tool');
         toolListForAgent.push('architecture_tool');
     }
 
@@ -1277,19 +1564,29 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
     };
 
     let finalInstruction = config.instruction;
-    if (config.enableCodeExecution) {
-        finalInstruction += `\n\nAdditionally, you have access to two specialized Python code execution sub-agents:
-- \`code_exec_agent\`: A specialized Python Data Science Expert for generating charts, graphs, and plots from data.
-- \`architecture_diagram_agent\`: A specialized expert for generating system architectures, flowcharts, and structural diagrams.
+    if (config.enableCodeExecution || config.enableArchitectureDiagramming) {
+        finalInstruction += `\\n\\nAdditionally, you have access to specialized sub-agents:`;
+        if (config.enableCodeExecution) {
+            finalInstruction += `\\n- \`code_exec_agent\`: A specialized Python Data Science Expert for generating charts, graphs, and plots from data.`;
+        }
+        if (config.enableArchitectureDiagramming) {
+            finalInstruction += `\\n- \`architecture_diagram_agent\`: A specialized expert for generating system architectures, flowcharts, and structural diagrams.`;
+        }
 
-When asked to analyze data or create a visualization:
-- For charts and data plots: Provide the query results to \`code_exec_agent\` and ask it to generate the requested chart.
-- For system architectures, schemas, or flowcharts: Provide the structural information to \`architecture_diagram_agent\` and ask it to generate the diagram.
-DO NOT output raw DOT code or raw python code to the user. Always delegate explicitly to the appropriate sub-agent tool to generate the visual artifact.`;
+        finalInstruction += `\\n\\nWhen asked to analyze data or create a visualization:`;
+        if (config.enableCodeExecution) {
+            finalInstruction += `\\n- For charts and data plots: Provide the query results to \`code_exec_agent\` and ask it to generate the requested chart.`;
+        }
+        if (config.enableArchitectureDiagramming) {
+            finalInstruction += `\\n- For system architectures, schemas, or flowcharts: Provide the structural information to \`architecture_diagram_agent\` and ask it to generate the diagram.`;
+        }
+        finalInstruction += `\\nDO NOT output raw DOT code or raw Python code to the user. Always delegate explicitly to the appropriate sub-agent tool to generate the visual artifact.`;
     }
 
     const imports = [
         'import os',
+        'import nest_asyncio',
+        'nest_asyncio.apply()',
         'from dotenv import load_dotenv',
         'from google.adk.agents import BaseAgent',
         'from pydantic import PrivateAttr',
@@ -1524,6 +1821,10 @@ const generateAdkEnvFile = (config: AdkAgentConfig, projectNumber: string, locat
         env += `\nAUTH_ID = "${config.authId}"`;
     }
 
+    if (config.enableArchitectureDiagramming) {
+        env += `\nIMAGE_GENERATION_MODEL = "imagen-3.0-generate-001"`;
+    }
+
     if (config.enableDiscoveryApi) {
         env += `
 
@@ -1616,6 +1917,19 @@ Run the deployment script to deploy the agent to Vertex AI Agent Engine:
 \`\`\`bash
 python deploy_re.py
 \`\`\`
+
+## CI/CD Pipeline Configuration
+\${config.enableCiCd ? (config.ciCdRunner === 'github_actions' ? \`
+This agent is configured with GitHub Actions.
+1. Create a Workload Identity Pool and Provider in Google Cloud.
+2. Grant the service account the required roles (e.g., roles/aiplatform.user, roles/run.developer, roles/iam.workloadIdentityUser).
+3. The generated \\\`.github/workflows/deploy.yaml\\\` is pre-configured with your WIF Provider and Service Account.
+4. Push to the \\\`main\\\` branch to trigger the pipeline automatically.\` : config.ciCdRunner === 'google_cloud_build' ? \`
+This agent is configured with Google Cloud Build.
+1. In the Google Cloud Console, navigate to Cloud Build > Triggers.
+2. Create a new trigger targeting your repository's \\\`main\\\` branch.
+3. Ensure the default Cloud Build Service Account has required permissions to deploy.
+4. Push to the \\\`main\\\` branch to trigger the pipeline automatically.\` : 'No CI/CD pipeline enabled.') : 'No CI/CD pipeline enabled.'}
 `;
 };
 
@@ -1706,12 +2020,12 @@ const GCP_HEALTH_MONITORING_AGENT_TEMPLATE: AgentTemplate = {
 Your role is to diagnose performance, health, and security issues across Google Cloud.
 
 Whenever you are asked to check the health or status of an environment or specific service, perform the following general workflow:
-1. Verify the Project ID using resolve_project_id. If a name was provided, ensure it resolves. If no project is provided, ask the user or default to the environment's project if safe.
+1. Verify the Project ID using resourcemanager__search_projects. If a name was provided, ensure it resolves. If no project is provided, ask the user or default to the environment's project if safe.
 2. Check Service Health using check_service_health to see if there are any ongoing broader GCP outages affecting the project.
-3. List active resources (e.g., using list_services for Cloud Run) to understand what is running.
-4. Check health signals/alerts using check_health to see if any configured alert policies are currently firing.
-5. If a specific service is mentioned, retrieve its recent metrics using get_service_metrics (CPU, memory, latency, requests) to look for anomalies.
-6. Check for active security findings using list_active_findings, as security events can impact health or compliance.
+3. List active resources (e.g., using resourcemanager__search_projects or logging__list_log_entries) to understand what is running.
+4. Check health signals/alerts using monitoring__list_alerts to see if any configured alert policies are currently firing.
+5. If a specific service is mentioned, retrieve its recent metrics using monitoring__list_timeseries (CPU, memory, latency, requests) to look for anomalies.
+6. Check for active security findings using list_active_findings, as active findings can impact health or compliance.
 7. Check for recommendations using list_recommendations and list_cost_recommendations to suggest optimizations.
 
 Report formatting guidelines:
@@ -1853,7 +2167,14 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         enableResourceManagerMcp: false,
         enableSpannerMcp: false,
         enableDeveloperKnowledgeMcp: false,
-        enableMapsGroundingMcp: false
+        enableMapsGroundingMcp: false,
+        enableArchitectureDiagramming: false,
+        enableEvaluation: false,
+        enableCiCd: false,
+        ciCdRunner: 'none',
+        deploymentTarget: 'agent_engine',
+        githubWifProvider: '',
+        githubServiceAccount: ''
     });
     const [vertexLocation, setVertexLocation] = useState('us-central1');
     const [adkGeneratedCode, setAdkGeneratedCode] = useState({ app: '', agent: '', env: '', requirements: '', readme: '', deploy_re: '', auth: '', tools: '', init: '' });
@@ -2208,16 +2529,41 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
 
     const handleDownloadAdkZip = () => {
         const zip = new JSZip();
-        zip.file("app.py", generateAppPy(true));
-        zip.file("agent.py", generateAdkPythonCode(adkConfig, true));
+
+        // App Directory
+        const appFolder = zip.folder("app");
+        appFolder.file("app.py", generateAppPy(true));
+        appFolder.file("agent.py", generateAdkPythonCode(adkConfig, true));
+        appFolder.file("requirements.txt", adkGeneratedCode.requirements);
+        appFolder.file("auth.py", adkGeneratedCode.auth);
+        appFolder.file("tools.py", generateToolsPy(adkConfig, true));
+        appFolder.file("__init__.py", adkGeneratedCode.init);
+        appFolder.file("deploy_re.py", generateAdkDeployScript(adkConfig)); // Keep deploy_re in app for now as per some patterns, or move to deployment
+
+        // Root Files
         zip.file(".env", adkGeneratedCode.env);
-        zip.file("requirements.txt", adkGeneratedCode.requirements);
-        zip.file("auth.py", adkGeneratedCode.auth);
-        zip.file("tools.py", generateToolsPy(adkConfig, true));
-        zip.file("__init__.py", adkGeneratedCode.init);
-        zip.file("deploy_re.py", generateAdkDeployScript(adkConfig));
         zip.file("README.md", generateAdkReadmeFile(adkConfig));
-        zip.file("scripts/launch.sh", generateLaunchScript());
+        zip.file("DESIGN_SPEC.md", generateDesignSpec(adkConfig));
+        zip.file("Makefile", generateMakefile(adkConfig));
+
+        // Tests Directory
+        const testsFolder = zip.folder("tests");
+        const evalFolder = testsFolder.folder("eval");
+        evalFolder.file("test_config.json", generateTestConfigJson(adkConfig));
+        const evalsetsFolder = evalFolder.folder("evalsets");
+        evalsetsFolder.file("basic.evalset.json", generateEvalSetJson(adkConfig));
+
+        // Deployment Directory
+        const deployFolder = zip.folder("deployment");
+        deployFolder.file("terraform/main.tf", "# Terraform config placeholder");
+
+        if (adkConfig.ciCdRunner === 'google_cloud_build') {
+            zip.file("cloudbuild.yaml", generateCloudBuildYaml(adkConfig, deployProjectId || 'YOUR_PROJECT_ID'));
+        } else if (adkConfig.ciCdRunner === 'github_actions') {
+            const githubFolder = zip.folder(".github");
+            const workflowsFolder = githubFolder.folder("workflows");
+            workflowsFolder.file("deploy.yaml", generateGithubWorkflow(adkConfig));
+        }
 
         zip.generateAsync({ type: "blob" })
             .then(function (content) {
@@ -2239,7 +2585,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         requirements: adkGeneratedCode.requirements,
         auth: adkGeneratedCode.auth,
         tools: adkGeneratedCode.tools,
-        init: adkGeneratedCode.init
+        init: adkGeneratedCode.init,
+        makefile: generateMakefile(adkConfig),
+        cloudbuild: generateCloudBuildYaml(adkConfig, deployProjectId || 'YOUR_PROJECT_ID'),
+        github_deploy: generateGithubWorkflow(adkConfig)
     }[adkActiveTab];
 
     const a2aCodeDisplay = {
@@ -2334,6 +2683,9 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         { id: 'auth', label: 'auth.py' },
         { id: 'tools', label: 'tools.py' },
         { id: 'init', label: '__init__.py' },
+        { id: 'makefile', label: 'Makefile' },
+        ...(adkConfig.enableCiCd && adkConfig.ciCdRunner === 'google_cloud_build' ? [{ id: 'cloudbuild', label: 'cloudbuild.yaml' }] : []),
+        ...(adkConfig.enableCiCd && adkConfig.ciCdRunner === 'github_actions' ? [{ id: 'github_deploy', label: 'deploy.yaml' }] : []),
     ];
 
     const A2A_TABS = [
@@ -2436,7 +2788,14 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                                         enableResourceManagerMcp: false,
                                                         enableSpannerMcp: false,
                                                         enableDeveloperKnowledgeMcp: false,
-                                                        enableMapsGroundingMcp: false
+                                                        enableMapsGroundingMcp: false,
+                                                        enableArchitectureDiagramming: false,
+                                                        enableEvaluation: false,
+                                                        enableCiCd: false,
+                                                        ciCdRunner: 'none',
+                                                        deploymentTarget: 'agent_engine',
+                                                        githubWifProvider: '',
+                                                        githubServiceAccount: ''
                                                     };
                                                     return {
                                                         ...cleanConfig,
@@ -2548,6 +2907,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                             <input type="checkbox" name="enableCodeExecution" checked={adkConfig.enableCodeExecution} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
                                             <span className="text-sm text-gray-300">Enable Code Execution Sub-Agent</span>
                                         </label>
+                                        <label className="flex items-center space-x-3 cursor-pointer">
+                                            <input type="checkbox" name="enableArchitectureDiagramming" checked={adkConfig.enableArchitectureDiagramming} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Architecture Diagram Sub-Agent</span>
+                                        </label>
                                     </div>
 
                                     <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
@@ -2634,6 +2997,75 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                     </div>
 
 
+                                </div>
+
+                                <div className="pt-2 border-t border-gray-600 mt-2 space-y-2">
+                                    <h4 className="text-xs font-semibold text-gray-400">Lifecycle Management (WIP)</h4>
+                                    <label className="flex items-center space-x-3 cursor-pointer">
+                                        <input type="checkbox" name="enableEvaluation" checked={adkConfig.enableEvaluation} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                        <span className="text-sm text-gray-300">Enable Evaluation Configs</span>
+                                    </label>
+
+                                    <label className="flex items-center space-x-3 cursor-pointer">
+                                        <input type="checkbox" name="enableCiCd" checked={adkConfig.enableCiCd} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                        <span className="text-sm text-gray-300">Enable CI/CD Scaffolding</span>
+                                    </label>
+
+                                    {adkConfig.enableCiCd && (
+                                        <div className="pl-6 space-y-2">
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-400 mb-1">CI/CD Runner</label>
+                                                <select name="ciCdRunner" value={adkConfig.ciCdRunner} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full">
+                                                    <option value="none">None</option>
+                                                    <option value="github_actions">GitHub Actions</option>
+                                                    <option value="google_cloud_build">Google Cloud Build</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-400 mb-1">Deployment Target</label>
+                                                <select name="deploymentTarget" value={adkConfig.deploymentTarget} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full">
+                                                    <option value="agent_engine">Agent Engine</option>
+                                                    <option value="cloud_run">Cloud Run</option>
+                                                </select>
+                                            </div>
+                                            {adkConfig.ciCdRunner === 'github_actions' && (
+                                                <div className="pt-2 space-y-2 border-t border-gray-600 mt-2">
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-gray-400 mb-1">WIF Provider</label>
+                                                        <input type="text" name="githubWifProvider" value={adkConfig.githubWifProvider || ''} onChange={handleAdkConfigChange} placeholder="projects/123.../providers/my-provider" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-medium text-gray-400 mb-1">Service Account Email</label>
+                                                        <input type="email" name="githubServiceAccount" value={adkConfig.githubServiceAccount || ''} onChange={handleAdkConfigChange} placeholder="sa@my-project.iam.gserviceaccount.com" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                </div>
+
+                                {/* Validation Panel */}
+                                <div className="mt-4 p-3 bg-gray-900 rounded-lg border border-gray-700">
+                                    <h4 className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">ADK Standards Validation</h4>
+                                    <div className="space-y-1">
+                                        <div className="flex items-center space-x-2">
+                                            <span className="text-green-400">✓</span>
+                                            <span className="text-xs text-gray-300">Standard Folder Structure (app/, tests/)</span>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            <span className={adkConfig.enableEvaluation ? "text-green-400" : "text-gray-600"}>{adkConfig.enableEvaluation ? "✓" : "○"}</span>
+                                            <span className={`text-xs ${adkConfig.enableEvaluation ? "text-gray-300" : "text-gray-500"}`}>Evaluation Configured</span>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            <span className={adkConfig.enableCiCd ? "text-green-400" : "text-gray-600"}>{adkConfig.enableCiCd ? "✓" : "○"}</span>
+                                            <span className={`text-xs ${adkConfig.enableCiCd ? "text-gray-300" : "text-gray-500"}`}>CI/CD Pipeline Configured</span>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            <span className="text-green-400">✓</span>
+                                            <span className="text-xs text-gray-300">Design Spec Generated</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </>
                         ) : (

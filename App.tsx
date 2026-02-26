@@ -3,7 +3,7 @@ import { GlobalDebugProvider } from './context/GlobalDebugContext';
 import Sidebar from './components/Sidebar';
 import AgentsPage from './pages/AgentsPage';
 import AuthorizationsPage from './pages/AuthorizationsPage';
-import { Page, ReasoningEngine, GraphNode, GraphEdge, UserProfile, AppEngine } from './types';
+import { Page, ReasoningEngine, GraphNode, GraphEdge, UserProfile, AppEngine, Authorization, Agent } from './types';
 import AccessTokenInput from './components/AccessTokenInput';
 import AgentEnginesPage from './pages/AgentEnginesPage';
 import DataStoresPage from './pages/DataStoresPage';
@@ -63,6 +63,8 @@ const InnerApp: React.FC = () => {
   // SSO State
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const tokenClient = useRef<any>(null);
+    const tokenExpiryRef = useRef<number | null>(null);
+    const isRenewingRef = useRef<boolean>(false);
 
   // State for the initialization and login flow
   const [isGapiInitialized, setIsGapiInitialized] = useState(false);
@@ -90,6 +92,14 @@ const InnerApp: React.FC = () => {
   const [architectureLogs, setArchitectureLogs] = useState<string[]>([]);
   const [isArchitectureLoading, setIsArchitectureLoading] = useState(false);
   const [architectureError, setArchitectureError] = useState<string | null>(null);
+
+    // Global State for Authorizations
+    const [authorizations, setAuthorizations] = useState<Authorization[]>([]);
+    const [authUsage, setAuthUsage] = useState<Record<string, Agent[]>>({});
+    const [isAuthLoading, setIsAuthLoading] = useState(false);
+    const [isScanningAuthAgents, setIsScanningAuthAgents] = useState(false);
+    const [authError, setAuthError] = useState<string | null>(null);
+    const [hasAuthLoaded, setHasAuthLoaded] = useState(false);
 
   // Global State for Cloud Build Progress
     const [activeBuilds, setActiveBuilds] = useState<{ id: string, projectId: string }[]>([]);
@@ -166,6 +176,7 @@ const InnerApp: React.FC = () => {
 
   // Initialize Token Client
   useEffect(() => {
+
       if (window.google && window.google.accounts && GOOGLE_CLIENT_ID) {
           tokenClient.current = window.google.accounts.oauth2.initTokenClient({
               client_id: GOOGLE_CLIENT_ID,
@@ -175,6 +186,11 @@ const InnerApp: React.FC = () => {
                   if (tokenResponse && tokenResponse.access_token) {
                       handleSetAccessToken(tokenResponse.access_token);
                       
+                      // Keep track of token expiry
+                      const expiresIn = tokenResponse.expires_in || 3600;
+                      tokenExpiryRef.current = Date.now() + (expiresIn * 1000);
+                      isRenewingRef.current = false;
+
                       // Fetch user profile
                       fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
                           headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
@@ -193,6 +209,32 @@ const InnerApp: React.FC = () => {
           });
       }
   }, [handleSetAccessToken]);
+
+    // Passive Auto-Renewal on user activity
+    useEffect(() => {
+        const handleActivity = () => {
+            if (!tokenExpiryRef.current || isRenewingRef.current || !tokenClient.current) return;
+
+            const now = Date.now();
+            const timeToExpiry = tokenExpiryRef.current - now;
+
+            // If expiring in less than 5 minutes (300,000 ms) and not already expired
+            if (timeToExpiry < 300000 && timeToExpiry > -60000) {
+                console.log("Token expiring soon, renewing on user activity...");
+                isRenewingRef.current = true;
+                tokenClient.current.requestAccessToken({ prompt: '' });
+            }
+        };
+
+        // Listen for multiple types of trusted user interactions
+        window.addEventListener('click', handleActivity);
+        window.addEventListener('keydown', handleActivity);
+
+        return () => {
+            window.removeEventListener('click', handleActivity);
+            window.removeEventListener('keydown', handleActivity);
+        };
+    }, []);
 
   const handleGoogleSignIn = () => {
       if (tokenClient.current) {
@@ -221,6 +263,9 @@ const InnerApp: React.FC = () => {
             setArchitectureNodes([]);
             setArchitectureEdges([]);
             setArchitectureLogs([]);
+            setAuthorizations([]);
+            setAuthUsage({});
+            setHasAuthLoaded(false);
             return;
         }
 
@@ -244,7 +289,6 @@ const InnerApp: React.FC = () => {
             setProjectNumber(projectDetails.projectNumber);
             setProjectId(projectDetails.projectId);
 
-            sessionStorage.setItem('agentspace-projectNumber', projectDetails.projectNumber);
             sessionStorage.setItem('agentspace-projectId', projectDetails.projectId);
 
             // Reset dependent states
@@ -252,6 +296,9 @@ const InnerApp: React.FC = () => {
             setArchitectureNodes([]);
             setArchitectureEdges([]);
             setArchitectureLogs([]);
+            setAuthorizations([]);
+            setAuthUsage({});
+            setHasAuthLoaded(false);
         } catch (e) {
             console.error("Failed to resolve project details", e);
             // Fallback: Use whatever we have
@@ -634,7 +681,21 @@ const InnerApp: React.FC = () => {
       case Page.ASSISTANT:
             return <AssistantPage {...projectProps} accessToken={accessToken} userProfile={userProfile} />;
       case Page.AUTHORIZATIONS:
-        return <AuthorizationsPage {...commonProps} />;
+            return <AuthorizationsPage
+                {...commonProps}
+                authorizations={authorizations}
+                setAuthorizations={setAuthorizations}
+                authUsage={authUsage}
+                setAuthUsage={setAuthUsage}
+                isLoading={isAuthLoading}
+                setIsLoading={setIsAuthLoading}
+                isScanningAgents={isScanningAuthAgents}
+                setIsScanningAgents={setIsScanningAuthAgents}
+                error={authError}
+                setError={setAuthError}
+                hasLoaded={hasAuthLoaded}
+                setHasLoaded={setHasAuthLoaded}
+            />;
       case Page.AGENT_ENGINES:
         return <AgentEnginesPage {...commonProps} accessToken={accessToken} onDirectQuery={handleDirectQuery} />;
       case Page.A2A_TESTER:
@@ -644,7 +705,7 @@ const InnerApp: React.FC = () => {
       case Page.AGENT_CATALOG:
             return <AgentCatalogPage {...projectProps} accessToken={accessToken} onBuildTriggered={(id) => handleBuildTriggered(id, projectNumber)} />;
         case Page.AGENT_STARTER_PACK:
-            return <AgentStarterPackPage {...projectProps} onBuildTriggered={handleBuildTriggered} />;
+            return <AgentStarterPackPage {...projectProps} accessToken={accessToken} onBuildTriggered={handleBuildTriggered} />;
       case Page.CLOUD_RUN_AGENTS:
         return <CloudRunAgentsPage {...projectProps} />;
       case Page.DIALOGFLOW_AGENTS:

@@ -10,12 +10,35 @@ import ConfirmationModal from '../components/ConfirmationModal';
 
 interface AuthorizationsPageProps {
   projectNumber: string;
+  authorizations: Authorization[];
+  setAuthorizations: React.Dispatch<React.SetStateAction<Authorization[]>>;
+  authUsage: Record<string, Agent[]>;
+  setAuthUsage: React.Dispatch<React.SetStateAction<Record<string, Agent[]>>>;
+  isLoading: boolean;
+  setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
+  isScanningAgents: boolean;
+  setIsScanningAgents: React.Dispatch<React.SetStateAction<boolean>>;
+  error: string | null;
+  setError: React.Dispatch<React.SetStateAction<string | null>>;
+  hasLoaded: boolean;
+  setHasLoaded: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }) => {
-  const [authorizations, setAuthorizations] = useState<Authorization[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
+  projectNumber,
+  authorizations,
+  setAuthorizations,
+  authUsage,
+  setAuthUsage,
+  isLoading,
+  setIsLoading,
+  isScanningAgents,
+  setIsScanningAgents,
+  error,
+  setError,
+  hasLoaded,
+  setHasLoaded
+}) => {
   const [view, setView] = useState<'list' | 'form'>('list');
   const [authToEdit, setAuthToEdit] = useState<Authorization | null>(null);
   const [authToView, setAuthToView] = useState<Authorization | null>(null);
@@ -26,9 +49,6 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
   const [authToDelete, setAuthToDelete] = useState<Authorization | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // State for agent usage mapping
-  const [authUsage, setAuthUsage] = useState<Record<string, Agent[]>>({});
-  const [isScanningAgents, setIsScanningAgents] = useState(false);
   const [showWorkforceValidator, setShowWorkforceValidator] = useState(false);
 
   const apiConfig: Omit<Config, 'accessToken'> = useMemo(() => ({
@@ -52,11 +72,19 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
     setAuthUsage({});
 
     try {
-      const authPromise = api.listAuthorizations(apiConfig);
+      const discoveryLocations = ['global', 'us', 'eu'];
+
+      const authPromises = discoveryLocations.map(loc =>
+        api.listAuthorizations({ ...apiConfig, appLocation: loc })
+          .then(res => res.authorizations || [])
+          .catch(err => {
+            console.error(`Failed to load auths for region ${loc}:`, err);
+            return [];
+          })
+      );
       
       const agentPromise = (async () => {
-          const agentsList: Agent[] = [];
-          const discoveryLocations = ['global', 'us', 'eu'];
+        const agentsList: Agent[] = [];
           for (const discoveryLocation of discoveryLocations) {
               const locationConfig = { ...apiConfig, appLocation: discoveryLocation };
               try {
@@ -89,14 +117,14 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
           return agentsList;
       })();
 
-      const [authResponse, allAgents] = await Promise.all([authPromise, agentPromise]);
-      
-      // Strict filtering: Ensure we only show authorizations that match the selected region
-      // This handles cases where the API might return mixed results or if there's any confusion
-      const regionPattern = `/locations/${apiConfig.appLocation}/`;
-      const filteredAuths = (authResponse.authorizations || []).filter(auth => auth.name.includes(regionPattern));
+      const [authResults, allAgents] = await Promise.all([
+        Promise.all(authPromises),
+        agentPromise
+      ]);
+      const allAuths = authResults.flat();
 
-      setAuthorizations(filteredAuths);
+      setAuthorizations(allAuths);
+      setHasLoaded(true);
       
       const usageMap: Record<string, Agent[]> = {};
       for (const agent of allAgents) {
@@ -128,12 +156,15 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
 
   useEffect(() => {
     if (projectNumber) {
-        fetchData();
+      if (!hasLoaded) {
+          fetchData();
+        }
     } else {
         setAuthorizations([]); // Clear if no project number is set
         setAuthUsage({});
+      setHasLoaded(false);
     }
-  }, [fetchData, projectNumber]);
+  }, [fetchData, projectNumber, hasLoaded, setAuthorizations, setAuthUsage, setHasLoaded]);
   
   const requestDelete = (auth: Authorization) => {
     setAuthToDelete(auth);
@@ -256,9 +287,11 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({ projectNumber }
       />;
     }
 
+    const displayedAuthorizations = authorizations.filter(auth => auth.name.includes(`/locations/${region}/`));
+
     return (
       <AuthList
-        authorizations={authorizations}
+        authorizations={displayedAuthorizations}
         onDelete={requestDelete}
         onEdit={handleEdit}
         onView={handleView}
