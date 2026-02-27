@@ -45,6 +45,8 @@ interface BackupRestoreCardProps {
   title: string;
   onBackup: () => Promise<void>;
   onRestore: (section: string, processor: (data: any) => Promise<void>) => Promise<void>;
+  onDeleteBackup?: (section: string) => Promise<void>;
+  onDownloadBackup?: (section: string) => Promise<void>;
   processor: (data: any) => Promise<void>;
   availableBackups: string[];
   selectedBackup: string;
@@ -59,6 +61,8 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
   title, 
   onBackup, 
   onRestore, 
+  onDeleteBackup,
+  onDownloadBackup,
   processor, 
   availableBackups,
   selectedBackup,
@@ -69,7 +73,9 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
 }) => {
     const isBackupLoading = loadingSection === `Backup${section}`;
     const isRestoreLoading = loadingSection === `Restore${section}`;
-    const isThisCardLoading = isBackupLoading || isRestoreLoading;
+  const isDeleteLoading = loadingSection === `DeleteBackup${section}`;
+  const isDownloadLoading = loadingSection === `DownloadBackup${section}`;
+  const isThisCardLoading = isBackupLoading || isRestoreLoading || isDeleteLoading || isDownloadLoading;
 
     return (
       <div className={`bg-gray-900 rounded-lg p-4 shadow-lg flex flex-col border transition-colors ${isThisCardLoading ? 'border-blue-500' : 'border-gray-700'}`}>
@@ -133,6 +139,30 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
                  <button onClick={() => onShowInfo(`Restore:${section}`)} title="Show restore API command" className="p-1.5 text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-r-md h-8">
                     <InfoIcon />
                 </button>
+              {onDownloadBackup && (
+                <button
+                  onClick={() => onDownloadBackup(section)}
+                  disabled={isGloballyLoading || !selectedBackup}
+                  className="ml-2 px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center rounded-md h-8"
+                  title="Download selected backup JSON"
+                >
+                  {isDownloadLoading ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                  ) : 'Download'}
+                </button>
+              )}
+              {onDeleteBackup && (
+                <button
+                  onClick={() => onDeleteBackup(section)}
+                  disabled={isGloballyLoading || !selectedBackup}
+                  className="ml-2 px-3 py-1.5 bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center rounded-md h-8"
+                  title="Delete selected backup"
+                >
+                  {isDeleteLoading ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                  ) : 'Delete'}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -251,14 +281,15 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
           const objects = res.items || [];
           
           // Categorize files based on prefixes
-          const categorized: Record<string, string[]> = {
+        const categorized: Record<string, string[]> = {
               'DiscoveryResources': [],
               'ReasoningEngine': [],
               'Assistant': [],
               'Agents': [],
-            'DataStores': [],
+          'DataStores': [],
               'Authorizations': [],
-            'ChatHistory': [],
+          'ChatHistory': [],
+          'NotebookLM': [],
           };
 
           objects.forEach(obj => {
@@ -267,9 +298,9 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
               else if (obj.name.startsWith('agentspace-assistant')) categorized['Assistant'].push(obj.name);
               else if (obj.name.startsWith('agentspace-agents')) categorized['Agents'].push(obj.name);
               else if (obj.name.startsWith('agentspace-data-stores')) categorized['DataStores'].push(obj.name);
-              else if (obj.name.startsWith('agentspace-data-stores')) categorized['DataStores'].push(obj.name);
               else if (obj.name.startsWith('agentspace-authorizations')) categorized['Authorizations'].push(obj.name);
               else if (obj.name.startsWith('agentspace-chat-history')) categorized['ChatHistory'].push(obj.name);
+              else if (obj.name.startsWith('agentspace-notebooks')) categorized['NotebookLM'].push(obj.name);
           });
 
           // Sort chronologically (names contain ISO timestamp, so alphabetical reverse works)
@@ -478,6 +509,45 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     addLog(`Backup complete! Found ${dataStores.length} data stores.`);
   });
 
+  const handleBackupNotebooks = async () => executeOperation('BackupNotebookLM', async () => {
+    addLog(`Starting backup for Notebooks in ${apiConfig.appLocation}...`);
+    const response = await api.listNotebooks(apiConfig);
+    const notebooks = response.notebooks || [];
+
+    addLog(`Found ${notebooks.length} notebooks. Fetching detailed sources...`);
+    const fullNotebooks = [];
+
+    for (const nb of notebooks) {
+      const notebookId = nb.name.split('/').pop()!;
+      try {
+        const rawNotebook = await api.getNotebook(apiConfig, notebookId);
+
+        // Loop through the sources to pull full metadata
+        const fullSources = [];
+        for (const source of (rawNotebook.sources || [])) {
+          const sourceId = source.name.split('/').pop()!;
+          try {
+            const fullSource = await api.getNotebookSource(apiConfig, notebookId, sourceId);
+            fullSources.push(fullSource);
+          } catch (sourceErr: any) {
+            addLog(`  - Warning: Could not fetch details for source ${sourceId} in notebook ${notebookId}: ${sourceErr.message}`);
+            fullSources.push(source); // Fallback to shallow copy
+          }
+        }
+        rawNotebook.sources = fullSources;
+        fullNotebooks.push(rawNotebook);
+        addLog(`  - Fetched details for: ${rawNotebook.displayName || notebookId} (${fullSources.length} sources)`);
+      } catch (nbErr: any) {
+        addLog(`  - Error fetching details for notebook ${notebookId}: ${nbErr.message}`);
+      }
+      await delay(500); // Rate limit
+    }
+
+    const backupData = { type: 'NotebookLM', createdAt: new Date().toISOString(), sourceConfig: apiConfig, notebooks: fullNotebooks };
+    await uploadBackupToGcs(backupData, 'agentspace-notebooks-backup');
+    addLog(`Backup complete! Found ${fullNotebooks.length} fully resolved NotebookLMs.`);
+  });
+
   const handleBackupAuthorizations = async () => executeOperation('BackupAuthorizations', async () => {
       addLog("Starting Authorizations backup...");
       const response = await api.listAuthorizations(apiConfig);
@@ -541,10 +611,20 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
                       if (fullSession.turns && fullSession.turns.length > 0) {
                         // Fetch answers sequentially or parallel? Parallel for this session.
                         await Promise.all(fullSession.turns.map(async (turn) => {
-                          if (typeof turn.answer === 'string') {
+                          let answerRef = '';
+                          if (typeof turn.answer === 'string' && turn.answer.startsWith('projects/')) answerRef = turn.answer;
+                          else if (turn.assistAnswer && typeof turn.assistAnswer === 'string' && turn.assistAnswer.startsWith('projects/')) answerRef = turn.assistAnswer;
+                          else {
+                            const assistantKey = Object.keys(turn).find(k => k.startsWith('assist'));
+                            if (assistantKey && typeof turn[assistantKey] === 'string' && turn[assistantKey].startsWith('projects/')) {
+                              answerRef = turn[assistantKey];
+                            }
+                          }
+
+                          if (answerRef) {
                             try {
-                              const answerObj = await api.getDiscoveryAnswer(turn.answer, { ...apiConfig, collectionId, appId });
-                              // Normalize for UI
+                              const answerObj = await api.getDiscoveryAnswer(answerRef, { ...apiConfig, collectionId, appId });
+                              // Normalize for UI/Restore
                               turn.answer = {
                                 ...answerObj,
                                 reply: {
@@ -554,7 +634,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
                               };
                             } catch (err) {
                               // Keep as string if failed
-                              console.warn('Failed to hydrate answer', turn.answer);
+                              console.warn('Failed to hydrate answer during backup', answerRef);
                             }
                           }
                         }));
@@ -635,6 +715,33 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
   // --- Restore Handlers & Processors ---
 
+  const handleDeleteBackup = async (section: string) => {
+    const filename = selectedRestoreFiles[section];
+    if (!filename || !selectedBucket) {
+      setError(`Please select a bucket and a backup file for ${section} to delete.`);
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete ${filename}?`)) {
+      return;
+    }
+
+    executeOperation(`DeleteBackup${section}`, async () => {
+      addLog(`Deleting ${filename} from ${selectedBucket}...`);
+      await api.deleteGcsObject(selectedBucket, filename, apiConfig.projectId);
+      addLog(`Successfully deleted ${filename}.`);
+
+      // Clear selection and refresh list
+      setSelectedRestoreFiles(prev => {
+        const next = { ...prev };
+        delete next[section];
+        return next;
+      });
+      fetchBackups();
+    });
+  };
+
+
   const handleRestore = async (section: string, processor: (data: any) => Promise<void>) => {
     const filename = selectedRestoreFiles[section];
     if (!filename || !selectedBucket) {
@@ -700,6 +807,9 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
           case 'Authorizations':
               dataToRestore.authorizations = originalData.authorizations.filter((auth: Authorization) => items.some(item => item.name === auth.name));
               break;
+        case 'NotebookLM':
+          dataToRestore.notebooks = originalData.notebooks.filter((nb: any) => items.some(item => item.name === nb.name));
+          break;
           default:
               throw new Error(`Unknown section type for selective restore: ${section}`);
       }
@@ -1088,10 +1198,126 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     });
   };
 
+  const processRestoreNotebooks = async (backupData: any) => {
+    if (!backupData.notebooks || backupData.notebooks.length === 0) {
+      addLog("No notebooks found in backup file to restore.");
+      return;
+    }
+
+    const displayableNotebooks = backupData.notebooks.map((notebook: any) => ({
+      ...notebook,
+      displayName: notebook.displayName || notebook.title || notebook.name?.split('/').pop() || 'Unnamed Notebook'
+    }));
+
+    setModalData({
+      section: 'NotebookLM',
+      title: 'Select Notebooks to Restore',
+      items: displayableNotebooks,
+      originalData: { ...backupData, notebooks: displayableNotebooks },
+      processor: async (data) => {
+        addLog(`Restoring ${data.notebooks.length} Notebooks...`);
+        for (const notebook of data.notebooks) {
+          addLog(`  - Restoring Notebook '${notebook.displayName}'...`);
+
+          // Construct a clean payload
+          const { name, displayName, createTime, updateTime, sources, ...rest } = notebook;
+          const payload: any = { ...rest };
+
+          if (notebook.displayName || notebook.title) {
+            payload.title = notebook.displayName || notebook.title;
+          }
+
+          try {
+            const newNotebook = await api.createNotebook(apiConfig, payload);
+            const newNotebookId = newNotebook.name.split('/').pop()!;
+            addLog(`    - CREATED: Notebook '${newNotebookId}'`);
+
+            // Restore sources
+            if (notebook.sources && notebook.sources.length > 0) {
+              addLog(`    - Restoring ${notebook.sources.length} sources for notebook '${newNotebookId}'...`);
+              const sourceRequests = notebook.sources.map((source: any) => {
+                // Determine source type from metadata or other hints
+                const sourcePayload: any = {};
+                const sourceName = source.title || source.displayName || 'Restored Source';
+
+                if (source.metadata?.googleDocsMetadata) {
+                  sourcePayload.googleDriveContent = {
+                    sourceName: sourceName,
+                    documentId: source.metadata.googleDocsMetadata.documentId,
+                    mimeType: source.metadata.googleDocsMetadata.mimeType || 'application/vnd.google-apps.document'
+                  };
+                } else if (source.metadata?.youtubeMetadata) {
+                  sourcePayload.videoContent = {
+                    youtubeUrl: source.metadata.youtubeMetadata.youtubeUrl || source.metadata.youtubeMetadata.uri || source.metadata.youtubeMetadata.url
+                  };
+                } else if (source.metadata?.agentspaceMetadata) {
+                  sourcePayload.agentspaceContent = {
+                    documentName: source.metadata.agentspaceMetadata.documentName
+                  };
+                } else if (source.metadata?.webpageMetadata || source.webScrapeConfig || source.url) {
+                  sourcePayload.webContent = {
+                    sourceName: sourceName,
+                    url: source.metadata?.webpageMetadata?.webpageUrl || source.url || (source.webScrapeConfig && source.webScrapeConfig.url)
+                  };
+                } else {
+                  // Fallback to minimal text content if unidentifiable or unsupported
+                  sourcePayload.textContent = {
+                    sourceName: sourceName,
+                    content: source.content || source.text || `[Restored Source: ${source.name || sourceName}]`
+                  };
+                }
+                return sourcePayload;
+              });
+
+              try {
+                await api.batchCreateNotebookSources(apiConfig, newNotebookId, sourceRequests);
+                addLog(`      - SUCCESS: Batch created ${sourceRequests.length} sources.`);
+              } catch (srcErr: any) {
+                addLog(`      - ERROR: Failed to batch create sources for notebook '${newNotebookId}': ${srcErr.message}`);
+              }
+            }
+          } catch (err: any) {
+            addLog(`    - ERROR: Failed to create notebook '${notebook.displayName}': ${err.message}`);
+          }
+          await delay(2000); // Rate limit between notebooks
+        }
+      }
+    });
+  };
+
   const promptForSecret = (auth: Authorization, customMessage?: string): Promise<string | null> => {
     return new Promise((resolve) => {
       setSecretPrompt({ auth, resolve, customMessage });
     });
+  };
+
+  const handleDownloadBackup = async (section: string) => {
+    setLoadingSection(`DownloadBackup${section}`);
+    const fileName = selectedRestoreFiles[section];
+    if (!selectedBucket || !fileName) {
+      addLog(`ERROR: No bucket or file selected for download in section ${section}.`);
+      setLoadingSection(null);
+      return;
+    }
+
+    addLog(`Downloading backup file: ${fileName}...`);
+    try {
+      const blob = await api.downloadGcsObject(selectedBucket, fileName, accessToken);
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+      addLog(`Download initiated for ${fileName}.`);
+    } catch (err: any) {
+      console.error("Failed to download backup", err);
+      addLog(`ERROR: Failed to download backup: ${err.message}`);
+    } finally {
+      setLoadingSection(null);
+    }
   };
 
   const processRestoreAuthorizations = async (backupData: any) => {
@@ -1153,6 +1379,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     { section: 'Agents', title: 'Agents', backupHandler: handleBackupAgents, restoreProcessor: processRestoreAgents },
     { section: 'DataStores', title: 'Data Stores', backupHandler: handleBackupDataStores, restoreProcessor: processRestoreDataStores },
     { section: 'Authorizations', title: 'Authorizations', backupHandler: handleBackupAuthorizations, restoreProcessor: processRestoreAuthorizations },
+    { section: 'NotebookLM', title: 'NotebookLMs', backupHandler: handleBackupNotebooks, restoreProcessor: processRestoreNotebooks },
     { section: 'ChatHistory', title: 'Chat History', backupHandler: handleBackupChatHistory, restoreProcessor: async () => { /* Handled by handleRestore special case */ } },
   ];
 
@@ -1267,6 +1494,8 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
                     title={card.title}
                     onBackup={card.backupHandler}
                     onRestore={handleRestore}
+                onDeleteBackup={handleDeleteBackup}
+                onDownloadBackup={handleDownloadBackup}
                     processor={card.restoreProcessor}
                     availableBackups={backupFiles[card.section] || []}
                     selectedBackup={selectedRestoreFiles[card.section] || ''}

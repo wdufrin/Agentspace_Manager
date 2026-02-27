@@ -307,6 +307,12 @@ const ChatHistoryArchiveViewer: React.FC<ChatHistoryArchiveViewerProps> = ({ ses
             }));
         };
 
+        if (config.reasoningEngineId && !config.appId) {
+            log("Error: Restoring Chat History to an Agent Engine is currently unsupported by the API.");
+            setRestoreStatus(prev => ({ ...prev, isRestoring: false, failed: filteredSessions.length, processed: filteredSessions.length }));
+            return;
+        }
+
         log(`Starting deep restore of ${filteredSessions.length} sessions...`);
 
         // Process sequentially to avoid rate limits
@@ -315,19 +321,34 @@ const ChatHistoryArchiveViewer: React.FC<ChatHistoryArchiveViewerProps> = ({ ses
             try {
                 // DEEP HYDRATION:
                 // Fetch content for "Reference" answers to bake them into the new session.
-                let hydratedSession = { ...session };
+                let hydratedSession: any = { ...session };
+
+                // Gemini Enterprise UI visibility hacks
+                hydratedSession.state = 'IN_PROGRESS';
+                if (!hydratedSession.startTime) {
+                    hydratedSession.startTime = new Date().toISOString();
+                }
 
                 if (hydratedSession.turns && hydratedSession.turns.length > 0) {
                     const hydratedTurns = await Promise.all(hydratedSession.turns.map(async (turn: any) => {
                         let answerRef = '';
-                        if (typeof turn.answer === 'string' && turn.answer.startsWith('projects/')) answerRef = turn.answer;
-                        else if (turn.assistAnswer && turn.assistAnswer.startsWith('projects/')) answerRef = turn.assistAnswer;
+                        let assistantKeyToRemove = '';
+                        if (typeof turn.answer === 'string' && turn.answer.startsWith('projects/')) {
+                            answerRef = turn.answer;
+                        }
+                        else if (turn.assistAnswer && typeof turn.assistAnswer === 'string' && turn.assistAnswer.startsWith('projects/')) {
+                            answerRef = turn.assistAnswer;
+                            assistantKeyToRemove = 'assistAnswer';
+                        }
                         else {
                             const assistantKey = Object.keys(turn).find(k => k.startsWith('assist'));
                             if (assistantKey && typeof turn[assistantKey] === 'string' && turn[assistantKey].startsWith('projects/')) {
                                 answerRef = turn[assistantKey];
+                                assistantKeyToRemove = assistantKey;
                             }
                         }
+
+                        const newTurn = { ...turn };
 
                         if (answerRef) {
                             try {
@@ -339,14 +360,37 @@ const ChatHistoryArchiveViewer: React.FC<ChatHistoryArchiveViewerProps> = ({ ses
                                 else if (result.steps) text = result.steps.map((s: any) => s.description || s.thought || '').join('\n');
                                 else if (result.reply?.replyText) text = result.reply.replyText;
 
-                                // If we start getting large objects, we might want to JSON.stringify them if 'answer' field supports it?
-                                // But 'answer' in Session Turn is strictly string (mostly).
-                                if (text) return { ...turn, answer: text };
+                                if (text) {
+                                    newTurn.answer = text;
+                                } else {
+                                    newTurn.answer = "[Archived Answer: Content unavailable. The original engine was likely deleted before the backup could fully hydrate the text.]";
+                                }
                             } catch (e) {
                                 console.warn("Failed to hydrate answer", answerRef, e);
+                                newTurn.answer = "[Archived Answer: Content unavailable. The original engine was likely deleted before the backup could fully hydrate the text.]";
                             }
+                        } else if (!newTurn.answer) {
+                            // No answer ref and no existing answer
+                            newTurn.answer = "[No Answer Recorded]";
                         }
-                        return turn;
+
+                        // Aggressively strip old identifiers that prevent UI display or cause backend silently dropping turns
+                        delete newTurn.name;
+                        delete newTurn.queryConfig;
+                        delete newTurn.turnId;
+                        delete newTurn.createdAt;
+                        delete newTurn.assistToken;
+                        delete newTurn.assistAnswer; // Even if it was the key, just delete it directly since we know the name
+
+                        // Also proactively delete other variations just in case
+                        if (assistantKeyToRemove) delete newTurn[assistantKeyToRemove];
+
+                        // Clean up the query object as well
+                        if (newTurn.query) {
+                            delete newTurn.query.queryId;
+                        }
+
+                        return newTurn;
                     }));
                     hydratedSession.turns = hydratedTurns;
                 }
@@ -371,7 +415,7 @@ const ChatHistoryArchiveViewer: React.FC<ChatHistoryArchiveViewerProps> = ({ ses
             }
         }
 
-        log('Restore process completed.');
+        log('Restore process completed. Note: Gemini Enterprise natively drops Agent Responses during manual session creation.');
         setRestoreStatus(prev => ({ ...prev, isRestoring: false, currentSession: undefined }));
     };
 
@@ -467,6 +511,34 @@ const ChatHistoryArchiveViewer: React.FC<ChatHistoryArchiveViewerProps> = ({ ses
                             />
 
                             <div className="pt-2 border-t border-gray-700/50">
+                                <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1 block">Target App / Engine</label>
+                                <div className="text-xs text-white bg-gray-900 border border-gray-600 rounded px-3 py-2 flex items-center gap-2">
+                                    <span className="truncate flex-1">
+                                        {config.appId || config.reasoningEngineId || <span className="text-red-400 italic">None Selected</span>}
+                                    </span>
+                                    {(!config.appId && !config.reasoningEngineId) && (
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-red-500 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                        </svg>
+                                    )}
+                                </div>
+                                {(!config.appId && !config.reasoningEngineId) ? (
+                                    <p className="text-[9px] text-red-400 mt-1">Please select an App or Engine in the main Backup tab.</p>
+                                ) : config.appId ? (
+                                    <div className="mt-2 p-2 bg-red-900/30 border border-red-800/50 rounded flex gap-2 items-start shrink-0">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-red-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                        </svg>
+                                        <p className="text-[9px] text-red-300 leading-relaxed">
+                                            <strong>API Limitation:</strong> Restoring Chat History to Gemini Enterprise Apps is technically <strong>unsupported</strong>. The Discovery Engine API natively drops Agent Responses from imported sessions. Use this Offline Viewer to read histories instead.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <p className="text-[9px] text-gray-500 mt-1">Sessions will be restored into this App.</p>
+                                )}
+                            </div>
+
+                            <div className="pt-2 border-t border-gray-700/50">
                                 <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1 block">Restore As User (Optional)</label>
                                 <input
                                     type="text"
@@ -497,8 +569,8 @@ const ChatHistoryArchiveViewer: React.FC<ChatHistoryArchiveViewerProps> = ({ ses
                             {/* Restore Action */}
                             <button
                                 onClick={handleRestoreFiltered}
-                                disabled={filteredSessions.length === 0 || restoreStatus.isRestoring}
-                                className="w-full py-2 bg-gray-700 hover:bg-gray-600 text-xs font-bold text-gray-200 rounded border border-gray-600 flex justify-center items-center gap-2"
+                                disabled={filteredSessions.length === 0 || restoreStatus.isRestoring || (!config.appId && !config.reasoningEngineId) || (!!config.appId)}
+                                className="w-full py-2 bg-gray-700 hover:bg-gray-600 text-xs font-bold text-gray-200 rounded border border-gray-600 flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />

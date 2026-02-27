@@ -345,6 +345,7 @@ export interface DiscoveryTurn {
   query: {
     text: string;
   };
+  assistAnswer?: string;
   answer: string | {
     reply: {
       replytext?: string;

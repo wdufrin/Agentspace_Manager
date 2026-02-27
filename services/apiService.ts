@@ -308,6 +308,10 @@ export const createDiscoverySession = async (session: DiscoverySession, config: 
     // We include 'turns' to restore history.
     if (session.turns) cleanPayload.turns = session.turns;
 
+    // UI Visibility Hacks for Restored Sessions
+    if (session.state) cleanPayload.state = session.state;
+    if (session.startTime) cleanPayload.startTime = session.startTime;
+
     // Pass through other fields if needed, but be careful of output-only ones.
     // if (session.labels) cleanPayload.labels = session.labels;
 
@@ -1183,6 +1187,11 @@ export const uploadFileToGcs = async (bucket: string, objectName: string, file: 
     return response.json();
 };
 
+export const deleteGcsObject = async (bucket: string, objectName: string, projectId: string) => {
+    const url = `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodeURIComponent(objectName)}`;
+    return gapiRequest<any>(url, 'DELETE', projectId);
+};
+
 // --- Cloud Build ---
 
 export const createCloudBuild = async (projectId: string, buildConfig: any) => {
@@ -1362,6 +1371,28 @@ export const listUserStoreLicenses = async (config: Config, userStoreId: string,
     return gapiRequest<any>(url, 'GET', projectId);
 };
 
+export const downloadGcsObject = async (bucketInfo: string, objectName: string, accessToken: string) => {
+    // API: GET https://storage.googleapis.com/storage/v1/b/{bucket}/o/{object}?alt=media
+    const bucketArray = bucketInfo.split('/');
+    const bucketName = bucketArray[bucketArray.length - 1]; // ensure we just have the name
+    const url = `https://storage.googleapis.com/storage/v1/b/${bucketName}/o/${encodeURIComponent(objectName)}?alt=media`;
+
+    // Using standard fetch because `gapiRequest` natively expects JSON and might try to parse non-json or fail
+    const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`
+        }
+    });
+
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Failed to download object: ${response.status} - ${errText}`);
+    }
+
+    return response.blob();
+};
+
 export const revokeUserLicenses = async (config: Config, userStoreId: string, userPrincipals: string[]) => {
     const { projectId, appLocation } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
@@ -1416,6 +1447,49 @@ export const invokeA2aAgent = async (serviceUrl: string, prompt: string, accessT
         throw new Error(`A2A Invocation Error: ${response.status} - ${await response.text()}`);
     }
     return response.json();
+};
+
+// --- Notebooks ---
+
+export const listNotebooks = async (config: Config) => {
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    // API: v1alpha/projects/{projectsId}/locations/{locationsId}/notebooks:listRecentlyViewed
+    const url = `${baseUrl}/v1alpha/projects/${projectId}/locations/${appLocation}/notebooks:listRecentlyViewed`;
+    return gapiRequest<any>(url, 'GET', projectId);
+};
+
+export const getNotebook = async (config: Config, notebookId: string) => {
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    // API: v1alpha/projects/{projectsId}/locations/{locationsId}/notebooks/{notebookId}
+    const url = `${baseUrl}/v1alpha/projects/${projectId}/locations/${appLocation}/notebooks/${notebookId}`;
+    return gapiRequest<any>(url, 'GET', projectId);
+};
+
+export const getNotebookSource = async (config: Config, notebookId: string, sourceId: string) => {
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    // API: v1alpha/projects/{project}/locations/{location}/notebooks/{notebookId}/sources/{sourceId}
+    const url = `${baseUrl}/v1alpha/projects/${projectId}/locations/${appLocation}/notebooks/${notebookId}/sources/${sourceId}`;
+    return gapiRequest<any>(url, 'GET', projectId);
+};
+
+export const createNotebook = async (config: Config, payload: any) => {
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    // API: v1alpha/projects/{project}/locations/{location}/notebooks
+    const url = `${baseUrl}/v1alpha/projects/${projectId}/locations/${appLocation}/notebooks`;
+    return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
+};
+
+export const batchCreateNotebookSources = async (config: Config, notebookId: string, requests: any[]) => {
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    // API: v1alpha/projects/{project}/locations/{location}/notebooks/{notebookId}/sources:batchCreate
+    const url = `${baseUrl}/v1alpha/projects/${projectId}/locations/${appLocation}/notebooks/${notebookId}/sources:batchCreate`;
+    const payload = { userContents: requests };
+    return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
 };
 
 // Workforce Identity Pools

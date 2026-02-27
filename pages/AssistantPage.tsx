@@ -27,6 +27,7 @@ import ExportMetricsModal from '../components/assistants/ExportMetricsModal';
 import AnalyticsMetricsViewer from '../components/assistants/AnalyticsMetricsViewer';
 import ChatWindow from '../components/agents/ChatWindow';
 import ChatHistoryViewer from '../components/assistants/ChatHistoryViewer';
+import NotebookListViewer from '../components/assistants/NotebookListViewer';
 
 interface AssistantPageProps {
   projectNumber: string;
@@ -128,7 +129,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
     const [agents, setAgents] = useState<Agent[]>([]);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'analytics' | 'history'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'notebooks' | 'analytics' | 'history'>('overview');
 
   // Chat State
   const [activeChatConfig, setActiveChatConfig] = useState<{ displayName: string; config: Config } | null>(null);
@@ -587,7 +588,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
                           {/* Tabs Navigation */}
                           <div className="border-b border-gray-700">
                               <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                                  {['overview', 'agents', 'analytics', 'history'].map((tab) => (
+                                  {['overview', 'agents', 'notebooks', 'analytics', 'history'].map((tab) => (
                                       <button
                                           key={tab}
                                           onClick={() => setActiveTab(tab as any)}
@@ -623,6 +624,10 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
 
                               {activeTab === 'agents' && (
                                   <AgentListForAssistant agents={agents} />
+                              )}
+
+                              {activeTab === 'notebooks' && (
+                                  <NotebookListViewer config={currentConfig} />
                               )}
 
                               {activeTab === 'analytics' && (
