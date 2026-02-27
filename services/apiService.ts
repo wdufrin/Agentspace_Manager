@@ -1,3 +1,19 @@
+/**
+ * Copyright 2024 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 
 import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, LogEntry, ReasoningEngine, CloudRunService, GcsBucket, GcsObject, DialogflowAgent, DiscoverySession, ReasoningEngineSession } from '../types';
 import { getGapiClient } from './gapiService';
@@ -962,7 +978,12 @@ export const streamQueryReasoningEngine = async (engineName: string, query: stri
     const body = {
         input: {
             message: query,
-            user_id: userId
+            user_id: userId,
+            state: {
+                "AUTH_ID": accessToken,
+                "gcp_access_token": accessToken,
+                [config.authId || "AUTH_ID"]: accessToken
+            }
         }
     };
 
@@ -1316,17 +1337,18 @@ export const setAgentIamPolicy = async (name: string, policy: any, config: Confi
 // --- Assistant Export/Metrics ---
 
 export const exportAnalyticsMetrics = async (config: Config, datasetId: string, tableId: string) => {
-    const { projectId, appLocation, collectionId, appId, assistantId } = config;
+    const { projectId, appLocation, collectionId, appId } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/v1alpha/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants/${assistantId}:exportAnalyticsMetrics`;
-    
-    const body = {
-        bigqueryDestination: {
-            tableUri: `bq://${projectId}.${datasetId}.${tableId}`
-        },
-        filter: "timestamp >= \"30 days ago\"" // Example filter
+    const url = `${baseUrl}/v1alpha/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/analytics:exportMetrics`;
+    const payload = {
+        outputConfig: {
+            bigqueryDestination: {
+                datasetId: datasetId,
+                tableId: tableId
+            }
+        }
     };
-    return gapiRequest<any>(url, 'POST', projectId, undefined, body);
+    return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
 };
 
 
@@ -1376,7 +1398,13 @@ export const invokeA2aAgent = async (serviceUrl: string, prompt: string, accessT
     const body = {
         jsonrpc: "2.0",
         method: "chat",
-        params: { message: { role: "user", parts: [{ text: prompt }] } },
+        params: {
+            message: { role: "user", parts: [{ text: prompt }] },
+            state: {
+                "AUTH_ID": accessToken,
+                "gcp_access_token": accessToken
+            }
+        },
         id: "1"
     };
     const response = await fetch(url, {

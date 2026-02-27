@@ -1,3 +1,19 @@
+/**
+ * Copyright 2024 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { ReasoningEngine, Config, Agent, CloudRunService } from '../types';
@@ -228,42 +244,60 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
       if (selectedIds.size > 0 || resource) setIsDeleteModalOpen(true);
   };
   
+    const pollVertexOperation = async (operation: any) => {
+        let currentOperation = operation;
+        while (!currentOperation.done) {
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            currentOperation = await api.getVertexAiOperation(operation.name, apiConfig);
+        }
+        if (currentOperation.error) {
+            throw new Error(`Operation failed: ${currentOperation.error.message}`);
+        }
+        return currentOperation.response;
+    };
+
   const confirmDelete = async () => {
     if (selectedIds.size === 0) return;
     setIsDeleting(true);
     setError(null);
 
-    const failures: string[] = [];
     const resourcesToDelete = resources.filter(r => selectedIds.has(r.id));
 
-    for (const res of resourcesToDelete) {
-        try {
+      const results = await Promise.allSettled(
+          resourcesToDelete.map(async (res) => {
             if (res.type === 'Agent Engine') {
-                // Proactively terminate all sessions before deletion
                 try {
                     const sessionRes = await api.listReasoningEngineSessions(res.id, apiConfig);
                     const sessions = sessionRes.sessions || [];
                     if (sessions.length > 0) {
-                        await Promise.all(sessions.map(s => api.deleteReasoningEngineSession(s.name, apiConfig)));
+                        await Promise.allSettled(sessions.map(s => api.deleteReasoningEngineSession(s.name, apiConfig)));
                     }
                 } catch (sessionErr) {
                     console.warn(`Could not clear sessions for ${res.shortId}, force delete will proceed.`, sessionErr);
                 }
                 
-                // Perform delete with force=true (now handled in apiService.ts)
-                await api.deleteReasoningEngine(res.id, apiConfig);
+                const op = await api.deleteReasoningEngine(res.id, apiConfig);
+                return pollVertexOperation(op);
             } else {
-                await api.deleteCloudRunService(res.id, apiConfig);
+                return api.deleteCloudRunService(res.id, apiConfig);
             }
-        } catch (err: any) {
-            failures.push(`- ${res.shortId}: ${err.message}`);
+        })
+    );
+
+      const failures: string[] = [];
+      results.forEach((result, index) => {
+          if (result.status === 'rejected') {
+              const resName = resourcesToDelete[index].shortId;
+              const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+              failures.push(`- ${resName}: ${reason}`);
         }
-    }
+    });
 
     if (failures.length > 0) {
         setError(`Failed to delete some resources:\n${failures.join('\n')}`);
     }
 
+      setSelectedIds(new Set());
     setIsDeleting(false);
     setIsDeleteModalOpen(false);
     await fetchResources();

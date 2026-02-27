@@ -58,6 +58,13 @@ interface AdkAgentConfig {
     enableRecommenderApi: boolean;
     enableServiceHealthApi: boolean;
     enableNetworkManagementApi: boolean;
+    enableCloudAssistApi: boolean;
+    enableCloudLoggingApi: boolean;
+    enableCloudMonitoringApi: boolean;
+    enableCloudRunApi: boolean;
+    enableResourceManagerApi: boolean;
+    enableAdminActivityApi: boolean;
+    enableDatabaseFleetApi: boolean;
     enableCloudLoggingMcp: boolean;
     enableBigtableAdminMcp: boolean;
     enableCloudSqlMcp: boolean;
@@ -572,6 +579,14 @@ def get_logging_mcp_toolset() -> McpToolset:
         tool_name_prefix="logging_",
         header_provider=auth_header_provider
     )
+
+def get_current_time() -> str:
+    """
+    Gets the current UTC time formatted as an ISO 8601 string.
+    Use this to retrieve the current time to construct timestamp filters (like past 24 hours).
+    """
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
 `;
 
@@ -1170,6 +1185,506 @@ def run_connectivity_test(tool_context: ToolContext, source_ip: str = None, sour
 `;
     }
 
+    if (config.enableCloudLoggingApi) {
+        code += `
+import google.cloud.logging as cloud_logging
+
+def search_logs(tool_context: ToolContext, filter_str: str, project_id: str = None) -> str:
+    """
+    Search GCP Cloud Logs using a filter string.
+
+    Args:
+        filter_str: simplified or advanced log filter string.
+                    e.g. 'severity>=ERROR', 'resource.type="cloud_run_revision"'
+
+    Returns:
+        A string summary of the found logs (max 20 entries to avoid context overflow),
+        or a message indicating no logs were found.
+    """
+    try:
+        credential = get_user_credentials(tool_context)
+        if not credential:
+            return "Error: Authentication required. Access token not available."
+
+        if project_id:
+            client = cloud_logging.Client(credentials=credential, project=project_id)
+        else:
+            client = cloud_logging.Client(credentials=credential)
+
+        entries = client.list_entries(
+            filter_=filter_str,
+            order_by=cloud_logging.DESCENDING,
+            max_results=20
+        )
+
+        results = []
+        for entry in entries:
+            timestamp = entry.timestamp.isoformat() if entry.timestamp else "N/A"
+            severity = entry.severity or "DEFAULT"
+            payload = entry.payload
+
+            if isinstance(payload, dict):
+                message = payload.get('message') or payload.get('textPayload') or str(payload)
+            else:
+                message = str(payload)
+
+            results.append(f"[{timestamp}] [{severity}] {message}")
+
+        if not results:
+            return "No logs found matching the filter."
+
+        return "Found recent logs:\\n" + "\\n".join(results)
+
+    except Exception as e:
+        return f"Error querying logs: {str(e)}"
+`;
+    }
+
+    if (config.enableCloudMonitoringApi) {
+        code += `
+import time
+import google.cloud.monitoring_v3 as monitoring_v3
+
+def check_health(tool_context: ToolContext, project_id: str = None) -> str:
+    """
+    Checks the health of applications in the GCP project by listing alert policies.
+    """
+    try:
+        if not project_id:
+            project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+
+        credential = get_user_credentials(tool_context)
+        if not credential:
+            return "Error: Authentication required. Access token not available."
+
+        client = monitoring_v3.AlertPolicyServiceClient(credentials=credential)
+        policies = client.list_alert_policies(request={"name": f"projects/{project_id}"})
+
+        active_policies = [f"- {p.display_name} (Enabled)" for p in policies if p.enabled]
+        return f"Alert Policies:\\n" + "\\n".join(active_policies) if active_policies else "No enabled alert policies."
+    except Exception as e:
+        return f"Error checking health: {str(e)}"
+
+def get_service_metrics(tool_context: ToolContext, service_name: str, metric_type: str = "cpu", duration_minutes: int = 60, project_id: str = None) -> str:
+    """
+    Retrieves metrics for a specific Cloud Run service.
+
+    Args:
+        service_name: Name of the Cloud Run service.
+        metric_type: 'cpu', 'memory', 'latency', or 'requests'.
+        duration_minutes: Lookback period in minutes.
+    """
+    try:
+        if not project_id:
+            project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+        credential = get_user_credentials(tool_context)
+        if not credential:
+            return "Error: Authentication required. Access token not available."
+
+        client = monitoring_v3.MetricServiceClient(credentials=credential)
+
+        metrics_map = {
+            "cpu": "run.googleapis.com/container/cpu/utilizations",
+            "memory": "run.googleapis.com/container/memory/utilizations",
+            "latency": "run.googleapis.com/request_latencies",
+            "requests": "run.googleapis.com/request_count"
+        }
+
+        if metric_type not in metrics_map:
+            return f"Error: Unknown metric {metric_type}"
+
+        now = time.time()
+        interval = monitoring_v3.TimeInterval({
+            "end_time": {"seconds": int(now)},
+            "start_time": {"seconds": int(now) - (duration_minutes * 60)},
+        })
+
+        filter_str = f'metric.type = "{metrics_map[metric_type]}" AND resource.labels.service_name = "{service_name}"'
+
+        if metric_type in ["latency", "cpu", "memory"]:
+            aggregation = monitoring_v3.Aggregation({
+                "alignment_period": {"seconds": duration_minutes * 60},
+                "per_series_aligner": monitoring_v3.Aggregation.Aligner.ALIGN_PERCENTILE_99,
+                "cross_series_reducer": monitoring_v3.Aggregation.Reducer.REDUCE_MEAN
+            })
+        elif metric_type == "requests":
+            aggregation = monitoring_v3.Aggregation({
+                "alignment_period": {"seconds": duration_minutes * 60},
+                "per_series_aligner": monitoring_v3.Aggregation.Aligner.ALIGN_SUM,
+                "cross_series_reducer": monitoring_v3.Aggregation.Reducer.REDUCE_SUM
+            })
+        else:
+            aggregation = monitoring_v3.Aggregation({
+                "alignment_period": {"seconds": duration_minutes * 60},
+                "per_series_aligner": monitoring_v3.Aggregation.Aligner.ALIGN_MEAN,
+                "cross_series_reducer": monitoring_v3.Aggregation.Reducer.REDUCE_MEAN
+            })
+
+        results = []
+        page_result = client.list_time_series(request={
+            "name": f"projects/{project_id}",
+            "filter": filter_str,
+            "interval": interval,
+            "aggregation": aggregation
+        })
+
+        for ts in page_result:
+            for point in ts.points:
+                val = point.value
+                val_str = f"{val.double_value:.4f}" if val.double_value else f"{val.int64_value}"
+                results.append(f"Metric: {metric_type.upper()}, Value: {val_str}")
+                break
+
+        return f"Metrics for {service_name}:\\n" + "\\n".join(results) if results else "No data found."
+    except Exception as e:
+        return f"Error getting service metrics: {e}"
+`;
+    }
+
+    if (config.enableCloudRunApi) {
+        code += `
+import google.cloud.run_v2 as run_v2
+
+def list_services(tool_context: ToolContext, project_id: str = None) -> str:
+    """
+    List Cloud Run services in the configured project across ALL regions.
+
+    Returns:
+        A string summary of the Cloud Run services found, including their status and URL.
+    """
+    try:
+        if not project_id:
+            project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+
+        if not project_id:
+            return "Error: GOOGLE_CLOUD_PROJECT not set."
+
+        credential = get_user_credentials(tool_context)
+        if not credential:
+            return "Error: Authentication required. Access token not available."
+
+        client = run_v2.ServicesClient(credentials=credential)
+        parent = f"projects/{project_id}/locations/-"
+
+        request = run_v2.ListServicesRequest(parent=parent)
+        page_result = client.list_services(request=request)
+
+        services = []
+        for service in page_result:
+            conditions = {c.type_: c.state for c in service.conditions}
+            succeeded = run_v2.Condition.State.CONDITION_SUCCEEDED
+
+            is_ready = False
+            if "Ready" in conditions:
+                is_ready = (conditions["Ready"] == succeeded)
+            elif "RoutesReady" in conditions and "ConfigurationsReady" in conditions:
+                is_ready = (conditions["RoutesReady"] == succeeded and
+                           conditions["ConfigurationsReady"] == succeeded)
+
+            status = "Ready" if is_ready else "Not Ready"
+
+            region = service.name.split('/')[3]
+            service_name = service.name.split('/')[-1]
+            services.append(f"- {service_name} ({region}): {status} ({service.uri})")
+
+        if not services:
+            return "No Cloud Run services found."
+
+        return "Cloud Run Services:\\n" + "\\n".join(services)
+
+    except Exception as e:
+        return f"Error listing Cloud Run services: {str(e)}"
+`;
+    }
+
+    if (config.enableResourceManagerApi) {
+        code += `
+import google.cloud.resourcemanager_v3 as resourcemanager_v3
+
+def list_projects(tool_context: ToolContext, filter: str = "lifecycleState:ACTIVE") -> str:
+    """
+    List accessible Google Cloud projects.
+
+    Args:
+        filter: Filter string to query projects (default: "lifecycleState:ACTIVE").
+
+    Returns:
+        A list of "Project Name (ID)" found.
+    """
+    try:
+        credential = get_user_credentials(tool_context)
+        if not credential:
+            return "Error: Authentication required. Access token not available."
+
+        client = resourcemanager_v3.ProjectsClient(credentials=credential)
+        request = resourcemanager_v3.SearchProjectsRequest(query=filter)
+        page_result = client.search_projects(request=request)
+
+        projects = []
+        for project in page_result:
+            projects.append(f"- {project.display_name} ({project.project_id})")
+
+        if not projects:
+            return "No projects found."
+
+        return "Projects:\\n" + "\\n".join(projects)
+    except Exception as e:
+        return f"Error listing projects: {str(e)}"
+
+def resolve_project_id(tool_context: ToolContext, name_or_id: str) -> str:
+    """
+    Resolves a Project Name or ID to a Project ID.
+    """
+    if " " in name_or_id or any(c.isupper() for c in name_or_id):
+        try:
+            credential = get_user_credentials(tool_context)
+            if not credential:
+                return "Error: Authentication required."
+
+            client = resourcemanager_v3.ProjectsClient(credentials=credential)
+            request = resourcemanager_v3.SearchProjectsRequest(query=f"lifecycleState:ACTIVE AND displayName='{name_or_id}'")
+            page_result = client.search_projects(request=request)
+
+            for project in page_result:
+                return project.project_id
+
+            return f"Error: No project found with display name '{name_or_id}'"
+        except Exception as e:
+            return f"Error resolving project: {str(e)}"
+
+    return name_or_id
+`;
+    }
+
+    if (config.enableAdminActivityApi) {
+        code += `
+from datetime import datetime, timedelta, timezone
+from google.cloud import logging_v2
+
+def list_recent_changes(tool_context: ToolContext, project_id: str = None, hours_ago: int = 24) -> str:
+    """
+    Lists recent Admin Activity (system changes) for the project.
+    Queries Cloud Logging for 'cloudaudit.googleapis.com%2Factivity' logs.
+    """
+    try:
+        if not project_id:
+            project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+
+        if not project_id:
+            return "Error: GOOGLE_CLOUD_PROJECT not set."
+
+        credential = get_user_credentials(tool_context)
+        if not credential:
+            return "Error: Authentication required."
+
+        client = logging_v2.Client(credentials=credential, project=project_id)
+
+        start_time = (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
+
+        log_filter = (
+            f'logName="projects/{project_id}/logs/cloudaudit.googleapis.com%2Factivity" '
+            f'AND timestamp >= "{start_time}" '
+            f'AND severity >= NOTICE'
+        )
+
+        results = []
+        for entry in client.list_entries(filter_=log_filter, order_by="timestamp desc", page_size=50, max_results=50):
+            payload = None
+            try:
+                if hasattr(entry, 'payload') and entry.payload:
+                    payload = entry.payload
+                elif hasattr(entry, 'proto_payload') and entry.proto_payload:
+                    payload = entry.proto_payload
+
+                if not payload:
+                    try:
+                        api_repr = entry.to_api_repr()
+                        payload = api_repr.get("jsonPayload") or api_repr.get("protoPayload")
+                    except:
+                        pass
+
+                if not payload:
+                    continue
+
+            except Exception as inner_e:
+                results.append(f"[ERROR processing entry] {str(inner_e)}")
+                continue
+
+            if not payload:
+                continue
+
+            method_name = payload.get("methodName", "UnknownMethod")
+
+            principal = "UnknownUser"
+            auth_info = payload.get("authenticationInfo", {})
+            if "principalEmail" in auth_info:
+                principal = auth_info["principalEmail"]
+
+            resource_name = "UnknownResource"
+            if "resourceName" in payload:
+                resource_name = payload["resourceName"]
+            elif entry.resource and entry.resource.labels:
+                 resource_name = str(entry.resource.labels)
+
+            timestamp = entry.timestamp.isoformat() if entry.timestamp else "UnknownTime"
+            severity = entry.severity if entry.severity else "UNKNOWN"
+
+            results.append(f"[{timestamp}] [{severity}] {principal} called {method_name} on {resource_name}")
+
+        if not results:
+            return f"No significant Admin Activity changes found in the past {hours_ago} hours for project {project_id}."
+
+        return f"Recent System Changes (Admin Activity) for {project_id} (Past {hours_ago}h):\\n" + "\\n".join(results)
+
+    except Exception as e:
+        import traceback
+        import sys
+        err_msg = f"DEBUG_ERROR: {type(e).__name__}: {str(e)} | TRACE: {traceback.format_exc()}"
+        print(err_msg, file=sys.stderr)
+        return err_msg
+`;
+    }
+
+    if (config.enableDatabaseFleetApi) {
+        code += `
+from googleapiclient import discovery
+
+def check_database_fleet_health(tool_context: ToolContext, project_id: str = None) -> str:
+    """
+    Checks the health of Cloud SQL, Spanner, and Firestore instances in the project.
+    """
+    if not project_id:
+        project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+
+    if not project_id:
+        return "Error: GOOGLE_CLOUD_PROJECT not set."
+
+    credential = get_user_credentials(tool_context)
+    if not credential:
+        return "Error: Authentication required. Access token not available."
+
+    reports = []
+
+    try:
+        sql_service = discovery.build('sqladmin', 'v1', credentials=credential)
+        request = sql_service.instances().list(project=project_id)
+        response = request.execute()
+
+        instances = response.get('items', [])
+        if instances:
+            reports.append("\\nCloud SQL Instances:")
+            for instance in instances:
+                state = instance.get('state', 'UNKNOWN')
+                db_version = instance.get('databaseVersion', 'UNKNOWN')
+                region = instance.get('region', 'UNKNOWN')
+                name = instance.get('name', 'UNKNOWN')
+                reports.append(f"- {name} ({region}, {db_version}): {state}")
+        else:
+            reports.append("\\nCloud SQL: No instances found.")
+
+    except Exception as e:
+        reports.append(f"\\nCloud SQL Error: {str(e)}")
+
+    try:
+        spanner_service = discovery.build('spanner', 'v1', credentials=credential)
+        parent = f"projects/{project_id}"
+        request = spanner_service.projects().instances().list(parent=parent)
+        response = request.execute()
+
+        instances = response.get('instances', [])
+        if instances:
+            reports.append("\\nSpanner Instances:")
+            for instance in instances:
+                name = instance.get('displayName', instance.get('name').split('/')[-1])
+                state = instance.get('state', 'UNKNOWN')
+                node_count = instance.get('nodeCount', 0)
+                processing_units = instance.get('processingUnits', 0)
+                config = instance.get('config', '').split('/')[-1]
+
+                capacity = f"{node_count} Nodes" if node_count else f"{processing_units} PUs"
+                reports.append(f"- {name} ({config}, {capacity}): {state}")
+        else:
+             reports.append("\\nSpanner: No instances found.")
+
+    except Exception as e:
+        reports.append(f"\\nSpanner Error: {str(e)}")
+
+    try:
+        firestore_service = discovery.build('firestore', 'v1', credentials=credential)
+        parent = f"projects/{project_id}"
+        request = firestore_service.projects().databases().list(parent=parent)
+        response = request.execute()
+
+        databases = response.get('databases', [])
+        if databases:
+            reports.append("\\nFirestore Databases:")
+            for db in databases:
+                db_id = db.get('name', '').split('/')[-1]
+                location = db.get('locationId', 'UNKNOWN')
+                db_type = db.get('type', 'FIRESTORE_NATIVE')
+                reports.append(f"- {db_id} ({location}): {db_type}")
+        else:
+            reports.append("\\nFirestore: No databases found.")
+
+    except Exception as e:
+        reports.append(f"\\nFirestore Error: {str(e)}")
+
+    return "\\n".join(reports)
+`;
+    }
+
+    if (config.enableCloudAssistApi) {
+        code += `
+import requests
+import json
+from google.auth.transport.requests import Request as GoogleAuthRequest
+
+def investigate_with_cloud_assist(tool_context: ToolContext, query: str, project_id: str = None) -> str:
+    """Invokes the Gemini Cloud Assist API to perform a deep investigation of a Google Cloud issue.
+
+    Args:
+        query: A detailed description of the issue or the question to ask Cloud Assist.
+        project_id: The Google Cloud project ID to investigate.
+    """
+    try:
+        project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
+        credential = get_user_credentials(tool_context)
+        if not credential: return "Error: Authentication required."
+
+        # Ensure credential is valid
+        if not credential.valid:
+            if credential.expired and credential.refresh_token:
+                credential.refresh(GoogleAuthRequest())
+            else:
+                return "Error: Could not refresh token."
+
+        token = credential.token
+
+        url = f"https://geminicloudassist.googleapis.com/v1alpha/projects/{project_id}/locations/global/investigations"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+
+        # The API requires an empty body or a title to create the investigation
+        payload = {
+            "title": query[:250] if query else "Automated Investigation"
+        }
+
+        response = requests.post(url, headers=headers, json=payload)
+
+        if response.status_code == 200:
+            data = response.json()
+            inv_name = data.get('name')
+            return f"Successfully created Gemini Cloud Assist Investigation.\\nInvestigation Resource Name: {inv_name}\\n\\nNote: The Cloud Assist API is asynchronous. You may need to use the Google Cloud Console to view the full interactive console for this investigation ID."
+        else:
+            return f"Failed to create Cloud Assist Investigation. Status: {response.status_code}, Response: {response.text}"
+
+    except Exception as e:
+        return f"Error invoking Gemini Cloud Assist: {str(e)}"
+`;
+    }
+
     return code;
 };
 
@@ -1345,11 +1860,68 @@ ${config.description}
    **Agent**: "Hello! How can I help you today?"
 
 ## Tools Required
-${config.tools.map(t => `- ${t.variableName} (${t.type})`).join('\n')}
+${ config.tools.map(t => `- ${t.variableName} (${t.type})`).join('\n') }
 
 ## Constraints & Safety Rules
 - The agent must strictly follow the system instructions.
 - Do not hallucinate capabilities not provided by tools.
+`;
+};
+
+const generateLaunchScript = (config: AdkAgentConfig): string => {
+    return `#!/bin/bash
+
+# Ensure we are in the script's directory or project root
+cd "$(dirname "$0")/.."
+
+# Check if adk is in the path
+if ! command -v adk &> /dev/null; then
+    # Try to find it in the common venv locations
+    if [ -f "../../.venv/bin/adk" ]; then
+        export PATH="../../.venv/bin:$PATH"
+    elif [ -f ".venv/bin/adk" ]; then
+        export PATH=".venv/bin:$PATH"
+    else
+        echo "WARNING: 'adk' command not found in PATH or standard venv locations."
+        echo "Please ensure you have activated your virtual environment."
+    fi
+fi
+
+# Get the access token from gcloud
+echo "Fetching GCP access token..."
+TOKEN=$(gcloud auth print-access-token)
+
+if [ -z "$TOKEN" ]; then
+    echo "Error: Failed to get access token. Please run 'gcloud auth login' first."
+    exit 1
+fi
+
+# Load AUTH_ID from .env or app/.env if present
+ENV_FILE=""
+if [ -f .env ]; then
+    ENV_FILE=".env"
+elif [ -f app/.env ]; then
+    ENV_FILE="app/.env"
+fi
+
+if [ -n "$ENV_FILE" ]; then
+    # Grep AUTH_ID, remove quotes if any
+    ENV_AUTH_ID=$(grep -E '^[[:space:]]*AUTH_ID[[:space:]]*=' "$ENV_FILE" | sed -E 's/^[[:space:]]*AUTH_ID[[:space:]]*=[[:space:]]*//' | sed -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+else
+    echo "No .env file found in root or app directory."
+fi
+
+if [ -z "$ENV_AUTH_ID" ]; then
+    echo "No AUTH_ID found in .env, defaulting to GCP_ACCESS_TOKEN"
+    export AUTH_ID="GCP_ACCESS_TOKEN"
+    export GCP_ACCESS_TOKEN="$TOKEN"
+else
+    echo "Exporting token to environment variable: $ENV_AUTH_ID"
+    export "$ENV_AUTH_ID"="$TOKEN"
+fi
+
+echo "Launching ADK Web from the agent root directory..."
+adk web
 `;
 };
 
@@ -1463,7 +2035,29 @@ architecture_tool = AgentTool(architecture_diagram_agent())`);
             config.enableCloudLoggingMcp ||
             config.enableDiscoveryApi ||
             config.enableEmailTool ||
-            config.enableCodeExecution;
+            config.enableCodeExecution ||
+            config.enableArchitectureDiagramming ||
+            config.enableSecurityCommandCenterApi ||
+            config.enableRecommenderApi ||
+            config.enableServiceHealthApi ||
+            config.enableNetworkManagementApi ||
+            config.enableCloudAssistApi ||
+            config.enableCloudLoggingApi ||
+            config.enableCloudMonitoringApi ||
+            config.enableCloudRunApi ||
+            config.enableResourceManagerApi ||
+            config.enableAdminActivityApi ||
+            config.enableDatabaseFleetApi ||
+            config.enableBigtableAdminMcp ||
+            config.enableCloudSqlMcp ||
+            config.enableCloudMonitoringMcp ||
+            config.enableComputeEngineMcp ||
+            config.enableFirestoreMcp ||
+            config.enableGkeMcp ||
+            config.enableResourceManagerMcp ||
+            config.enableSpannerMcp ||
+            config.enableDeveloperKnowledgeMcp ||
+            config.enableMapsGroundingMcp;
 
         let initCode = `google_search = google_search_tool.GoogleSearchTool()`;
         if (hasOtherTools) {
@@ -1499,7 +2093,10 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
         toolInitializations.push('bq_mcp_toolset = get_bq_mcp_toolset()');
         toolListForAgent.push('bq_mcp_toolset');
     }
-
+    if (config.enableCloudLoggingMcp || config.enableCloudLoggingApi || config.enableCloudMonitoringMcp || config.enableCloudMonitoringApi) {
+        toolsImport.add('get_current_time');
+        toolListForAgent.push('get_current_time');
+    }
     if (config.enableCloudLoggingMcp) {
         toolsImport.add('get_logging_mcp_toolset');
         toolInitializations.push('logging_mcp_toolset = get_logging_mcp_toolset()');
@@ -1554,6 +2151,45 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
         toolListForAgent.push('run_connectivity_test');
     }
 
+    if (config.enableCloudAssistApi) {
+        toolsImport.add('investigate_with_cloud_assist');
+        toolListForAgent.push('investigate_with_cloud_assist');
+    }
+
+    if (config.enableCloudLoggingApi) {
+        toolsImport.add('search_logs');
+        toolListForAgent.push('search_logs');
+    }
+
+    if (config.enableCloudMonitoringApi) {
+        toolsImport.add('check_health');
+        toolsImport.add('get_service_metrics');
+        toolListForAgent.push('check_health');
+        toolListForAgent.push('get_service_metrics');
+    }
+
+    if (config.enableCloudRunApi) {
+        toolsImport.add('list_services');
+        toolListForAgent.push('list_services');
+    }
+
+    if (config.enableResourceManagerApi) {
+        toolsImport.add('list_projects');
+        toolsImport.add('resolve_project_id');
+        toolListForAgent.push('list_projects');
+        toolListForAgent.push('resolve_project_id');
+    }
+
+    if (config.enableAdminActivityApi) {
+        toolsImport.add('list_recent_changes');
+        toolListForAgent.push('list_recent_changes');
+    }
+
+    if (config.enableDatabaseFleetApi) {
+        toolsImport.add('check_database_fleet_health');
+        toolListForAgent.push('check_database_fleet_health');
+    }
+
     const formatPythonString = (str: string) => {
         const needsTripleQuotes = str.includes('\n') || str.includes('"');
         if (needsTripleQuotes) {
@@ -1606,6 +2242,42 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
 ${imports.join('\n')}
 
 load_dotenv()
+
+# --- ADK Resilience Patch ---
+# Prevents the entire agent stream from crashing if an MCP server returns an HTTP error (e.g. 400 Bad Request)
+# The error happens deep inside an anyio.TaskGroup, so we must monkey-patch the streamable transport.
+import logging
+import httpx
+from mcp.client.streamable_http import StreamableHTTPTransport
+
+_original_handle_post_request = StreamableHTTPTransport._handle_post_request
+
+async def _safe_handle_post_request(self, ctx):
+    try:
+        await _original_handle_post_request(self, ctx)
+    except httpx.HTTPStatusError as e:
+        logging.error(f"MCP HTTPStatusError caught: {e.response.status_code} - {e.response.text}")
+        # Send a synthetic JSONRPCError back through the memory stream so the client gets a clean rejection
+        from mcp.types import JSONRPCError, ErrorData, JSONRPCMessage
+        from mcp.shared.message import SessionMessage
+        
+        request_id = getattr(ctx.session_message.message.root, "id", None)
+        if request_id is not None:
+            jsonrpc_error = JSONRPCError(
+                jsonrpc="2.0",
+                id=request_id,
+                error=ErrorData(
+                    code=-32000, 
+                    message=f"Google MCP API Error ({e.response.status_code}): {e.response.text}"
+                ),
+            )
+            try:
+                await ctx.read_stream_writer.send(SessionMessage(JSONRPCMessage(jsonrpc_error)))
+            except Exception as send_err:
+                logging.error(f"Failed to send synthetic error back to stream: {send_err}")
+
+StreamableHTTPTransport._handle_post_request = _safe_handle_post_request
+# ----------------------------
 
 # Initialize Tools
 ${toolInitializations.length > 0 ? toolInitializations.join('\n\n') : '# No additional tools defined'}
@@ -1812,35 +2484,45 @@ print(f"Resource Name: {remote_app.resource_name}")
 };
 
 const generateAdkEnvFile = (config: AdkAgentConfig, projectNumber: string, location: string, stagingBucket: string): string => {
-    let env = `GOOGLE_CLOUD_PROJECT = "${projectNumber}"
-            GOOGLE_CLOUD_LOCATION = "${location}"
-            STAGING_BUCKET = "${stagingBucket}"
-            GOOGLE_GENAI_USE_VERTEXAI = "true"`;
+    let env = `GOOGLE_CLOUD_PROJECT="${projectNumber}"
+GOOGLE_CLOUD_LOCATION="${location}"
+STAGING_BUCKET="${stagingBucket}"
+GOOGLE_GENAI_USE_VERTEXAI="true"`;
+
+    if (config.model) {
+        env += `\nMODEL="${config.model}"`;
+    }
 
     if (config.enableOAuth && config.authId) {
-        env += `\nAUTH_ID = "${config.authId}"`;
+        env += `\nAUTH_ID="${config.authId}"`;
     }
 
     if (config.enableArchitectureDiagramming) {
-        env += `\nIMAGE_GENERATION_MODEL = "imagen-3.0-generate-001"`;
+        env += `\nIMAGE_GENERATION_MODEL="imagen-3.0-generate-001"`;
+    }
+
+    if (config.enableTelemetry) {
+        env += `\nGOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY="true"`;
+    }
+
+    if (config.enableMessageLogging) {
+        env += `\nOTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT="true"`;
     }
 
     if (config.enableDiscoveryApi) {
-        env += `
-
+        env += `\n
 # Discovery Engine
-    DISCOVERY_ENGINE_PROJECT_ID = ${config.discoveryConfig.projectId || projectNumber}
-    DISCOVERY_ENGINE_LOCATION = ${config.discoveryConfig.location || 'global'}
-    DISCOVERY_ENGINE_COLLECTION = ${config.discoveryConfig.collection || 'default_collection'}
-    DISCOVERY_ENGINE_ENGINE_ID = ${config.discoveryConfig.engineId || 'your-engine-id'}
-    DISCOVERY_ENGINE_DATA_STORE_IDS = ${config.discoveryConfig.dataStoreIds || ''}`;
+DISCOVERY_ENGINE_PROJECT_ID="${config.discoveryConfig.projectId || projectNumber}"
+DISCOVERY_ENGINE_LOCATION="${config.discoveryConfig.location || 'global'}"
+DISCOVERY_ENGINE_COLLECTION="${config.discoveryConfig.collection || 'default_collection'}"
+DISCOVERY_ENGINE_ENGINE_ID="${config.discoveryConfig.engineId || 'your-engine-id'}"
+DISCOVERY_ENGINE_DATA_STORE_IDS="${config.discoveryConfig.dataStoreIds || ''}"`;
     }
 
     if (config.enableBigQueryMcp) {
-        env += `
-
+        env += `\n
 # BigQuery
-    BQ_USER_PROJECT = ${projectNumber}`;
+BQ_USER_PROJECT="${projectNumber}"`;
     }
 
     return env;
@@ -1886,6 +2568,33 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
         defaultDeps.push("markdown");
     }
 
+    if (config.enableCloudLoggingApi) {
+        defaultDeps.push("google-cloud-logging");
+    }
+
+    if (config.enableCloudMonitoringApi) {
+        defaultDeps.push("google-cloud-monitoring");
+    }
+
+    if (config.enableCloudRunApi) {
+        defaultDeps.push("google-cloud-run");
+    }
+
+    if (config.enableResourceManagerApi) {
+        defaultDeps.push("google-cloud-resourcemanager");
+    }
+
+    if (config.enableAdminActivityApi) {
+        defaultDeps.push("google-cloud-logging");
+    }
+
+    if (config.enableDatabaseFleetApi) {
+        // Uses google-api-python-client, already handled in enableOAuth, but ensuring it's there
+        if (!defaultDeps.includes("google-api-python-client")) {
+            defaultDeps.push("google-api-python-client");
+        }
+    }
+
     if (config.enableCodeExecution) {
         defaultDeps.push("networkx", "matplotlib", "pandas", "seaborn");
     }
@@ -1918,6 +2627,13 @@ Run the deployment script to deploy the agent to Vertex AI Agent Engine:
 python deploy_re.py
 \`\`\`
 
+## Local Testing
+To test your agent locally and interact with it in your browser, launch it using the generated wrapper script. This script automatically provisions your gcloud user credentials for local environment variables:
+\`\`\`bash
+chmod +x scripts/launch_local.sh
+./scripts/launch_local.sh
+\`\`\`
+
 ## CI/CD Pipeline Configuration
 \${config.enableCiCd ? (config.ciCdRunner === 'github_actions' ? \`
 This agent is configured with GitHub Actions.
@@ -1933,56 +2649,7 @@ This agent is configured with Google Cloud Build.
 `;
 };
 
-const generateLaunchScript = (): string => {
-    return `#!/bin/bash
 
-# Ensure we are in the script's directory or project root
-cd "$(dirname "$0")/.."
-
-# Check if adk is in the path
-if ! command -v adk &> /dev/null; then
-    # Try to find it in the common venv locations
-    if [ -f "../../.venv/bin/adk" ]; then
-        export PATH="../../.venv/bin:$PATH"
-    elif [ -f ".venv/bin/adk" ]; then
-        export PATH=".venv/bin:$PATH"
-    else
-        echo "WARNING: 'adk' command not found in PATH or standard venv locations."
-        echo "Please ensure you have activated your virtual environment."
-    fi
-fi
-
-# Get the access token from gcloud
-echo "Fetching GCP access token..."
-TOKEN=$(gcloud auth print-access-token)
-
-if [ -z "$TOKEN" ]; then
-    echo "Error: Failed to get access token. Please run 'gcloud auth login' first."
-    exit 1
-fi
-
-# Export it as GCP_ACCESS_TOKEN (which auth_utils.py is configured to check)
-
-# Load AUTH_ID from .env if present
-if [ -f .env ]; then
-    # Grep AUTH_ID, remove quotes if any
-    ENV_AUTH_ID=$(grep -E '^[[:space:]]*AUTH_ID[[:space:]]*=' .env | sed -E 's/^[[:space:]]*AUTH_ID[[:space:]]*=[[:space:]]*//' | sed -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
-fi
-
-# Default to bqtest if not set
-AUTH_ID=\${ENV_AUTH_ID:-test}
-
-# Export the token to the variable named by AUTH_ID
-echo "Exporting token to environment variable: $AUTH_ID"
-export $AUTH_ID="$TOKEN"
-
-echo "Launching ADK Web from one level above..."
-# We assume the user wants to run the 'app.py' in the current directory
-# Adjust the app path if necessary, e.g. gcp_health_agent.app
-cd ..
-adk web
-`;
-};
 
 
 interface AgentTemplate {
@@ -2000,10 +2667,21 @@ const GCP_LOGS_READER_TEMPLATE: AgentTemplate = {
         name: 'GCP_Logs_Reader',
         description: 'An expert agent for analyzing Google Cloud Logs.',
         model: 'gemini-2.5-flash',
-        instruction: 'You are a Google Cloud Logging expert. Your goal is to help users find and analyze logs from their GCP projects.\n\nYou have access to the "logging_list_log_entries" tool (via Cloud Logging MCP). Use it to query logs.\n\nIMPORTANT:\n- The tool name is exactly "logging_list_log_entries" (one underscore). Do NOT use double underscores.\n- ALways specify a `resource_names` argument (e.g., ["projects/YOUR_PROJECT_ID"]).\n- Use the `filter` argument to narrow down logs (e.g., `severity>=WARNING`, `resource.type="cloud_run_revision"`).\n- The tool returns raw JSON. Summarize the interesting parts for the user; do not output the full JSON unless asked.\n- Always verify the project ID before querying.',
+        instruction: `You are a Google Cloud Logging expert. Your goal is to help users find and analyze logs from their GCP projects.
+
+You have access to the "logging_list_log_entries" tool (via Cloud Logging MCP). Use it to query logs.
+
+IMPORTANT:
+- The tool name is exactly "logging_list_log_entries".
+- ALWAYS specify a "resource_names" argument (e.g., ["projects/YOUR_PROJECT_ID"]).
+- Use the "filter" argument to narrow down logs (e.g., severity>=WARNING, resource.type="cloud_run_revision").
+- DO NOT write raw Python code (e.g., default_api.logging__list_log_entries) to call this tool. You must invoke the tool via standard JSON function calling. 
+- The tool returns raw JSON. Summarize the interesting parts for the user.
+- Always verify the project ID before querying.`,
         useGoogleSearch: true,
         enableCloudLoggingMcp: true,
-        enableCodeExecution: false,
+        enableCodeExecution: true,
+        enableOAuth: true,
         tools: []
     }
 };
@@ -2022,11 +2700,22 @@ Your role is to diagnose performance, health, and security issues across Google 
 Whenever you are asked to check the health or status of an environment or specific service, perform the following general workflow:
 1. Verify the Project ID using resourcemanager__search_projects. If a name was provided, ensure it resolves. If no project is provided, ask the user or default to the environment's project if safe.
 2. Check Service Health using check_service_health to see if there are any ongoing broader GCP outages affecting the project.
-3. List active resources (e.g., using resourcemanager__search_projects or logging__list_log_entries) to understand what is running.
+3. List active resources using list_services or resourcemanager__search_projects to understand what is running. Be sure to check list_recent_changes for recent system configurations.
 4. Check health signals/alerts using monitoring__list_alerts to see if any configured alert policies are currently firing.
-5. If a specific service is mentioned, retrieve its recent metrics using monitoring__list_timeseries (CPU, memory, latency, requests) to look for anomalies.
-6. Check for active security findings using list_active_findings, as active findings can impact health or compliance.
-7. Check for recommendations using list_recommendations and list_cost_recommendations to suggest optimizations.
+5. Search recent logs using logging__list_log_entries to proactively look for errors.
+6. Check for databases using check_database_fleet_health to ensure stateful services are healthy.
+7. If a specific service is mentioned, retrieve its recent metrics using monitoring__list_timeseries (CPU, memory, latency, requests) to look for anomalies.
+8. Check for active security findings using list_active_findings, as active findings can impact health or compliance.
+9. Check for recommendations using list_recommendations and list_cost_recommendations to suggest optimizations.
+10. If investigating networking issues, implicitly use run_connectivity_test to diagnose reachability.
+11. If you find anomalies or need a deeper GCP-specific architectural investigation, explicitly invoke the investigate_with_cloud_assist tool.
+
+CRITICAL INSTRUCTIONS FOR TOOL EXECUTION:
+- You must ALWAYS execute tools using standard, discrete JSON function calling.
+- NEVER write script-like or raw Python code (e.g., \`print(default_api.check_service_health())\` or \`print(default_api.....)\`) to execute tools. This is a malformed function call and will crash the agent.
+- NEVER try to invoke multiple tools simultaneously in a single raw string block.
+- For MCP tools like \`logging__list_log_entries\` and \`resourcemanager__search_projects\`, pass the exact expected arguments (e.g., 'resource_names' as a list).
+- DO NOT use Python built-ins like \`datetime\` to format timestamps before calling tools; use literal string formats (e.g., "2024-01-01T00:00:00Z") or explicitly invoke a time-retrieval tool first if one is available.
 
 Report formatting guidelines:
 * Format your answers cleanly using Markdown.
@@ -2038,12 +2727,76 @@ Report formatting guidelines:
         enableRecommenderApi: true,
         enableServiceHealthApi: true,
         enableNetworkManagementApi: true,
+        enableCloudAssistApi: true,
         enableCloudLoggingMcp: true,
         enableCloudMonitoringMcp: true,
         enableResourceManagerMcp: true,
+        enableCloudLoggingApi: false, // Defaulting to MCP for the primary template
+        enableCloudMonitoringApi: false,
+        enableCloudRunApi: true,
+        enableResourceManagerApi: false,
+        enableAdminActivityApi: true,
+        enableDatabaseFleetApi: true,
         enableOAuth: true,
         enableEmailTool: true,
-        enableCodeExecution: false,
+        enableCodeExecution: true,
+        tools: []
+    }
+};
+
+const GCP_HEALTH_MONITORING_API_TEMPLATE: AgentTemplate = {
+    id: 'gcp_health_monitoring_agent_api',
+    name: 'GCP Health Monitoring Agent (API Version)',
+    description: 'An agent that monitors GCP health using stable Python APIs instead of Managed MCP servers.',
+    config: {
+        name: 'GCP_Health_Monitor_API',
+        description: 'An expert agent for diagnosing performance, health, and security issues across Google Cloud capabilities usings stable APIs.',
+        model: 'gemini-2.5-flash',
+        instruction: `You are an expert Google Cloud Site Reliability Engineer and Cloud Architect.
+Your role is to diagnose performance, health, and security issues across Google Cloud.
+
+Whenever you are asked to check the health or status of an environment or specific service, perform the following general workflow:
+1. Verify the Project ID using resolve_project_id. If a name was provided, ensure it resolves. If no project is provided, ask the user or default to the environment's project if safe.
+2. Check Service Health using check_service_health to see if there are any ongoing broader GCP outages affecting the project.
+3. List active resources using list_projects or list_services to understand what is running. Be sure to check list_recent_changes for recent system configurations.
+4. Check health signals/alerts using check_health to see if any configured alert policies are currently firing.
+5. Search recent logs using search_logs to proactively look for errors.
+6. Check for databases using check_database_fleet_health to ensure stateful services are healthy.
+7. If a specific Cloud Run service is mentioned, retrieve its recent metrics using get_service_metrics (CPU, memory, latency, requests) to look for anomalies.
+8. Check for active security findings using list_active_findings, as active findings can impact health or compliance.
+9. Check for recommendations using list_recommendations and list_cost_recommendations to suggest optimizations.
+10. If investigating networking issues, implicitly use run_connectivity_test to diagnose reachability.
+11. If you find anomalies or need a deeper GCP-specific architectural investigation, explicitly invoke the investigate_with_cloud_assist tool.
+
+CRITICAL INSTRUCTIONS FOR TOOL EXECUTION:
+- You must ALWAYS execute tools using standard, discrete JSON function calling.
+- NEVER write script-like or raw Python code (e.g., \`print(default_api.check_service_health())\` or \`print(default_api.....)\`) to execute tools. This is a malformed function call and will crash the agent.
+- NEVER try to invoke multiple tools simultaneously in a single raw string block.
+- DO NOT attempt to use Python built-ins like \`datetime\` to calculate variables before calling tools. You must use literal string formats.
+
+Report formatting guidelines:
+* Format your answers cleanly using Markdown.
+* For lists of findings or resources, use bullet points.
+* Always cite the exact project ID and environment details where you found the information.`,
+        useGoogleSearch: true,
+        enableBigQueryMcp: false,
+        enableSecurityCommandCenterApi: true,
+        enableRecommenderApi: true,
+        enableServiceHealthApi: true,
+        enableNetworkManagementApi: true,
+        enableCloudAssistApi: true,
+        enableCloudLoggingMcp: false, // Disabling MCPs in favor of APIs
+        enableCloudMonitoringMcp: false,
+        enableResourceManagerMcp: false,
+        enableCloudLoggingApi: true,
+        enableCloudMonitoringApi: true,
+        enableCloudRunApi: true,
+        enableResourceManagerApi: true,
+        enableAdminActivityApi: true,
+        enableDatabaseFleetApi: true,
+        enableOAuth: true,
+        enableEmailTool: true,
+        enableCodeExecution: true,
         tools: []
     }
 };
@@ -2080,6 +2833,7 @@ When asked to analyze data or create a visualization:
 const TEMPLATES: AgentTemplate[] = [
     GCP_LOGS_READER_TEMPLATE,
     GCP_HEALTH_MONITORING_AGENT_TEMPLATE,
+    GCP_HEALTH_MONITORING_API_TEMPLATE,
     GCP_BIGQUERY_AGENT_TEMPLATE
 ];
 
@@ -2155,8 +2909,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         enableRecommenderApi: false,
         enableServiceHealthApi: false,
         enableNetworkManagementApi: false,
+        enableCloudAssistApi: false,
         enableTelemetry: true,
         enableMessageLogging: false,
+        enableCloudLoggingApi: false,
+        enableCloudMonitoringApi: false,
+        enableCloudRunApi: false,
+        enableResourceManagerApi: false,
+        enableAdminActivityApi: false,
+        enableDatabaseFleetApi: false,
         enableCloudLoggingMcp: false,
         enableBigtableAdminMcp: false,
         enableCloudSqlMcp: false,
@@ -2442,8 +3203,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         } else if (type === 'checkbox') {
             const isChecked = (e.target as HTMLInputElement).checked;
 
-            // Link MCPs and APIs to OAuth
-            if ((name.endsWith('Mcp') || name.endsWith('Api')) && isChecked) {
+            // Link MCPs, APIs, and Plugins to OAuth
+            if ((name.endsWith('Mcp') || name.endsWith('Api') || name === 'enableEmailTool' || name === 'enableBqAnalytics') && isChecked) {
                 setAdkConfig(prev => ({
                     ...prev,
                     [name]: isChecked,
@@ -2464,7 +3225,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         if (builderTab === 'a2a') {
             setA2aConfig(prev => ({ ...prev, tools: [...prev.tools, tool] }));
         } else {
-            setAdkConfig(prev => ({ ...prev, tools: [...prev.tools, tool] }));
+            setAdkConfig(prev => ({ ...prev, tools: [...prev.tools, tool], enableOAuth: true }));
         }
     };
 
@@ -2541,6 +3302,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         appFolder.file("deploy_re.py", generateAdkDeployScript(adkConfig)); // Keep deploy_re in app for now as per some patterns, or move to deployment
 
         // Root Files
+        zip.file("agent.py", "import os, sys\nsys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))\nfrom app.agent import root_agent\n");
         zip.file(".env", adkGeneratedCode.env);
         zip.file("README.md", generateAdkReadmeFile(adkConfig));
         zip.file("DESIGN_SPEC.md", generateDesignSpec(adkConfig));
@@ -2556,6 +3318,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         // Deployment Directory
         const deployFolder = zip.folder("deployment");
         deployFolder.file("terraform/main.tf", "# Terraform config placeholder");
+
+        // Scripts Directory
+        const scriptsFolder = zip.folder("scripts");
+        scriptsFolder.file("launch_local.sh", generateLaunchScript(adkConfig));
 
         if (adkConfig.ciCdRunner === 'google_cloud_build') {
             zip.file("cloudbuild.yaml", generateCloudBuildYaml(adkConfig, deployProjectId || 'YOUR_PROJECT_ID'));
@@ -2776,8 +3542,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                                         enableRecommenderApi: false,
                                                         enableServiceHealthApi: false,
                                                         enableNetworkManagementApi: false,
+                                                        enableCloudAssistApi: false,
                                                         enableTelemetry: true,
                                                         enableMessageLogging: false,
+                                                        enableCloudLoggingApi: false,
+                                                        enableCloudMonitoringApi: false,
+                                                        enableCloudRunApi: false,
+                                                        enableResourceManagerApi: false,
+                                                        enableAdminActivityApi: false,
+                                                        enableDatabaseFleetApi: false,
                                                         enableCloudLoggingMcp: false,
                                                         enableBigtableAdminMcp: false,
                                                         enableCloudSqlMcp: false,
@@ -2959,6 +3732,34 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                         <label className="flex items-center space-x-3 cursor-pointer">
                                             <input type="checkbox" name="enableNetworkManagementApi" checked={adkConfig.enableNetworkManagementApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
                                             <span className="text-sm text-gray-300">Enable Network Management Tool</span>
+                                        </label>
+                                        <label className="flex items-center space-x-3 cursor-pointer">
+                                            <input type="checkbox" name="enableCloudLoggingApi" checked={adkConfig.enableCloudLoggingApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Cloud Logging (API)</span>
+                                        </label>
+                                        <label className="flex items-center space-x-3 cursor-pointer">
+                                            <input type="checkbox" name="enableCloudMonitoringApi" checked={adkConfig.enableCloudMonitoringApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Cloud Monitoring (API)</span>
+                                        </label>
+                                        <label className="flex items-center space-x-3 cursor-pointer">
+                                            <input type="checkbox" name="enableCloudRunApi" checked={adkConfig.enableCloudRunApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Cloud Run Discovery (API)</span>
+                                        </label>
+                                        <label className="flex items-center space-x-3 cursor-pointer">
+                                            <input type="checkbox" name="enableResourceManagerApi" checked={adkConfig.enableResourceManagerApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Resource Manager (API)</span>
+                                        </label>
+                                        <label className="flex items-center space-x-3 cursor-pointer">
+                                            <input type="checkbox" name="enableAdminActivityApi" checked={adkConfig.enableAdminActivityApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Admin Activity / Changes (API)</span>
+                                        </label>
+                                        <label className="flex items-center space-x-3 cursor-pointer">
+                                            <input type="checkbox" name="enableDatabaseFleetApi" checked={adkConfig.enableDatabaseFleetApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Database Fleet Health (API)</span>
+                                        </label>
+                                        <label className="flex items-center space-x-3 cursor-pointer">
+                                            <input type="checkbox" name="enableCloudAssistApi" checked={adkConfig.enableCloudAssistApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Gemini Cloud Assist</span>
                                         </label>
 
                                         <label className="flex items-center space-x-3 cursor-pointer">

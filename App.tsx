@@ -1,3 +1,19 @@
+/**
+ * Copyright 2024 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GlobalDebugProvider } from './context/GlobalDebugContext';
 import Sidebar from './components/Sidebar';
@@ -62,6 +78,7 @@ const InnerApp: React.FC = () => {
   
   // SSO State
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+    const userEmailRef = useRef<string | null>(null);
   const tokenClient = useRef<any>(null);
     const tokenExpiryRef = useRef<number | null>(null);
     const isRenewingRef = useRef<boolean>(false);
@@ -202,6 +219,7 @@ const InnerApp: React.FC = () => {
                               email: data.email,
                               picture: data.picture
                           });
+                          userEmailRef.current = data.email;
                       })
                       .catch(e => console.error("Failed to fetch user profile", e));
                   }
@@ -222,7 +240,11 @@ const InnerApp: React.FC = () => {
             if (timeToExpiry < 1800000 && timeToExpiry > -60000) {
                 console.log("Token expiring soon, renewing on user activity...");
                 isRenewingRef.current = true;
-                tokenClient.current.requestAccessToken({ prompt: '' });
+                const requestConfig: any = { prompt: 'none' }; // try 'none' first
+                if (userEmailRef.current) {
+                    requestConfig.login_hint = userEmailRef.current;
+                }
+                tokenClient.current.requestAccessToken(requestConfig);
             }
         };
 

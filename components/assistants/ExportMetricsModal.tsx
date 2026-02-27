@@ -1,3 +1,19 @@
+/**
+ * Copyright 2024 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { Config } from '../../types';
 import * as api from '../../services/apiService';
@@ -90,34 +106,53 @@ const ExportMetricsModal: React.FC<ExportMetricsModalProps> = ({ isOpen, onClose
     }, [datasetId, isCreationMode, fetchTables]);
 
     const handleCreateResources = async () => {
-        if (!newDatasetId || !newTableId) {
-            setError("Both Dataset ID and Table ID are required.");
+        if (!newDatasetId && !newTableId) {
+            setError("You must provide either a Dataset ID or a Table ID to create.");
             return;
         }
+
         setIsCreating(true);
         setError(null);
         setStatus("Creating resources...");
 
         try {
-            // 1. Create Dataset (ignore if exists)
-            try {
-                await api.createBigQueryDataset(config.projectId, newDatasetId, bqLocation);
-                setStatus("Dataset created. Creating table...");
-            } catch (err: any) {
-                if (err.message && (err.message.includes("Already Exists") || err.message.includes("409"))) {
-                    console.log("Dataset already exists, proceeding to table creation.");
-                } else {
-                    throw new Error(`Failed to create dataset: ${err.message}`);
+            // If the user wants to create a new dataset
+            if (newDatasetId) {
+                try {
+                    await api.createBigQueryDataset(config.projectId, newDatasetId, bqLocation);
+                    setStatus("Dataset created.");
+                } catch (err: any) {
+                    if (err.message && (err.message.includes("Already Exists") || err.message.includes("409"))) {
+                        console.log("Dataset already exists, proceeding.");
+                    } else {
+                        throw new Error(`Failed to create dataset: ${err.message}`);
+                    }
                 }
             }
 
-            // 2. Create Table
-            await api.createBigQueryTable(config.projectId, newDatasetId, newTableId);
-            
-            // 3. Switch back to selection mode with new values
+            const targetDataset = newDatasetId || datasetId;
+
+            if (!targetDataset) {
+                throw new Error("A dataset must be selected or created before creating a table.");
+            }
+
+            // If the user wants to create a new table
+            if (newTableId) {
+                setStatus("Creating table...");
+                await api.createBigQueryTable(config.projectId, targetDataset, newTableId);
+            }
+
+            // Switch back to selection mode and refresh
             await fetchDatasets();
-            setDatasetId(newDatasetId);
-            setTableId(newTableId); // Ideally fetchTables would happen via useEffect, but we set it here to be safe
+            if (newDatasetId) {
+                setDatasetId(newDatasetId);
+                await fetchTables(newDatasetId);
+            } else if (datasetId) {
+                await fetchTables(datasetId);
+            }
+
+            if (newTableId) setTableId(newTableId);
+
             setIsCreationMode(false);
             setStatus("Resources created successfully! Ready to export.");
 
@@ -130,11 +165,11 @@ const ExportMetricsModal: React.FC<ExportMetricsModalProps> = ({ isOpen, onClose
     };
 
     const handleExport = async () => {
-        const targetDataset = isCreationMode ? newDatasetId : datasetId;
-        const targetTable = isCreationMode ? newTableId : tableId;
+        const targetDataset = datasetId;
+        const targetTable = tableId;
 
         if (!targetDataset || !targetTable) {
-            setError("Dataset ID and Table ID are required.");
+            setError("Dataset ID and Table ID are required to export.");
             return;
         }
         setIsExporting(true);
@@ -169,49 +204,51 @@ const ExportMetricsModal: React.FC<ExportMetricsModalProps> = ({ isOpen, onClose
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4">
-            <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6 border border-gray-700">
+            <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6 border border-gray-700 font-sans">
                 <h2 className="text-xl font-bold text-white mb-2">Backup Metrics to BigQuery</h2>
                 <p className="text-sm text-gray-400 mb-4">
-                    Export analytics metrics for the past 30 days. Target location: <strong className="text-white">{bqLocation}</strong> (based on your app location).
+                    Export analytics metrics to BigQuery. Target location: <strong className="text-white">{bqLocation}</strong>.
                 </p>
                 
                 {isCreationMode ? (
-                    <div className="space-y-4 bg-gray-900/50 p-4 rounded-lg border border-gray-700 mb-4">
-                        <h3 className="text-sm font-semibold text-white">Create New Resources</h3>
+                    <div className="space-y-4 bg-gray-900/50 p-4 rounded-lg border border-gray-700 mb-4 shadow-inner">
+                        <h3 className="text-sm font-semibold text-white border-b border-gray-700 pb-2">Create New Resources</h3>
+                        <p className="text-xs text-gray-400">Fill in one or both to create them in your project.</p>
+
                         <div>
-                            <label className="block text-xs font-medium text-gray-400">New Dataset ID</label>
+                            <label className="block text-xs font-medium text-gray-400 mb-1">New Dataset ID</label>
                             <input 
                                 type="text" 
                                 value={newDatasetId} 
                                 onChange={(e) => setNewDatasetId(e.target.value)} 
-                                className="mt-1 w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white text-sm"
-                                placeholder="my_new_dataset"
+                                className="w-full bg-gray-800 border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-md p-2.5 text-white text-sm transition-colors"
+                                placeholder={datasetId ? `Leave blank to use '${datasetId}'` : "my_new_dataset"}
                                 disabled={isCreating}
                             />
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-gray-400">New Table ID</label>
+                            <label className="block text-xs font-medium text-gray-400 mb-1">New Table ID</label>
                             <input 
                                 type="text" 
                                 value={newTableId} 
                                 onChange={(e) => setNewTableId(e.target.value)} 
-                                className="mt-1 w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white text-sm"
+                                className="w-full bg-gray-800 border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-md p-2.5 text-white text-sm transition-colors"
                                 placeholder="metrics_backup_v1"
                                 disabled={isCreating}
                             />
                         </div>
-                        <div className="flex justify-between items-center pt-2">
+                        <div className="flex justify-between items-center pt-3 border-t border-gray-800 mt-2">
                             <button 
                                 onClick={() => setIsCreationMode(false)} 
-                                className="text-xs text-blue-400 hover:text-blue-300 underline"
+                                className="text-xs text-gray-400 hover:text-white transition-colors"
                                 disabled={isCreating}
                             >
-                                Cancel / Select Existing
+                                Cancel
                             </button>
                             <button 
                                 onClick={handleCreateResources} 
-                                disabled={isCreating} 
-                                className="px-3 py-1.5 bg-teal-600 text-white text-xs font-semibold rounded-md hover:bg-teal-700 disabled:bg-gray-600"
+                                disabled={isCreating || (!newDatasetId && !newTableId)}
+                                className="px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             >
                                 {isCreating ? 'Creating...' : 'Create & Select'}
                             </button>
@@ -235,7 +272,8 @@ const ExportMetricsModal: React.FC<ExportMetricsModalProps> = ({ isOpen, onClose
                                         </option>
                                     ))}
                                 </select>
-                                <button onClick={fetchDatasets} className="p-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-300 border border-gray-600" title="Refresh Datasets">↻</button>
+                                    <button onClick={fetchDatasets} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-300 border border-gray-600 flex-shrink-0" title="Refresh Datasets">↻</button>
+                                    <button onClick={() => { setIsCreationMode(true); setNewDatasetId(''); setNewTableId(''); }} className="px-3 py-2 bg-gray-700 hover:bg-teal-700 hover:text-white rounded text-teal-400 border border-gray-600 font-bold flex-shrink-0" title="Create New Dataset">+</button>
                             </div>
                         </div>
                         <div>
@@ -254,16 +292,9 @@ const ExportMetricsModal: React.FC<ExportMetricsModalProps> = ({ isOpen, onClose
                                         </option>
                                     ))}
                                 </select>
-                                <button onClick={() => fetchTables(datasetId)} disabled={!datasetId} className="p-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-300 border border-gray-600" title="Refresh Tables">↻</button>
-                            </div>
-                        </div>
-                        <div className="text-right">
-                            <button 
-                                onClick={() => setIsCreationMode(true)} 
-                                className="text-xs text-teal-400 hover:text-teal-300 font-medium"
-                            >
-                                + Create New Dataset & Table
-                            </button>
+                                    <button onClick={() => fetchTables(datasetId)} disabled={!datasetId} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-300 border border-gray-600 disabled:opacity-50 flex-shrink-0" title="Refresh Tables">↻</button>
+                                    <button onClick={() => { setIsCreationMode(true); setNewDatasetId(''); setNewTableId(''); }} disabled={!datasetId} className="px-3 py-2 bg-gray-700 hover:bg-teal-700 hover:text-white rounded text-teal-400 border border-gray-600 disabled:opacity-50 font-bold flex-shrink-0" title="Create New Table">+</button>
+                                </div>
                         </div>
                     </div>
                 )}
