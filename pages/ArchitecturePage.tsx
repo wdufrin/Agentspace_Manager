@@ -16,7 +16,7 @@
 
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { GraphEdge, GraphNode, Page, ReasoningEngine, Agent } from '../../types';
+import { GraphEdge, GraphNode, Page, ReasoningEngine, Agent } from '../types';
 import ProjectInput from '../components/ProjectInput';
 import ArchitectureGraph from '../components/architecture/ArchitectureGraph';
 import CurlInfoModal from '../components/CurlInfoModal';

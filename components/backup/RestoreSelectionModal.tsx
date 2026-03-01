@@ -20,6 +20,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 interface SelectableItem {
   name: string;
   displayName: string;
+  agentType?: string; // Optional property for displaying agent type
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 interface RestoreSelectionModalProps {
@@ -41,10 +44,10 @@ const RestoreSelectionModal: React.FC<RestoreSelectionModalProps> = ({
 }) => {
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
 
-  // When the modal opens with new items, select all of them by default
+  // When the modal opens with new items, select all of them by default (except disabled ones)
   useEffect(() => {
     if (isOpen) {
-      setSelectedNames(new Set(items.map(item => item.name)));
+      setSelectedNames(new Set(items.filter(item => !item.disabled).map(item => item.name)));
     }
   }, [isOpen, items]);
 
@@ -63,7 +66,7 @@ const RestoreSelectionModal: React.FC<RestoreSelectionModalProps> = ({
   };
 
   const handleSelectAll = () => {
-    setSelectedNames(new Set(allItemNames));
+    setSelectedNames(new Set(items.filter(item => !item.disabled).map(item => item.name)));
   };
 
   const handleDeselectAll = () => {
@@ -104,17 +107,26 @@ const RestoreSelectionModal: React.FC<RestoreSelectionModalProps> = ({
             {items.map(item => {
               const itemId = item.name.split('/').pop() || item.name;
               return (
-                <li key={item.name} className="p-2 rounded-md hover:bg-gray-700/50">
-                  <label className="flex items-center cursor-pointer">
+                <li key={item.name} className={`p-2 rounded-md ${item.disabled ? 'opacity-50 cursor-not-allowed bg-gray-800/20' : 'hover:bg-gray-700/50'}`}>
+                  <label className={`flex items-center ${item.disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`} title={item.disabledReason}>
                     <input
                       type="checkbox"
                       checked={selectedNames.has(item.name)}
-                      onChange={() => handleToggle(item.name)}
-                      className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600"
+                      onChange={() => !item.disabled && handleToggle(item.name)}
+                      disabled={item.disabled}
+                      className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600 disabled:opacity-50"
                     />
                     <div className="ml-3 text-sm">
                       <span className="font-medium text-white">{item.displayName}</span>
+                      {item.agentType && (
+                        <span className={`ml-2 px-2 py-0.5 text-[10px] font-semibold rounded-full uppercase tracking-wider ${item.disabled ? 'bg-gray-700 text-gray-400 border-gray-600' : 'bg-blue-900/50 text-blue-300 border border-blue-800'}`}>
+                          {item.agentType}
+                        </span>
+                      )}
                       <p className="text-gray-400 font-mono text-xs">{itemId}</p>
+                      {item.disabledReason && (
+                        <p className="text-red-400 text-xs mt-1">{item.disabledReason}</p>
+                      )}
                     </div>
                   </label>
                 </li>

@@ -986,7 +986,7 @@ export const streamQueryReasoningEngine = async (engineName: string, query: stri
             state: {
                 "AUTH_ID": accessToken,
                 "gcp_access_token": accessToken,
-                [config.authId || "AUTH_ID"]: accessToken
+                [(config as any).authId || "AUTH_ID"]: accessToken
             }
         }
     };

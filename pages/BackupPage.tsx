@@ -825,14 +825,14 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     for (const agent of agents) {
       const originalAgentId = agent.name.split('/').pop()!;
       addLog(`    - Preparing to restore agent: ${agent.displayName} (from original ID: ${originalAgentId}) as a new agent.`);
-  
-      // Build a clean payload from scratch
+
       const buildPayload = (currentAgent: Agent): any => {
         const finalStarterPrompts = (currentAgent.starterPrompts || [])
           .map(p => p.text ? p.text.trim() : '')
           .filter(text => text)
           .map(text => ({ text }));
 
+        // Base payload
         const payload: any = {
           displayName: currentAgent.displayName,
           description: currentAgent.description || '',
@@ -842,15 +842,53 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
           authorizations: !currentAgent.authorizationConfig ? currentAgent.authorizations : undefined,
         };
 
-        if (currentAgent.managedAgentDefinition) {
-          payload.managedAgentDefinition = currentAgent.managedAgentDefinition;
-        } else if (currentAgent.adkAgentDefinition) {
-          const adkDef = currentAgent.adkAgentDefinition;
-          payload.adk_agent_definition = {
-            tool_settings: { tool_description: adkDef.toolSettings?.toolDescription },
-            provisioned_reasoning_engine: { reasoning_engine: adkDef.provisionedReasoningEngine?.reasoningEngine }
-          };
+        // Rewrite Authorizations to the NEW project/location
+        const rewriteAuth = (authName: string) => {
+          if (!authName) return authName;
+          const authId = authName.split('/').pop()!;
+          // Always target the new project/location for authorizations
+          return `projects/${restoreConfig.projectId}/locations/${restoreConfig.appLocation || 'global'}/authorizations/${authId}`;
+        };
+
+        if (payload.authorizationConfig?.toolAuthorizations) {
+          payload.authorizationConfig.toolAuthorizations = payload.authorizationConfig.toolAuthorizations.map(rewriteAuth);
         }
+        if (payload.authorizations) {
+          payload.authorizations = payload.authorizations.map(rewriteAuth);
+        }
+
+        // Dynamically copy ANY definition property from the currentAgent
+        const definitionKeys = Object.keys(currentAgent).filter(key => key.toLowerCase().includes('agentdefinition'));
+        for (const key of definitionKeys) {
+          if (key === 'adkAgentDefinition') {
+            const adkDef = currentAgent.adkAgentDefinition;
+            let reasoningEngineStr = adkDef.provisionedReasoningEngine?.reasoningEngine;
+
+            if (reasoningEngineStr) {
+              const parts = reasoningEngineStr.split('/');
+              if (parts.length >= 6) {
+                const oldReId = parts.pop()!;
+                parts.pop(); // reasoningEngines
+                const oldReLoc = parts.pop()!;
+                parts.pop(); // locations
+                const oldProject = parts.pop()!;
+                parts.pop(); // projects
+                // Rebuild with new project and new location
+                reasoningEngineStr = `projects/${restoreConfig.projectId}/locations/${restoreConfig.appLocation || oldReLoc}/reasoningEngines/${oldReId}`;
+              }
+            }
+
+            payload.adkAgentDefinition = {
+              toolSettings: { toolDescription: adkDef.toolSettings?.toolDescription },
+              provisionedReasoningEngine: { reasoningEngine: reasoningEngineStr }
+            };
+          } else {
+            // For any other agent definition (a2aAgentDefinition, managedAgentDefinition, dialogflowAgentDefinition, generativeAgentDefinition, etc.)
+            // We just pass it along directly in camelCase as the Google Cloud API accepts both cases.
+            payload[key] = (currentAgent as any)[key];
+          }
+        }
+
         return payload;
       };
 
@@ -864,6 +902,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       } catch (err: any) {
         if (err.message && err.message.includes("is used by another agent")) {
           addLog(`      - WARNING: Authorization is in use. Attempting to create a new one.`);
+          // IMPORTANT: we need the ORIGINAL authorization name to fetch details, which we grab from the backup agent directly.
           const originalAuthName = agent.authorizationConfig?.toolAuthorizations?.[0] || agent.authorizations?.[0];
           if (!originalAuthName) {
             addLog(`      - ERROR: Cannot resolve authorization conflict. Agent in backup has no authorization specified. Skipping agent.`);
@@ -871,13 +910,22 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
           }
 
           try {
-            addLog(`        - Fetching details for original authorization: ${originalAuthName.split('/').pop()}`);
-            const originalAuthDetails = await api.getAuthorization(originalAuthName, restoreConfig);
+            // We fetch the authorization by providing the Old Project ID through a custom config override,
+            // because `restoreConfig` points to the *new* project. 
+            // `originalAuthName` contains `projects/[old_project]/...` so apiService should parse it out if it handles full paths, 
+            // but we can extract it explicitly to be safe.
+            const oldProjectMatch = originalAuthName.match(/projects\/([^/]+)/);
+            const oldProject = oldProjectMatch ? oldProjectMatch[1] : restoreConfig.projectId;
+            const originalAuthConfig = { ...restoreConfig, projectId: oldProject };
+
+            addLog(`        - Fetching details for original authorization: ${originalAuthName.split('/').pop()} from project: ${oldProject}`);
+            const originalAuthDetails = await api.getAuthorization(originalAuthName, originalAuthConfig);
             
             const originalAuthId = originalAuthName.split('/').pop()!;
             const newAuthId = `${originalAuthId}-${Date.now()}`;
             addLog(`        - Proposing new authorization ID: ${newAuthId}`);
             
+            // The prompt uses the *new* project ID
             const tempAuthForPrompt: Authorization = { name: `projects/${restoreConfig.projectId}/locations/global/authorizations/${newAuthId}`, serverSideOauth2: originalAuthDetails.serverSideOauth2 };
             const clientSecret = await promptForSecret(tempAuthForPrompt, `The original authorization ('${originalAuthId}') is in use. A new one named "${newAuthId}" will be created. Please provide the client secret to proceed.`);
             
@@ -886,8 +934,9 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
                 continue;
             }
 
-            addLog(`        - Creating new authorization: ${newAuthId}`);
+            addLog(`        - Creating new authorization: ${newAuthId} in target project: ${restoreConfig.projectId}`);
             const newAuthPayload = { serverSideOauth2: { ...originalAuthDetails.serverSideOauth2, clientSecret } };
+            // We intentionally pass `restoreConfig` to create it in the new project
             const newAuthorization = await api.createAuthorization(newAuthId, newAuthPayload, restoreConfig);
             addLog(`        - CREATED: New authorization created: ${newAuthorization.name}`);
             
@@ -1153,10 +1202,36 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
         throw new Error("You must select a target Gemini Enterprise in the configuration before restoring agents.");
     }
 
+    const itemsWithTypes = agents.map((agent: any) => {
+      let agentType = "Low Code";
+      if (agent.adkAgentDefinition) {
+        agentType = "ADK";
+      } else if (agent.a2aAgentDefinition) {
+        agentType = "A2A";
+      }
+
+      let disabled = false;
+      let disabledReason = undefined;
+
+      // Extract original project and app ID from the agent name (projects/*/locations/*/collections/*/engines/*/assistants/*/agents/*)
+      const nameParts = agent.name.split('/');
+      const originalProject = nameParts.length >= 2 ? nameParts[1] : '';
+      const originalAppId = nameParts.length >= 8 ? nameParts[7] : '';
+
+      const isCrossInstance = originalProject !== restoreConfig.projectId || originalAppId !== restoreConfig.appId;
+
+      if (isCrossInstance && (agentType === "ADK" || agentType === "A2A")) {
+        disabled = true;
+        disabledReason = "Cross-instance RESTORE is only supported for Low-Code agents.";
+      }
+
+      return { ...agent, agentType, disabled, disabledReason };
+    });
+
     setModalData({
         section: 'Agents',
         title: 'Select Agents to Restore',
-        items: agents,
+      items: itemsWithTypes,
         originalData: backupData,
         processor: async (data) => {
             await restoreAgentsIntoAssistant(data.agents, restoreConfig);

@@ -275,7 +275,7 @@ Additional Info: ${formData.additionalInfo || 'None'}`;
                 ...agentDefinitionPayload
             };
         
-            const finalAuthId = formData.authId?.split('/').pop()?.trim();
+            const finalAuthId = (formData.authIds && formData.authIds.length > 0) ? formData.authIds[0].split('/').pop()?.trim() : undefined;
             if (finalAuthId) {
                 const selectedAuth = authorizations.find(a => a.name.endsWith(`/${finalAuthId}`));
                 const authResourceName = selectedAuth ? selectedAuth.name : `projects/${projectId}/locations/global/authorizations/${finalAuthId}`;

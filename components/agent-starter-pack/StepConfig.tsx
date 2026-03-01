@@ -15,7 +15,7 @@
  */
 
 import React from 'react';
-import { ProjectInput } from '../ProjectInput'; // Assuming these exist or will use standard inputs
+
 
 // We need to know what ProjectInput expects in terms of props or just duplicate the simple input logic
 // For now, I'll stick to standard inputs to minimise dependencies unless I verify ProjectInput

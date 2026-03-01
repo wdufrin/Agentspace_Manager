@@ -29,7 +29,7 @@ const CloudBuildProgress: React.FC<CloudBuildProgressProps> = ({ projectId, buil
     const [status, setStatus] = useState<string>('QUEUED');
     const [progress, setProgress] = useState(0);
     const [isPolling, setIsPolling] = useState(true);
-    const [logs, setLogs] = useState('');
+    const [logs, setLogs] = useState<string[]>([]);
     const logsEndRef = useRef<HTMLDivElement>(null);
 
     // Auto-scroll to bottom of logs
@@ -79,7 +79,7 @@ const CloudBuildProgress: React.FC<CloudBuildProgressProps> = ({ projectId, buil
 
                 // 2. Get Logs
                 const newLogs = await api.fetchBuildLogs(projectId, buildId);
-                setLogs(newLogs); 
+                setLogs(newLogs);
 
                 // 3. Check for completion
                 if (['SUCCESS', 'FAILURE', 'INTERNAL_ERROR', 'TIMEOUT', 'CANCELLED', 'EXPIRED'].includes(currentStatus)) {
