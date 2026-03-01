@@ -17,7 +17,7 @@
 
 // FIX: Replaced incorrect component code with proper type definitions.
 export enum Page {
-  AGENTS = 'Agents Manager',
+  AGENTS = 'GE Agent Manager',
   ASSISTANT = 'Assistant',
   AUTHORIZATIONS = 'Authorizations',
   AGENT_ENGINES = 'Available Agents',

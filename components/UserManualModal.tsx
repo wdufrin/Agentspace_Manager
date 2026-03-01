@@ -59,7 +59,7 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                         <section>
                             <h3 className="text-lg font-bold text-white mb-2">Agent Management</h3>
                             <ul className="list-disc pl-5 space-y-1 text-gray-300">
-                                <li><strong>Agents Manager</strong>: List, create, update, and delete agents. Supports toggling agent status (Enable/Disable).</li>
+                                <li><strong>GE Agent Manager</strong>: List, create, update, and delete agents. Supports toggling agent status (Enable/Disable).</li>
                                 <li><strong>Chat Testing</strong>: Built-in chat interface to test agents and assistants with streaming responses, tool visualization, and grounding metadata inspection.</li>
                                 <li><strong>Project Context</strong>: Smart header with Breadcrumbs and quick project switching (Project ID/Number).</li>
                             </ul>

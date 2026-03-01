@@ -7,7 +7,7 @@ It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates dir
 ## Features Overview
 
 ### 🤖 Agent Management
-*   **Agents Manager**: List, create, update, and delete agents. Supports toggling agent status (Enable/Disable).
+*   **GE Agent Manager**: List, create, update, and delete agents. Supports toggling agent status (Enable/Disable).
 *   **Chat Testing**: Built-in chat interface to test agents and assistants with streaming responses, tool visualization, and grounding metadata inspection.
 *   **Project Context**: smart header with Breadcrumbs and quick project switching (Project ID/Number).
 
@@ -121,16 +121,51 @@ The application communicates with several Google Cloud APIs. Below is a referenc
 ### Discovery Engine API (`discoveryengine.googleapis.com`)
 *   **Engines**: `GET /v1alpha/projects/{project}/locations/{location}/collections/{collection}/engines`
 *   **Assistants**: `GET /v1alpha/projects/{project}/locations/{location}/collections/{collection}/engines/{engine}/assistants`
+*   **Agents**: `GET /v1alpha/projects/{project}/locations/{location}/collections/{collection}/engines/{engine}/assistants/{assistant}/agents`
 *   **Data Stores**: `GET /v1beta/projects/{project}/locations/{location}/collections/{collection}/dataStores`
-*   **Conversations**: `POST /v1beta/projects/{project}/locations/{location}/collections/{collection}/dataStores/{dataStore}/conversations`
+*   **Conversations**: `POST /v1alpha/projects/{project}/locations/{location}/collections/{collection}/engines/{engine}/sessions`
+*   **Connectors**: `GET /v1alpha/projects/{project}/locations/{location}/collections/{collection}/dataConnector`
+*   **Authorizations**: `GET /v1alpha/projects/{project}/locations/{location}/authorizations`
+*   **User Licenses**: `GET /v1/projects/{project}/locations/{location}/userStores/{userStore}/userLicenses`
+*   **License Allocations**: `GET /v1alpha/billingAccounts/{billingAccount}/billingAccountLicenseConfigs`
 
 ### Vertex AI API (`aiplatform.googleapis.com`)
 *   **Reasoning Engines**: `GET /v1beta1/projects/{project}/locations/{location}/reasoningEngines`
-*   **Chat Completions**: `POST /v1beta1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent` (for Gemini models)
+*   **Chat Completions**: `POST /v1beta1/projects/{project}/locations/{location}/publishers/google/models/{model}:streamGenerateContent` (for Gemini models)
+
+### Cloud Run API (`run.googleapis.com`)
+*   **Services**: `GET /v2/projects/{project}/locations/{location}/services`
+
+### Cloud Build API (`cloudbuild.googleapis.com`)
+*   **Builds**: `POST /v1/projects/{project}/builds` (Used to deploy Agent Starter Pack)
+
+### Cloud Storage API (`storage.googleapis.com`)
+*   **Buckets**: `GET /storage/v1/b?project={project}` (Used for backup/restore and deployments)
+*   **Objects**: `GET /storage/v1/b/{bucket}/o` 
+
+### Dialogflow API (`dialogflow.googleapis.com`)
+*   **Agents**: `GET /v3/projects/{project}/locations/{location}/agents`
+
+### BigQuery API (`bigquery.googleapis.com`)
+*   **Datasets**: `GET /bigquery/v2/projects/{project}/datasets`
+*   **Tables**: `GET /bigquery/v2/projects/{project}/datasets/{dataset}/tables`
+*   **Queries**: `POST /bigquery/v2/projects/{project}/queries` (Used for Analytics Metrics)
+
+### Cloud Billing API (`cloudbilling.googleapis.com`)
+*   **Billing Accounts**: `GET /v1/billingAccounts` (Used for license allocation management)
 
 ### Service Usage API (`serviceusage.googleapis.com`)
 *   **Services**: `GET /v1/projects/{project}/services` (Used to validate enabled APIs on startup)
 
 ### IAM API (`iam.googleapis.com`)
 *   **Permissions**: `POST /v1/projects/{project}:testIamPermissions` (Used to check service account permissions)
+
+### Cloud Logging API (`logging.googleapis.com`)
+*   **Logs**: `POST /v2/entries:list` (Used to query Model Armor violations and Connector logs)
+
+### Model Armor API (`modelarmor.googleapis.com`)
+*   **Templates**: `POST /v1/projects/{project}/locations/global/templates` (Used to create Model Armor policies)
+
+### GitHub API (`api.github.com`)
+*   **Repository Contents**: `GET /repos/{owner}/{repo}/contents/{path}` (Used by Agent Catalog and Starter Pack)
 

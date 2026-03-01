@@ -84,6 +84,27 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
       }' \\
   "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents/[AGENT_ID]:setIamPolicy"`
             },
+          {
+            title: 'Enable Agent',
+            command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents/[AGENT_ID]:enableAgent"`
+          },
+          {
+            title: 'Disable Agent',
+            command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents/[AGENT_ID]:disableAgent"`
+          },
+          {
+            title: 'Delete Agent',
+            command: `curl -X DELETE \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents/[AGENT_ID]"`
+          }
         ]
     },
     [Page.ASSISTANT]: {
@@ -131,6 +152,50 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
   "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/default_collection/engines"`
           },
           {
+            title: 'List Agents (Assistant Tab)',
+            command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/default_collection/engines/[ENGINE_ID]/assistants/default_assistant/agents"`
+          },
+          {
+            title: 'List Chat Sessions (History Tab)',
+            command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/sessions"`
+          },
+          {
+            title: 'Get Turn Answer Details (History Tab)',
+            command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/sessions/[SESSION_ID]/answers/[ANSWER_ID]"`
+          },
+          {
+            title: 'List BigQuery Datasets (Analytics Tab)',
+            command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://bigquery.googleapis.com/bigquery/v2/projects/[YOUR_PROJECT_ID]/datasets"`
+          },
+          {
+            title: 'List BigQuery Tables',
+            command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://bigquery.googleapis.com/bigquery/v2/projects/[YOUR_PROJECT_ID]/datasets/[DATASET_ID]/tables"`
+          },
+          {
+            title: 'Run Query (Analytics)',
+            command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{ "query": "SELECT * FROM \`[YOUR_PROJECT_ID].[DATASET_ID].[TABLE_ID]\` LIMIT 50", "useLegacySql": false }' \\
+  "https://bigquery.googleapis.com/bigquery/v2/projects/[YOUR_PROJECT_ID]/queries"`
+          },
+          {
             title: 'Update Engine Configuration',
             command: `curl -X PATCH \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
@@ -158,7 +223,7 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
                 command: `curl -X GET \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/global/authorizations"`
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/authorizations"`
             },
             {
                 title: 'Create an Authorization',
@@ -174,12 +239,39 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
           "tokenUri": "https://oauth2.googleapis.com/token"
         }
       }' \\
-  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/global/authorizations?authorizationId=[NEW_AUTH_ID]"`
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/authorizations?authorizationId=[NEW_AUTH_ID]"`
+          },
+          {
+            title: 'Get Authorization Details',
+            command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/authorizations/[AUTHORIZATION_ID]"`
+          },
+          {
+            title: 'Update Authorization',
+            command: `curl -X PATCH \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "serverSideOauth2": {
+          "clientId": "[UPDATED_CLIENT_ID]"
+        }
+      }' \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/authorizations/[AUTHORIZATION_ID]?updateMask=server_side_oauth2.client_id"`
+          },
+          {
+            title: 'Delete Authorization',
+            command: `curl -X DELETE \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/authorizations/[AUTHORIZATION_ID]"`
             }
         ]
     },
     [Page.AGENT_ENGINES]: {
-      description: "These are the underlying REST API calls for discovering available agent backends (Agent Engines, Cloud Run Services, and Dialogflow Agents).",
+      description: "These are the underlying REST API calls for discovering available agent backends (Agent Engines, Cloud Run Services, and Dialogflow Agents) and managing their lifecycles.",
         commands: [
             {
             title: 'List Agent Engines',
@@ -201,6 +293,34 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   "https://[LOCATION]-dialogflow.googleapis.com/v3/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/agents"`
+          },
+          {
+            title: 'List Reasoning Engine Sessions',
+            command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-aiplatform.googleapis.com/v1beta1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/reasoningEngines/[REASONING_ENGINE_ID]/sessions"`
+          },
+          {
+            title: 'Delete Reasoning Engine Session',
+            command: `curl -X DELETE \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-aiplatform.googleapis.com/v1beta1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/reasoningEngines/[REASONING_ENGINE_ID]/sessions/[SESSION_ID]"`
+          },
+          {
+            title: 'Delete Agent Engine',
+            command: `curl -X DELETE \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-aiplatform.googleapis.com/v1beta1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/reasoningEngines/[REASONING_ENGINE_ID]?force=true"`
+          },
+          {
+            title: 'Delete Cloud Run Service',
+            command: `curl -X DELETE \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-run.googleapis.com/v2/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/services/[SERVICE_ID]"`
             }
         ]
     },
@@ -214,7 +334,45 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   "https://discoveryengine.googleapis.com/v1beta/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores"`
             },
-
+          {
+            title: 'Create Data Store',
+            command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "displayName": "My Data Store",
+        "industryVertical": "GENERIC",
+        "solutionTypes": ["SOLUTION_TYPE_SEARCH"],
+        "contentConfig": "NO_CONTENT"
+      }' \\
+  "https://discoveryengine.googleapis.com/v1beta/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores?dataStoreId=[DATA_STORE_ID]"`
+          },
+          {
+            title: 'Update Data Store',
+            command: `curl -X PATCH \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "displayName": "Updated Data Store Name"
+      }' \\
+  "https://discoveryengine.googleapis.com/v1beta/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores/[DATA_STORE_ID]?updateMask=displayName"`
+          },
+          {
+            title: 'Delete Data Store',
+            command: `curl -X DELETE \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1beta/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataStores/[DATA_STORE_ID]"`
+          },
+          {
+            title: 'Get Long-Running Operation (LRO)',
+            command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1beta/[OPERATION_NAME]"`
+          }
     ]
   },
   [Page.CONNECTORS]: {
@@ -239,25 +397,57 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
         command: `curl -X GET \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataConnector/operations"`
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/operations"`
+      },
+      {
+        title: 'Fetch Connector Logs',
+        command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+        "resourceNames": ["projects/[YOUR_PROJECT_ID]"],
+        "filter": "(resource.type=\\"vertex_ai_search_connector\\" AND resource.labels.connector_id=\\"[CONNECTOR_ID]\\") OR (jsonPayload.connectorRunPayload.dataConnector=\\"projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/dataConnector\\") AND severity>=ERROR",
+        "orderBy": "timestamp desc",
+        "pageSize": 50
+      }' \\
+  "https://logging.googleapis.com/v2/entries:list"`
       }
     ]
   },
 
     [Page.CHAT]: {
-        description: "This is the underlying REST API call for testing a Gemini Enterprise (G.E.) assistant. It sends a prompt and receives a streaming response.",
+      description: "This encompasses the REST API calls for interacting with a Gemini Enterprise assistant, including managing sessions and streaming responses.",
         commands: [
             {
+            title: 'Create Session',
+            command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "userPseudoId": "user@example.com"
+      }' \\
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/sessions"`
+          },
+          {
                 title: 'Test Assistant (Streaming)',
                 command: `curl -X POST \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "Content-Type: application/json" \\
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   -d '{
-        "query": { "text": "Hello, what can you do?" }
+        "query": { "text": "Hello, what can you do?" },
+        "session": "projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/sessions/[SESSION_ID]"
       }' \\
   "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]:streamAssist"`
             },
+          {
+            title: 'Get Engine (Check Linked Data Stores)',
+            command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]"`
+          }
         ]
     },
     [Page.AGENT_BUILDER]: {
@@ -283,13 +473,32 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   "https://discoveryengine.googleapis.com/v1beta/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/default_collection/dataStores"`
+          },
+          {
+            title: 'List Storage Buckets',
+            command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://storage.googleapis.com/storage/v1/b?project=[YOUR_PROJECT_ID]"`
             }
         ]
     },
     [Page.AGENT_CATALOG]: {
-        description: "The Agent Catalog allows browsing project agents and deploying samples from GitHub using Cloud Build.",
+      description: "The Agent Catalog allows browsing project agents and deploying samples from GitHub using Cloud Build. It fetches samples from GitHub, lists available Google Cloud Storage buckets, and triggers Cloud Build deployments.",
         commands: [
             {
+            title: 'Fetch GitHub Repo Contents',
+            command: `curl -X GET \\
+  "https://api.github.com/repos/google/adk-samples/contents/python/agents?ref=main"`
+          },
+          {
+            title: 'List Storage Buckets',
+            command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://storage.googleapis.com/storage/v1/b?project=[YOUR_PROJECT_ID]"`
+          },
+          {
                 title: 'Trigger Cloud Build (Deploy Sample)',
                 command: `curl -X POST \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
@@ -300,18 +509,32 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
         "steps": [ ... ]
       }' \\
   "https://cloudbuild.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/builds"`
-            },
+          }
+        ]
+  },
+  [Page.AGENT_STARTER_PACK]: {
+    description: "The Agent Starter Pack generates scaffolding for robust agents and triggers deployment via Cloud Build using GitHub repos and Storage buckets.",
+    commands: [
             {
-                title: 'List Project Agents',
+        title: 'Fetch GitHub Repo Contents',
                 command: `curl -X GET \\
+  "https://api.github.com/repos/google/adk-samples/contents/python/agents?ref=main"`
+      },
+      {
+        title: 'Trigger Cloud Build (Deploy Agent)',
+        command: `curl -X POST \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/collections/[COLLECTION_ID]/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents"`
+  -d '{
+        "steps": [ ... ]
+      }' \\
+  "https://cloudbuild.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/builds"`
             }
         ]
     },
     [Page.CLOUD_RUN_AGENTS]: {
-        description: "This page lists and inspects Cloud Run services to identify potential agents. It uses the Cloud Run Admin API v2.",
+      description: "This page lists and inspects Cloud Run services to identify potential agents using Gemini AI and labels. It uses the Cloud Run Admin API v2 and Vertex AI generating content endpoints.",
         commands: [
             {
                 title: 'List Cloud Run Services',
@@ -321,11 +544,24 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
   "https://[LOCATION]-run.googleapis.com/v2/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/services"`
             },
             {
-                title: 'Get Service Details',
-                command: `curl -X GET \\
+              title: 'Delete Cloud Run Service',
+              command: `curl -X DELETE \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
-  "https://[LOCATION]-run.googleapis.com/v2/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/services/[SERVICE_ID]"`
+  "https://[LOCATION]-run.googleapis.com/v2/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/services/[SERVICE_NAME]"`
+          },
+          {
+            title: 'Analyze Service (Gemini API)',
+            command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+        "contents": [{
+          "role": "user",
+          "parts": [{"text": "You are an expert system analyzer. Analyze this Google Cloud Run service..."}]
+        }]
+      }' \\
+  "https://[LOCATION]-aiplatform.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/publishers/google/models/gemini-2.5-flash:generateContent"`
             }
         ]
     },
@@ -344,6 +580,73 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
         "pageSize": 50
       }' \\
   "https://logging.googleapis.com/v2/entries:list"`
+      },
+      {
+        title: 'Create Policy Template',
+        command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+        "template": {
+          "filterConfig": {
+            "raiSettings": {
+              "raiFilters": [{"type": "HATE_SPEECH", "confidence": "MEDIUM_AND_ABOVE"}]
+            }
+          }
+        }
+      }' \\
+  "https://modelarmor.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/locations/global/templates?templateId=[TEMPLATE_ID]"`
+      }
+    ]
+  },
+  [Page.DIALOGFLOW_AGENTS]: {
+    description: "This page lists, tests, and deletes Dialogflow CX agents using the Dialogflow API (v3).",
+    commands: [
+      {
+        title: 'List Dialogflow Agents',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-dialogflow.googleapis.com/v3/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/agents"`
+      },
+      {
+        title: 'Detect Intent (Test Agent)',
+        command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "queryInput": {
+          "text": {"text": "[YOUR_MESSAGE]"}
+        }
+      }' \\
+  "https://[LOCATION]-dialogflow.googleapis.com/v3/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/agents/[AGENT_ID]/sessions/[SESSION_ID]:detectIntent"`
+      },
+      {
+        title: 'Delete Agent',
+        command: `curl -X DELETE \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-dialogflow.googleapis.com/v3/[AGENT_NAME]"`
+      }
+    ]
+  },
+  [Page.MCP_SERVERS]: {
+    description: "This page scans for Model Context Protocol (MCP) servers deployed on Cloud Run.",
+    commands: [
+      {
+        title: 'List Cloud Run Services',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-run.googleapis.com/v2/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/services"`
+      },
+      {
+        title: 'Get Service Details',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-run.googleapis.com/v2/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/services/[SERVICE_ID]"`
             }
         ]
     },
@@ -395,6 +698,21 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
         description: "Restoring an authorization involves creating it. The \`createAuthorization\` call from the Authorizations page is used. Note that you must provide the client secret, which is not included in the backup file.",
         commands: [{ title: 'Create Authorization', command: `curl -X POST -H "Authorization: Bearer [TOKEN]" -H "Content-Type: application/json" -d '{ "serverSideOauth2": { ... } }' "https://discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/global/authorizations?authorizationId=[AUTH_ID]"` }]
     },
+  'Backup:NotebookLM': {
+    description: "Backing up NotebookLM involves fetching the recently viewed notebooks and then iterating to fetch the full details and sources for each.",
+    commands: [
+      { title: 'List Notebooks', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/notebooks:listRecentlyViewed"` },
+      { title: 'Get Notebook Details', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/notebooks/[NOTEBOOK_ID]"` },
+      { title: 'Get Source Details', command: `curl -X GET -H "Authorization: Bearer [TOKEN]" "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/notebooks/[NOTEBOOK_ID]/sources/[SOURCE_ID]"` }
+    ]
+  },
+  'Restore:NotebookLM': {
+    description: "Restoring NotebookLM involves creating a new notebook and then performing a batch create operation to restore all of its sources.",
+    commands: [
+      { title: 'Create Notebook', command: `curl -X POST -H "Authorization: Bearer [TOKEN]" -H "Content-Type: application/json" -d '{"title": "[NOTEBOOK_TITLE]"}' "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/notebooks"` },
+      { title: 'Batch Create Sources', command: `curl -X POST -H "Authorization: Bearer [TOKEN]" -H "Content-Type: application/json" -d '{"userContents": [{...}]}' "https://[LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[PROJECT_ID]/locations/[LOCATION]/notebooks/[NEW_NOTEBOOK_ID]/sources:batchCreate"` }
+    ]
+  },
     'ArchitectureScan': {
       description: "The architecture scan performs a series of 'list' operations across multiple regions and resource types to discover all connected components. It starts by listing global resources like Authorizations, then scans all regions for Agent Engines, and finally explores Discovery Engine locations to find Engines, Assistants, and Agents recursively.",
         commands: [
@@ -433,20 +751,110 @@ curl -X GET \\
         ]
     },
     [Page.A2A_TESTER]: {
-        description: "The A2A Tester fetches the discovery card from a running Agent-to-Agent service.",
+      description: "The A2A Tester fetches the discovery card from a running Agent-to-Agent service and can directly invoke it using JSON-RPC 2.0.",
         commands: [
             {
                 title: 'Test an A2A Agent (Discovery)',
-                command: `# Generate the Identity Token and make the request in one command.
+            command: `# Generate the Access Token and make the request in one command.
 curl -X GET \\
-  -H "Authorization: Bearer $(gcloud auth print-identity-token)" \\
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
   "https://[YOUR_SERVICE_URL].run.app/.well-known/agent.json"`
             },
+          {
+            title: 'Invoke A2A Agent',
+            command: `curl -X POST \\
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+        "jsonrpc": "2.0",
+        "method": "chat",
+        "params": {
+          "message": {
+            "role": "user",
+            "parts": [{"text": "Hello!"}]
+          }
+        },
+        "id": "1"
+      }' \\
+  "https://[YOUR_SERVICE_URL].run.app/invoke"`
+          },
         ]
     },
     [Page.LICENSE]: {
-        description: "License management in this application is currently client-side only, storing the license state in your local browser storage. In a production environment, this would integrate with a licensing backend API.",
-        commands: []
+      description: "License management APIs allow tracking user assignments, analyzing project allocation usage, and managing the distribution of seats from a Billing Account to a specific project. Note that Discovery Engine endpoints related to billing accounts and user stores are used.",
+      commands: [
+        {
+          title: 'List User Licenses (Assignments)',
+          command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/userStores/default_user_store/userLicenses?pageSize=50"`
+        },
+        {
+          title: 'Revoke User Licenses (Batch Update)',
+          command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "inlineSource": {
+            "userLicenses": [
+                { "userPrincipal": "user1@example.com" },
+                { "userPrincipal": "user2@example.com" }
+            ],
+            "updateMask": { "paths": ["userPrincipal", "licenseConfig"] }
+        },
+        "deleteUnassignedUserLicenses": true
+      }' \\
+  "https://discoveryengine.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/userStores/default_user_store:batchUpdateUserLicenses"`
+        },
+        {
+          title: 'List Billing Accounts',
+          command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://cloudbilling.googleapis.com/v1/billingAccounts"`
+        },
+        {
+          title: 'List Billing Account License Configs',
+          command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/billingAccounts/[BILLING_ACCOUNT_ID]/billingAccountLicenseConfigs"`
+        },
+        {
+          title: 'List Project Usage Stats',
+          command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/userStores/default_user_store/licenseConfigsUsageStats"`
+        },
+        {
+          title: 'Distribute License Config (Allocate to Project)',
+          command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "projectNumber": "[YOUR_PROJECT_NUMBER]",
+        "location": "[LOCATION]",
+        "licenseCount": 100
+      }' \\
+  "https://discoveryengine.googleapis.com/v1alpha/billingAccounts/[BILLING_ACCOUNT_ID]/billingAccountLicenseConfigs/[LICENSE_CONFIG_ID]:distributeLicenseConfig"`
+        },
+        {
+          title: 'Retract License Config (Remove from Project)',
+          command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "licenseConfig": "projects/[YOUR_PROJECT_NUMBER]/locations/[LOCATION]/licenseConfigs/[PROJECT_LICENSE_CONFIG_ID]",
+        "licenseCount": 10
+      }' \\
+  "https://discoveryengine.googleapis.com/v1alpha/billingAccounts/[BILLING_ACCOUNT_ID]/billingAccountLicenseConfigs/[LICENSE_CONFIG_ID]:retractLicenseConfig"`
+        }
+      ]
     },
   'Backup:ChatHistory': {
     description: "Backing up Chat History involves listing all sessions for the target App/Engine. Note that the API requires iterating over pages if there are many sessions.",
