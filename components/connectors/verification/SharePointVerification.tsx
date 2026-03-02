@@ -147,35 +147,69 @@ const SharePointVerification: React.FC<SharePointVerificationProps> = ({ dataMod
                                     <ChecklistItem id="graph_group_read" label="GroupMember.Read.All" badge="Application" subLabel="Read memberships and basic group properties." />
                                     <ChecklistItem id="graph_user_read" label="User.Read.All" badge="Application" subLabel="Read all user profiles." />
                                     <ChecklistItem id="graph_user_read_del" label="User.Read" badge="Delegated" subLabel="Read signed-in user profile." />
-                                    <ChecklistItem id="graph_sites_full" label="Sites.FullControl.All" badge="Application" subLabel="Full control of all site collections (or use Sites.Selected)." />
+                                    <div className="col-span-1 md:col-span-2 mt-2">
+                                        <h6 className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Site Control (Select One)</h6>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <ChecklistItem
+                                                id="graph_sites_full"
+                                                label="Sites.FullControl.All"
+                                                badge="Application"
+                                                subLabel="Full control of all site collections."
+                                                disabled={checkedItems['graph_sites_select']}
+                                            />
+                                            <ChecklistItem
+                                                id="graph_sites_select"
+                                                label="Sites.Selected"
+                                                badge="Application"
+                                                subLabel="Access a subset of site collections."
+                                                disabled={checkedItems['graph_sites_full']}
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
                             <div>
                                 <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase flex items-center gap-2">
                                     <svg className="w-4 h-4 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" /></svg>
-                                    Office 365 SharePoint Online API
+                                    Microsoft SharePoint
                                 </h5>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <ChecklistItem id="sp_sites_full" label="Sites.FullControl.All" badge="Application" subLabel="Full control of all site collections (or use Sites.Selected)." />
-                                    <ChecklistItem id="sp_term_read" label="TermStore.Read.All" badge="Application" subLabel="Read term store data." />
-                                    <ChecklistItem id="sp_user_read" label="User.Read.All" badge="Application" subLabel="Read user profiles." />
+                                    <div className="md:col-span-2 pt-2 border-t border-gray-700/50">
+                                        <h6 className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Site Access / Federated Credentials (Select One)</h6>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <ChecklistItem
+                                                id="sp_sites_full_app"
+                                                label="Sites.FullControl.All"
+                                                badge="Application"
+                                                subLabel="Full control of all site collections."
+                                                disabled={checkedItems['sp_sites_select_app']}
+                                            />
+                                            <ChecklistItem
+                                                id="sp_sites_select_app"
+                                                label="Sites.Selected"
+                                                badge="Application"
+                                                subLabel="Access a subset of site collections."
+                                                disabled={checkedItems['sp_sites_full_app']}
+                                            />
+                                        </div>
+                                    </div>
 
-                                    <div className="md:col-span-2 mt-2 pt-2 border-t border-gray-700/50">
-                                        <h6 className="text-[10px] font-bold text-gray-400 mb-1 uppercase">For OAuth 2.0 Refresh Token Mode Only (Select One)</h6>
+                                    <div className="md:col-span-2 pt-2 border-t border-gray-700/50">
+                                        <h6 className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Site Access / OAuth Refresh Token (Select One)</h6>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <ChecklistItem
                                                 id="sp_allsites_full_del"
                                                 label="AllSites.FullControl"
                                                 badge="Delegated"
-                                                subLabel="Required if using Refresh Token."
+                                                subLabel="Full control on behalf of user."
                                                 disabled={checkedItems['sp_sites_selected_del']}
                                             />
                                             <ChecklistItem
                                                 id="sp_sites_selected_del"
                                                 label="Sites.Selected"
                                                 badge="Delegated"
-                                                subLabel="Alternative to FullControl (requires site configuration)."
+                                                subLabel="Access a subset on behalf of user."
                                                 disabled={checkedItems['sp_allsites_full_del']}
                                             />
                                         </div>
@@ -187,13 +221,13 @@ const SharePointVerification: React.FC<SharePointVerificationProps> = ({ dataMod
                         <div className="space-y-6">
                             <div className="bg-blue-900/20 border border-blue-800 rounded p-3 mb-4">
                                 <p className="text-xs text-blue-200">
-                                    ℹ️ Federated Search uses <strong>Delegated</strong> permissions to search on behalf of the user. No Graph API permissions are required for basic search.
+                                        ℹ️ <strong>Federated Search</strong> uses Delegated permissions. No Graph API permissions are required for basic search.
                                 </p>
                             </div>
                             <div>
                                 <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase flex items-center gap-2">
                                     <svg className="w-4 h-4 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" /></svg>
-                                    Office 365 SharePoint Online API
+                                        Microsoft SharePoint
                                 </h5>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <ChecklistItem id="sp_search_all" label="Sites.Search.All" badge="Delegated" subLabel="Run search queries on behalf of the user." />
@@ -212,7 +246,7 @@ const SharePointVerification: React.FC<SharePointVerificationProps> = ({ dataMod
                                                 id="sp_sites_fed_selected"
                                                 label="Sites.Selected"
                                                 badge="Delegated"
-                                                subLabel="Read specific site collections (requires config)."
+                                                    subLabel="Read specific site collections."
                                                 disabled={checkedItems['sp_allsites_read']}
                                             />
                                         </div>
@@ -221,6 +255,30 @@ const SharePointVerification: React.FC<SharePointVerificationProps> = ({ dataMod
                             </div>
                         </div>
                     )}
+
+                    <div className="mt-8 pt-6 border-t border-gray-600">
+                        <h5 className="text-sm font-bold text-gray-200 mb-2 uppercase">Actions (Optional)</h5>
+                        <p className="text-[10px] text-gray-400 mb-4 leading-tight">These Delegated permissions are required for creating, updating, or deleting content in SharePoint.</p>
+
+                        <div className="space-y-4">
+                            <div>
+                                <h6 className="text-[10px] font-bold text-gray-500 mb-2 uppercase">Microsoft Graph</h6>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <ChecklistItem id="act_graph_sites_rw" label="Sites.ReadWrite.All" badge="Delegated" subLabel="Edit/delete lists and items in all site collections." />
+                                    <ChecklistItem id="act_graph_files_rw" label="Files.ReadWrite" badge="Delegated" subLabel="Manage signed-in user's files." />
+                                    <ChecklistItem id="act_graph_files_rwa" label="Files.ReadWrite.All" badge="Delegated" subLabel="Manage all files user can access." />
+                                    <ChecklistItem id="act_graph_sites_mng" label="Sites.Manage.All" badge="Delegated" subLabel="Create/delete libraries and lists." />
+                                </div>
+                            </div>
+
+                            <div>
+                                <h6 className="text-[10px] font-bold text-gray-500 mb-2 uppercase">Microsoft SharePoint</h6>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <ChecklistItem id="act_sp_allsites_write" label="AllSites.Write" badge="Delegated" subLabel="Create, read, update, delete, upload, and download." />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

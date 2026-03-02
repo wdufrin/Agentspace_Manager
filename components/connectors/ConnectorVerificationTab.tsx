@@ -55,6 +55,7 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({ con
         if (stateString.includes('entra') || nameString.includes('entra') || nameString.includes('azure')) return 'ENTRA_ID';
         if (stateString.includes('sharepoint')) return 'SHAREPOINT';
         if (stateString.includes('outlook')) return 'OUTLOOK';
+        if (stateString.includes('teams') || nameString.includes('teams')) return 'TEAMS';
         if (stateString.includes('onedrive')) return 'ONEDRIVE';
         if (stateString.includes('slack') || nameString.includes('slack')) return 'SLACK';
         if (stateString.includes('dropbox') || nameString.includes('dropbox')) return 'DROPBOX';
@@ -83,6 +84,7 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({ con
             case 'ENTRA_ID': return <EntraIdVerification {...props} />;
             case 'SHAREPOINT': return <SharePointVerification {...props} />;
             case 'OUTLOOK': return <OutlookVerification {...props} />;
+            case 'TEAMS': return <TeamsVerification {...props} />;
             case 'ONEDRIVE': return <OneDriveVerification {...props} />;
             case 'SLACK': return <SlackVerification {...props} />;
             case 'DROPBOX': return <DropboxVerification />;
