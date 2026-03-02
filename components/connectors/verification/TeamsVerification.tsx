@@ -93,11 +93,14 @@ const TeamsVerification: React.FC<TeamsVerificationProps> = ({ dataMode }) => {
                  <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
                     <h4 className="text-lg font-semibold text-white mb-4 flex items-center">
                         <span className="bg-blue-600 rounded-full w-6 h-6 flex items-center justify-center text-xs mr-2">1</span>
-                        Prerequisites
+                        App Registration & OAuth 2.0
                     </h4>
                      <p className="text-gray-400 text-xs mb-4">
-                        Ensure you have an Entra ID (Azure AD) registered application.
+                        Register an application in Microsoft Entra admin center. Ensure <strong>Accounts in the organizational directory only</strong> is selected for Supported account types.
                     </p>
+                    <div className="mb-4">
+                        <ChecklistItem id="tm_redirect_uri" label="Web Redirect URI" copyValue="https://vertexaisearch.cloud.google.com/oauth-redirect" subLabel="Required as the web callback URL (or redirect URL)." />
+                    </div>
                     <ChecklistItem id="tm_tenant" label="Tenant ID" subLabel="Your Microsoft 365 Tenant ID." />
                     <ChecklistItem id="tm_client_id" label="Client ID" subLabel="Application (Client) ID from App Registration." />
                     <ChecklistItem id="tm_secret" label="Client Secret" subLabel="A valid client secret from Certificates & secrets." />
@@ -108,12 +111,25 @@ const TeamsVerification: React.FC<TeamsVerificationProps> = ({ dataMode }) => {
                         <span className="bg-blue-600 rounded-full w-6 h-6 flex items-center justify-center text-xs mr-2">2</span>
                         Permissions (Microsoft Graph)
                     </h4>
+                    <p className="text-gray-400 text-xs mb-4">
+                        Ensure an administrator <strong>grants consent</strong> for all delegated permissions below. Once granted, the Status column will display Granted with a green tick mark (✓).
+                    </p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                         <div>
-                            <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase">Required (Application)</h5>
-                            <ChecklistItem id="perm_chat_read" label="Chat.Read.All" badge="Application" />
-                            <ChecklistItem id="perm_channel_read" label="Channel.ReadBasic.All" badge="Application" />
-                             <ChecklistItem id="perm_user_read" label="User.Read.All" badge="Application" />
+                        <div className="space-y-2">
+                            <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase">Federated Search</h5>
+                            <ChecklistItem id="perm_chat_read" label="Chat.Read" badge="Delegated" subLabel="Allows the app to read all chats." />
+                            <ChecklistItem id="perm_chat_readbasic" label="Chat.ReadBasic" badge="Delegated" subLabel="Allows the app to read basic properties of chats." />
+                            <ChecklistItem id="perm_chatmessage_read" label="ChatMessage.Read" badge="Delegated" subLabel="Allows the app to read all one-to-one and group chats messages." />
+                            <ChecklistItem id="perm_channel_readbasic_all" label="Channel.ReadBasic.All" badge="Delegated" subLabel="Allows the app to read the names and descriptions of channels." />
+                            <ChecklistItem id="perm_channelmessage_read_all" label="ChannelMessage.Read.All" badge="Delegated" subLabel="Allows the app to read user channel messages." />
+                            <ChecklistItem id="perm_team_readbasic_all" label="Team.ReadBasic.All" badge="Delegated" subLabel="Allows the app to read the names and description of teams." />
+                            <ChecklistItem id="perm_user_read" label="User.Read" badge="Delegated" subLabel="Allows the app to sign in and read user profile." />
+                        </div>
+                        <div className="space-y-2">
+                            <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase">Federated Actions (Optional)</h5>
+                            <p className="text-[10px] text-gray-500 mb-2 leading-tight">These permissions are required for actions that involve updating content in Microsoft Teams.</p>
+                            <ChecklistItem id="perm_channelmessage_send" label="ChannelMessage.Send" badge="Delegated" subLabel="Allows the app to send messages in any channel." />
+                            <ChecklistItem id="perm_chatmessage_send" label="ChatMessage.Send" badge="Delegated" subLabel="Allows the app to send chat messages." />
                          </div>
                     </div>
                 </div>
