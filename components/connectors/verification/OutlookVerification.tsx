@@ -87,20 +87,45 @@ const OutlookVerification: React.FC<OutlookVerificationProps> = ({ dataMode }) =
         <div className="space-y-6 animate-fadeIn">
             <div>
                 <h3 className="text-sm font-bold text-gray-300 mb-4 uppercase tracking-wider">
-                    Outlook Setup
+                    {dataMode === 'INGESTION' ? 'Outlook Ingestion Setup' : 'Outlook Federated Setup'}
                 </h3>
 
                  <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
                     <h4 className="text-lg font-semibold text-white mb-4 flex items-center">
                         <span className="bg-blue-600 rounded-full w-6 h-6 flex items-center justify-center text-xs mr-2">1</span>
-                        Prerequisites
+                        App Registration & OAuth 2.0
                     </h4>
                     <p className="text-gray-400 text-xs mb-4">
-                        Ensure you have an Entra ID (Azure AD) registered application.
+                        Register an application in Microsoft Entra admin center. Ensure <strong>Accounts in this organizational directory only</strong> is selected.
                     </p>
                     <ChecklistItem id="ol_tenant" label="Tenant ID" subLabel="Your Microsoft 365 Tenant ID." />
                     <ChecklistItem id="ol_client_id" label="Client ID" subLabel="Application (Client) ID from App Registration." />
                     <ChecklistItem id="ol_secret" label="Client Secret" subLabel="A valid client secret from Certificates & secrets." />
+
+                    <div className="mt-4 pt-4 border-t border-gray-700">
+                        <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase">Required Redirect URIs (Platform: Web)</h5>
+                        <p className="text-gray-400 text-xs mb-2">Add these exact URIs in the Authentication section of your App Registration.</p>
+                        <ChecklistItem
+                            id="ol_uri_console"
+                            label="Data Source Redirect"
+                            subLabel="https://vertexaisearch.cloud.google.com/console/oauth/default_oauth.html"
+                            copyValue="https://vertexaisearch.cloud.google.com/console/oauth/default_oauth.html"
+                        />
+                        <ChecklistItem
+                            id="ol_uri_oauth"
+                            label="OAuth Redirect"
+                            subLabel="https://vertexaisearch.cloud.google.com/oauth-redirect"
+                            copyValue="https://vertexaisearch.cloud.google.com/oauth-redirect"
+                        />
+                    </div>
+
+                    {dataMode === 'INGESTION' && (
+                        <div className="mt-4 pt-4 border-t border-gray-700">
+                            <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase">Federated Credentials (Optional)</h5>
+                            <p className="text-gray-400 text-xs mb-2">If using Federated credentials, add a credential with Issuer: <code>https://accounts.google.com</code>.</p>
+                            <ChecklistItem id="ol_fed_cred" label="Federated Credential" subLabel="Use the Subject identifier generated during data store creation." />
+                        </div>
+                    )}
                 </div>
 
                 <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
@@ -108,13 +133,47 @@ const OutlookVerification: React.FC<OutlookVerificationProps> = ({ dataMode }) =
                         <span className="bg-blue-600 rounded-full w-6 h-6 flex items-center justify-center text-xs mr-2">2</span>
                         Permissions (Microsoft Graph)
                     </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                         <div>
-                            <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase">Required (Application)</h5>
-                            <ChecklistItem id="perm_mail_read" label="Mail.Read" badge="Application" />
-                             <ChecklistItem id="perm_user_read" label="User.Read.All" badge="Application" />
-                         </div>
+
+                    {dataMode === 'INGESTION' ? (
+                        <div className="space-y-6">
+                            <div>
+                                <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase">Data Ingestion (Application Permissions)</h5>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <ChecklistItem id="ol_ingest_cal" label="Calendars.Read" badge="Application" subLabel="Read events of all calendars." />
+                                    <ChecklistItem id="ol_ingest_cal_basic" label="Calendars.ReadBasic.All" badge="Application" subLabel="Read basic events of all calendars." />
+                                    <ChecklistItem id="ol_ingest_contacts" label="Contacts.Read" badge="Application" subLabel="Read all contacts in all mailboxes." />
+                                    <ChecklistItem id="ol_ingest_mail" label="Mail.Read" badge="Application" subLabel="Read mail in all mailboxes." />
+                                    <ChecklistItem id="ol_ingest_mail_basic" label="Mail.ReadBasic" badge="Application" subLabel="Read basic mail properties." />
+                                    <ChecklistItem id="ol_ingest_mail_basic_all" label="Mail.ReadBasic.All" badge="Application" subLabel="Read basic mail properties in all mailboxes." />
+                                    <ChecklistItem id="ol_ingest_user" label="User.Read.All" badge="Application" subLabel="Read full user profiles." />
+                                    <ChecklistItem id="ol_ingest_user_basic" label="User.ReadBasic.All" badge="Application" subLabel="Read basic user profiles." />
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-6">
+                                <div>
+                                <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase">Federated Search (Delegated Permissions)</h5>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <ChecklistItem id="ol_fed_mail" label="Mail.Read" badge="Delegated" subLabel="Read signed-in user's mailbox." />
+                                    <ChecklistItem id="ol_fed_cal" label="Calendars.Read" badge="Delegated" subLabel="Read signed-in user's calendar." />
+                                    <ChecklistItem id="ol_fed_contacts" label="Contacts.Read" badge="Delegated" subLabel="Read signed-in user's contacts." />
+                                    <ChecklistItem id="ol_fed_user" label="User.Read" badge="Delegated" subLabel="Read signed-in user profile." />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="mt-6 pt-4 border-t border-gray-700">
+                        <h5 className="text-xs font-bold text-gray-300 mb-2 uppercase">Actions / Write (Optional)</h5>
+                        <p className="text-[10px] text-gray-500 mb-2 leading-tight">These Delegated permissions are required for creating or updating content or sending mail.</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <ChecklistItem id="ol_act_mail" label="Mail.Send" badge="Delegated" subLabel="Send mail as users." />
+                            <ChecklistItem id="ol_act_cal" label="Calendars.ReadWrite" badge="Delegated" subLabel="Create, read, update, delete events." />
+                            <ChecklistItem id="ol_act_contacts" label="Contacts.ReadWrite" badge="Delegated" subLabel="Create, read, update, delete contacts." />
+                        </div>
                     </div>
+
                 </div>
             </div>
         </div>

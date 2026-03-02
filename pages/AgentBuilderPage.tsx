@@ -85,6 +85,7 @@ interface AdkAgentConfig {
     deploymentTarget: 'agent_engine' | 'cloud_run';
     githubWifProvider?: string;
     githubServiceAccount?: string;
+    customMcpEndpoints: { name: string; url: string; }[];
 }
 
 interface DiscoveryConfig {
@@ -2124,6 +2125,20 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
         }
     });
 
+    if (config.customMcpEndpoints && config.customMcpEndpoints.length > 0) {
+        toolImports.add('from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams');
+        toolImports.add('from google.adk.tools.mcp_tool.mcp_toolset import McpToolset');
+
+        config.customMcpEndpoints.forEach(endpoint => {
+            if (endpoint.name && endpoint.url) {
+                // Ensure name is a valid python variable name
+                const safeName = endpoint.name.replace(/[^a-zA-Z0-9_]/g, '_');
+                toolInitializations.push(`${safeName} = McpToolset(\n    connection_params=StreamableHTTPConnectionParams(\n        url="${endpoint.url}",\n    ),\n)`);
+                toolListForAgent.push(safeName);
+            }
+        });
+    }
+
     if (config.enableEmailTool) {
         toolsImport.add('send_email');
         toolListForAgent.push('send_email');
@@ -2682,7 +2697,8 @@ IMPORTANT:
         enableCloudLoggingMcp: true,
         enableCodeExecution: true,
         enableOAuth: true,
-        tools: []
+        tools: [],
+        customMcpEndpoints: []
     }
 };
 
@@ -2740,7 +2756,8 @@ Report formatting guidelines:
         enableOAuth: true,
         enableEmailTool: true,
         enableCodeExecution: true,
-        tools: []
+        tools: [],
+        customMcpEndpoints: []
     }
 };
 
@@ -2797,7 +2814,8 @@ Report formatting guidelines:
         enableOAuth: true,
         enableEmailTool: true,
         enableCodeExecution: true,
-        tools: []
+        tools: [],
+        customMcpEndpoints: []
     }
 };
 
@@ -2826,7 +2844,8 @@ When asked to analyze data or create a visualization:
         enableBigQueryMcp: true,
         enableOAuth: true,
         enableCodeExecution: true,
-        tools: []
+        tools: [],
+        customMcpEndpoints: []
     }
 };
 
@@ -2935,7 +2954,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         ciCdRunner: 'none',
         deploymentTarget: 'agent_engine',
         githubWifProvider: '',
-        githubServiceAccount: ''
+        githubServiceAccount: '',
+        customMcpEndpoints: []
     });
     const [vertexLocation, setVertexLocation] = useState('us-central1');
     const [adkGeneratedCode, setAdkGeneratedCode] = useState({ app: '', agent: '', env: '', requirements: '', readme: '', deploy_re: '', auth: '', tools: '', init: '' });
@@ -3235,6 +3255,28 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         } else {
             setAdkConfig(prev => ({ ...prev, tools: prev.tools.filter((_, i) => i !== index) }));
         }
+    };
+
+    const handleAddCustomMcp = () => {
+        setAdkConfig(prev => ({
+            ...prev,
+            customMcpEndpoints: [...prev.customMcpEndpoints, { name: '', url: '' }]
+        }));
+    };
+
+    const handleUpdateCustomMcp = (index: number, field: 'name' | 'url', value: string) => {
+        setAdkConfig(prev => {
+            const newEndpoints = [...prev.customMcpEndpoints];
+            newEndpoints[index] = { ...newEndpoints[index], [field]: value };
+            return { ...prev, customMcpEndpoints: newEndpoints };
+        });
+    };
+
+    const handleRemoveCustomMcp = (index: number) => {
+        setAdkConfig(prev => ({
+            ...prev,
+            customMcpEndpoints: prev.customMcpEndpoints.filter((_, i) => i !== index)
+        }));
     };
 
     const handleRewrite = async (field: 'instruction') => {
@@ -3568,8 +3610,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                                         ciCdRunner: 'none',
                                                         deploymentTarget: 'agent_engine',
                                                         githubWifProvider: '',
-                                                        githubServiceAccount: ''
+                                                        githubServiceAccount: '',
+                                                        customMcpEndpoints: []
                                                     };
+
                                                     return {
                                                         ...cleanConfig,
                                                         ...template.config,
@@ -3716,7 +3760,57 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                         <McpServiceCheck projectId={deployProjectId || ''} serviceName="developerknowledge.googleapis.com" mcpEndpoint="https://developerknowledge.googleapis.com/mcp" label="Developer Knowledge MCP" checked={adkConfig.enableDeveloperKnowledgeMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableDeveloperKnowledgeMcp', type: 'checkbox', checked } } as any)} />
                                         <McpServiceCheck projectId={deployProjectId || ''} serviceName="mapstools.googleapis.com" mcpEndpoint="https://mapstools.googleapis.com/mcp" label="Maps Grounding Lite MCP" checked={adkConfig.enableMapsGroundingMcp} onChange={(checked) => handleAdkConfigChange({ target: { name: 'enableMapsGroundingMcp', type: 'checkbox', checked } } as any)} />
 
-                                        <h4 className="text-xs font-semibold text-gray-400 mt-2">Custom APIs</h4>
+                                        <div className="mt-4 pt-4 border-t border-gray-600">
+                                            <div className="flex justify-between items-center mb-2">
+                                                <h4 className="text-xs font-semibold text-gray-400">Custom MCP Endpoints</h4>
+                                                <button
+                                                    onClick={handleAddCustomMcp}
+                                                    className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs transition-colors"
+                                                >
+                                                    + Add Endpoint
+                                                </button>
+                                            </div>
+                                            <div className="space-y-3">
+                                                {adkConfig.customMcpEndpoints.map((endpoint, index) => (
+                                                    <div key={index} className="flex space-x-2 items-start border border-gray-700 bg-gray-800 p-3 rounded-lg relative group">
+                                                        <div className="flex-1 space-y-2">
+                                                            <div className="flex flex-col">
+                                                                <label className="text-[10px] uppercase tracking-wider text-gray-500 mb-1 font-semibold">Variable Name</label>
+                                                                <input
+                                                                    type="text"
+                                                                    placeholder="e.g., custom_zendesk_mcp"
+                                                                    value={endpoint.name}
+                                                                    onChange={(e) => handleUpdateCustomMcp(index, 'name', e.target.value.replace(/\s+/g, '_'))}
+                                                                    className="w-full bg-gray-900 text-white p-2 rounded border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-xs"
+                                                                />
+                                                            </div>
+                                                            <div className="flex flex-col">
+                                                                <label className="text-[10px] uppercase tracking-wider text-gray-500 mb-1 font-semibold">Endpoint URL</label>
+                                                                <input
+                                                                    type="text"
+                                                                    placeholder="e.g., https://your-mcp-server.internal"
+                                                                    value={endpoint.url}
+                                                                    onChange={(e) => handleUpdateCustomMcp(index, 'url', e.target.value)}
+                                                                    className="w-full bg-gray-900 text-white p-2 rounded border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-xs font-mono"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => handleRemoveCustomMcp(index)}
+                                                            className="text-gray-500 hover:text-red-400 p-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-2"
+                                                            title="Remove Endpoint"
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                                {adkConfig.customMcpEndpoints.length === 0 && (
+                                                    <p className="text-xs text-gray-500 italic pb-2">No custom endpoints defined.</p>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <h4 className="text-xs font-semibold text-gray-400 mt-4 border-t border-gray-600 pt-4">Custom APIs</h4>
                                         <label className="flex items-center space-x-3 cursor-pointer">
                                             <input type="checkbox" name="enableSecurityCommandCenterApi" checked={adkConfig.enableSecurityCommandCenterApi} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
                                             <span className="text-sm text-gray-300">Enable Security Command Center Tool</span>
