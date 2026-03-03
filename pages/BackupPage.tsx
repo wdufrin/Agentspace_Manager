@@ -54,6 +54,7 @@ interface BackupRestoreCardProps {
   loadingSection: string | null;
   isGloballyLoading: boolean;
   onShowInfo: (infoKey: string) => void;
+  scope: 'Global' | 'User Specific';
 }
 
 const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({ 
@@ -69,7 +70,8 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
   onBackupSelectionChange,
   loadingSection,
   isGloballyLoading,
-  onShowInfo
+  onShowInfo,
+  scope
 }) => {
     const isBackupLoading = loadingSection === `Backup${section}`;
     const isRestoreLoading = loadingSection === `Restore${section}`;
@@ -79,7 +81,12 @@ const BackupRestoreCard: React.FC<BackupRestoreCardProps> = ({
 
     return (
       <div className={`bg-gray-900 rounded-lg p-4 shadow-lg flex flex-col border transition-colors ${isThisCardLoading ? 'border-blue-500' : 'border-gray-700'}`}>
-        <h3 className="text-lg font-semibold text-white text-center mb-4">{title}</h3>
+        <div className="flex flex-col items-center mb-4">
+          <h3 className="text-lg font-semibold text-white text-center">{title}</h3>
+          <span className={`text-[10px] px-2 py-0.5 mt-1 rounded-full uppercase tracking-wider font-semibold ${scope === 'Global' ? 'bg-purple-900/80 text-purple-300 border border-purple-700/50' : 'bg-emerald-900/80 text-emerald-300 border border-emerald-700/50'}`}>
+            {scope}
+          </span>
+        </div>
         
         {/* Backup Action */}
         <div className="flex-1 mb-4">
@@ -1447,15 +1454,21 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       setSelectedRestoreFiles(prev => ({ ...prev, [section]: value }));
   };
 
-  const cardConfigs = [
-    { section: 'DiscoveryResources', title: 'All Discovery Resources', backupHandler: handleBackupDiscovery, restoreProcessor: processRestoreDiscovery },
-    { section: 'ReasoningEngine', title: 'Single Agent Engine', backupHandler: handleBackupReasoningEngine, restoreProcessor: processRestoreReasoningEngine },
-    { section: 'Assistant', title: 'Single Assistant', backupHandler: handleBackupAssistant, restoreProcessor: processRestoreAssistant },
-    { section: 'Agents', title: 'Agents', backupHandler: handleBackupAgents, restoreProcessor: processRestoreAgents },
-    { section: 'DataStores', title: 'Data Stores', backupHandler: handleBackupDataStores, restoreProcessor: processRestoreDataStores },
-    { section: 'Authorizations', title: 'Authorizations', backupHandler: handleBackupAuthorizations, restoreProcessor: processRestoreAuthorizations },
-    { section: 'NotebookLM', title: 'NotebookLMs', backupHandler: handleBackupNotebooks, restoreProcessor: processRestoreNotebooks },
-    { section: 'ChatHistory', title: 'Chat History', backupHandler: handleBackupChatHistory, restoreProcessor: async () => { /* Handled by handleRestore special case */ } },
+  const cardConfigs: Array<{
+    section: string;
+    title: string;
+    scope: 'Global' | 'User Specific';
+    backupHandler: () => Promise<void>;
+    restoreProcessor: (data: any) => Promise<void>;
+  }> = [
+      { section: 'DiscoveryResources', title: 'All Discovery Resources', scope: 'Global', backupHandler: handleBackupDiscovery, restoreProcessor: processRestoreDiscovery },
+      { section: 'ReasoningEngine', title: 'Single Agent Engine', scope: 'Global', backupHandler: handleBackupReasoningEngine, restoreProcessor: processRestoreReasoningEngine },
+      { section: 'Assistant', title: 'Single Assistant', scope: 'Global', backupHandler: handleBackupAssistant, restoreProcessor: processRestoreAssistant },
+      { section: 'Agents', title: 'Agents', scope: 'Global', backupHandler: handleBackupAgents, restoreProcessor: processRestoreAgents },
+      { section: 'DataStores', title: 'Data Stores', scope: 'Global', backupHandler: handleBackupDataStores, restoreProcessor: processRestoreDataStores },
+      { section: 'Authorizations', title: 'Authorizations', scope: 'Global', backupHandler: handleBackupAuthorizations, restoreProcessor: processRestoreAuthorizations },
+      { section: 'NotebookLM', title: 'NotebookLMs', scope: 'User Specific', backupHandler: handleBackupNotebooks, restoreProcessor: processRestoreNotebooks },
+      { section: 'ChatHistory', title: 'Chat History', scope: 'User Specific', backupHandler: handleBackupChatHistory, restoreProcessor: async () => { /* Handled by handleRestore special case */ } },
   ];
 
   return (
@@ -1567,6 +1580,7 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
                     key={card.section}
                     section={card.section}
                     title={card.title}
+                scope={card.scope}
                     onBackup={card.backupHandler}
                     onRestore={handleRestore}
                 onDeleteBackup={handleDeleteBackup}

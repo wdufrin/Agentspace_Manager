@@ -71,6 +71,11 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
   const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
   const [selectedResource, setSelectedResource] = useState<UnifiedResource | null>(null);
   
+    type SortColumn = 'displayName' | 'type' | 'shortId' | 'usedByAgents' | null;
+    type SortDirection = 'asc' | 'desc';
+    const [sortColumn, setSortColumn] = useState<SortColumn>(null);
+    const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
   // State for multi-select and delete confirmation
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
@@ -116,6 +121,37 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
         return acc;
     }, {} as { [key: string]: Agent[] });
   }, [allAgents, resources]);
+
+    const handleSort = (column: SortColumn) => {
+        if (sortColumn === column) {
+            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortColumn(column);
+            setSortDirection('asc');
+        }
+    };
+
+    const sortedResources = useMemo(() => {
+        if (!sortColumn) return resources;
+
+        return [...resources].sort((a, b) => {
+            let valA: any = a[sortColumn as keyof UnifiedResource];
+            let valB: any = b[sortColumn as keyof UnifiedResource];
+
+            if (sortColumn === 'usedByAgents') {
+                valA = (agentsByResource[a.id] || []).length;
+                valB = (agentsByResource[b.id] || []).length;
+            }
+
+            if (typeof valA === 'string' && typeof valB === 'string') {
+                return sortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+            }
+
+            if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+            if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }, [resources, sortColumn, sortDirection, agentsByResource]);
 
   const fetchResources = useCallback(async () => {
     if (!projectNumber || !location) {
@@ -390,15 +426,35 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                                 <th scope="col" className="px-6 py-3 w-10">
                                     <input type="checkbox" checked={isAllSelected} onChange={handleToggleSelectAll} className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-600" />
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Display Name</th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Type</th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Resource ID</th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Used By Agents</th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors" onClick={() => handleSort('displayName')}>
+                                    <div className="flex items-center gap-1">
+                                        Display Name
+                                        {sortColumn === 'displayName' && <span className="text-gray-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}
+                                    </div>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors" onClick={() => handleSort('type')}>
+                                    <div className="flex items-center gap-1">
+                                        Type
+                                        {sortColumn === 'type' && <span className="text-gray-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}
+                                    </div>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors" onClick={() => handleSort('shortId')}>
+                                    <div className="flex items-center gap-1">
+                                        Resource ID
+                                        {sortColumn === 'shortId' && <span className="text-gray-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}
+                                    </div>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors" onClick={() => handleSort('usedByAgents')}>
+                                    <div className="flex items-center gap-1">
+                                        Used By Agents
+                                        {sortColumn === 'usedByAgents' && <span className="text-gray-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}
+                                    </div>
+                                </th>
                                 <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="bg-gray-800 divide-y divide-gray-700">
-                            {resources.map((res) => {
+                            {sortedResources.map((res) => {
                                 const isSelected = selectedIds.has(res.id);
                                 const usingAgents = agentsByResource[res.id] || [];
                                 const isRE = res.type === 'Agent Engine';
