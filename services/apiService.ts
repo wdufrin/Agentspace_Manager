@@ -982,12 +982,7 @@ export const streamQueryReasoningEngine = async (engineName: string, query: stri
     const body = {
         input: {
             message: query,
-            user_id: userId,
-            state: {
-                "AUTH_ID": accessToken,
-                "gcp_access_token": accessToken,
-                [(config as any).authId || "AUTH_ID"]: accessToken
-            }
+            user_id: userId
         }
     };
 
