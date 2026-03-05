@@ -50,6 +50,7 @@ interface AdkAgentConfig {
     bqTableId: string;
     enableThinking: boolean;
     thinkingBudget: number;
+    thinkingLevel: string;
     enableStreaming: boolean;
     enableBigQueryMcp: boolean;
     enableCodeExecution: boolean;
@@ -78,7 +79,6 @@ interface AdkAgentConfig {
     enableMapsGroundingMcp: boolean;
     enableTelemetry: boolean;
     enableMessageLogging: boolean;
-    enableArchitectureDiagramming: boolean;
     enableEvaluation: boolean;
     enableCiCd: boolean;
     ciCdRunner: 'github_actions' | 'google_cloud_build' | 'none';
@@ -389,8 +389,14 @@ if __name__ == "__main__":
 }
 
 const generateA2aEnvYaml = (config: A2aConfig, projectId: string): string => {
+    // If using Gemini 3 models, the model endpoint location must be "global". 
+    // The Cloud Run deployment location itself remains the specified \`region\`.
+    const isGemini3 = config.model && config.model.startsWith('gemini-3');
+    const modelLocation = isGemini3 ? 'global' : config.region;
+
     return `GOOGLE_CLOUD_PROJECT: "${projectId}"
-GOOGLE_CLOUD_LOCATION: "${config.region}"
+GOOGLE_CLOUD_LOCATION: "${modelLocation}"
+DEPLOYMENT_LOCATION: "${config.region}"
 GOOGLE_GENAI_USE_VERTEXAI: "TRUE"
 MODEL: "${config.model}"
 AGENT_DISPLAY_NAME: "${config.displayName}"
@@ -792,92 +798,6 @@ def create_a2a_tool(url: str, tool_name: str):
 
     a2a_interaction.__name__ = tool_name
     return a2a_interaction
-`;
-    }
-
-    if (config.enableArchitectureDiagramming) {
-        code += `
-def image_generation_tool(prompt: str, tool_context: ToolContext) -> Any:
-    """
-    Generates an image from a given text prompt.
-
-    Args:
-        prompt: The text prompt to generate the image from.
-        tool_context: The tool context.
-
-    Returns:
-        A message confirming the artifact execution.
-    """
-    print(f"Generating image with prompt: {prompt}")
-    import tempfile
-    import uuid
-    import vertexai
-    from vertexai.preview.vision_models import ImageGenerationModel
-
-    project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-    location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-    if project_id and location:
-        vertexai.init(project=project_id, location=location)
-
-    try:
-        model_name = os.getenv("IMAGE_GENERATION_MODEL", "imagen-3.0-generate-001")
-        model = ImageGenerationModel.from_pretrained(model_name)
-        images = model.generate_images(
-            prompt=prompt,
-            number_of_images=1,
-            aspect_ratio="16:9"
-        )
-
-        if not images:
-            raise RuntimeError("Image generation failed.")
-
-        # Save to temp file first (Vertex AI SDK logic)
-        temp_filename = f"{uuid.uuid4()}.png"
-        image_file_path = f"{tempfile.gettempdir()}/{temp_filename}"
-        images[0].save(location=image_file_path, include_generation_parameters=True)
-        print(f"Image locally saved to: {image_file_path}")
-
-        # Read back bytes to save as ADK artifact
-        with open(image_file_path, "rb") as f:
-            image_bytes = f.read()
-
-        artifact_part = types.Part.from_bytes(data=image_bytes, mime_type="image/png")
-        
-        # Save using ToolContext logic to ensure UI propagation
-        # We use a unique filename in the artifact storage
-        artifact_filename = f"architecture_diagram_{temp_filename}"
-        tool_context.save_artifact(
-            filename=artifact_filename,
-            artifact=artifact_part,
-            custom_metadata={"prompt": prompt, "local_path": image_file_path}
-        )
-
-        # Construct the full URI for the artifact
-        try:
-            # Access private _invocation_context to get session details
-            invocation_context = tool_context._invocation_context
-            app_name = invocation_context.app_name
-            user_id = invocation_context.user_id
-            session_id = invocation_context.session.id
-            
-            # The ADK web server serves artifacts at this path
-            artifact_uri = f"/apps/{app_name}/users/{user_id}/sessions/{session_id}/artifacts/{artifact_filename}"
-        except Exception as e:
-            print(f"Error constructing artifact URI: {e}")
-            # Fallback to simple path if something goes wrong
-            artifact_uri = f"artifacts/{artifact_filename}"
-
-        return {
-            "result": f"Architecture diagram generated and saved.",
-            "artifacts": [{
-                "filename": artifact_filename,
-                "mime_type": "image/png",
-                "uri": artifact_uri
-            }]
-        }
-
-    except Exception as e:
-        return f"Error generating image: {str(e)}"
 `;
     }
 
@@ -1975,37 +1895,6 @@ code_exec_tool = AgentTool(code_executor_agent())`);
         toolListForAgent.push('code_exec_tool');
     }
 
-    if (config.enableArchitectureDiagramming) {
-        toolImports.add('from google.adk.tools import AgentTool');
-        toolsImport.add('image_generation_tool');
-
-        toolInitializations.push(`def architecture_diagram_agent():
-    instruction = (
-        "You are an Architecture and Systems Design Visualization Expert. Your goal is to transform "
-        "structural and architectural concepts into clear visual diagrams.\\n\\n"
-        "OPERATIONAL GUIDELINES:\\n"
-        "1. DIAGRAM GENERATION: You MUST first design the architecture using Mermaid.js syntax.\\n"
-        "2. VISUALIZATION STANDARDS: Once the architecture is defined in Mermaid, formulate a highly detailed "
-        "natural language prompt describing the visual layout of this architecture. You SHOULD include the Mermaid code "
-        "in the prompt context to help the model understand the structure.\\n"
-        "3. ARTIFACT GENERATION: Pass your detailed prompt (description + code) to the 'image_generation_tool' to "
-        "generate the resulting system architecture diagram as a PNG artifact. This tool MUST be used for the final output.\\n"
-        "4. DISPLAY: After generating the image, you MUST display it in your final response using markdown: \`![Architecture Diagram](<uri>)\`. The image_generation_tool will provide the uri in its output.\\n"
-    )
- 
-    return Agent(
-        name='architecture_diagram_agent',
-        model="gemini-2.5-flash", 
-            description="Architecture and Diagram Expert. Delegate to this agent for generating system architectures, flowcharts, and structural diagrams.",
-            instruction=instruction,
-            tools=[image_generation_tool]
-    )
-
-architecture_tool = AgentTool(architecture_diagram_agent())`);
-
-        toolListForAgent.push('architecture_tool');
-    }
-
     // Inject A2A Helper Function Import
     if (config.tools.some(t => t.type === 'A2AClientTool')) {
         toolsImport.add('create_a2a_tool');
@@ -2037,7 +1926,6 @@ architecture_tool = AgentTool(architecture_diagram_agent())`);
             config.enableDiscoveryApi ||
             config.enableEmailTool ||
             config.enableCodeExecution ||
-            config.enableArchitectureDiagramming ||
             config.enableSecurityCommandCenterApi ||
             config.enableRecommenderApi ||
             config.enableServiceHealthApi ||
@@ -2215,23 +2103,12 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
     };
 
     let finalInstruction = config.instruction;
-    if (config.enableCodeExecution || config.enableArchitectureDiagramming) {
+    if (config.enableCodeExecution) {
         finalInstruction += `\\n\\nAdditionally, you have access to specialized sub-agents:`;
-        if (config.enableCodeExecution) {
-            finalInstruction += `\\n- \`code_exec_agent\`: A specialized Python Data Science Expert for generating charts, graphs, and plots from data.`;
-        }
-        if (config.enableArchitectureDiagramming) {
-            finalInstruction += `\\n- \`architecture_diagram_agent\`: A specialized expert for generating system architectures, flowcharts, and structural diagrams.`;
-        }
-
+        finalInstruction += `\\n- \`code_exec_agent\`: A specialized Python Data Science Expert for generating charts, graphs, and plots from data.`;
         finalInstruction += `\\n\\nWhen asked to analyze data or create a visualization:`;
-        if (config.enableCodeExecution) {
-            finalInstruction += `\\n- For charts and data plots: Provide the query results to \`code_exec_agent\` and ask it to generate the requested chart.`;
-        }
-        if (config.enableArchitectureDiagramming) {
-            finalInstruction += `\\n- For system architectures, schemas, or flowcharts: Provide the structural information to \`architecture_diagram_agent\` and ask it to generate the diagram.`;
-        }
-        finalInstruction += `\\nDO NOT output raw DOT code or raw Python code to the user. Always delegate explicitly to the appropriate sub-agent tool to generate the visual artifact.`;
+        finalInstruction += `\\n- For charts and data plots: Provide the query results to \`code_exec_agent\` and ask it to generate the requested chart.`;
+        finalInstruction += `\\nDO NOT output raw Python code to the user. Always delegate explicitly to the appropriate sub-agent tool to generate the visual artifact.`;
     }
 
     const imports = [
@@ -2257,6 +2134,11 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
 ${imports.join('\n')}
 
 load_dotenv()
+
+${config.model && config.model.startsWith('gemini-3') ? `
+# Force Gemini 3 global routing override inside the container execution runtime
+os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
+` : ''}
 
 # --- ADK Resilience Patch ---
 # Prevents the entire agent stream from crashing if an MCP server returns an HTTP error (e.g. 400 Bad Request)
@@ -2294,6 +2176,41 @@ async def _safe_handle_post_request(self, ctx):
 StreamableHTTPTransport._handle_post_request = _safe_handle_post_request
 # ----------------------------
 
+# --- ADK Schema Recursion Patch ---
+# Prevents infinite recursion when expanding deeply nested or circular OpenAPI/JSON schemas
+try:
+    import google.adk.tools._gemini_schema_util as _schema_util
+
+    def _safe_dereference_schema(schema: dict) -> dict:
+        defs = schema.get("$defs", {})
+        def _resolve_refs(sub_schema, depth=0):
+            if depth > 10:
+                return {"type": "object", "description": "Recursive structure omitted"}
+            if isinstance(sub_schema, dict):
+                if "$ref" in sub_schema:
+                    ref_key = sub_schema.get("$ref", "").split("/")[-1]
+                    if ref_key in defs:
+                        resolved = defs[ref_key].copy()
+                        sub_schema_copy = sub_schema.copy()
+                        del sub_schema_copy["$ref"]
+                        resolved.update(sub_schema_copy)
+                        return _resolve_refs(resolved, depth + 1)
+                    return sub_schema
+                return {key: _resolve_refs(value, depth) for key, value in sub_schema.items()}
+            elif isinstance(sub_schema, list):
+                return [_resolve_refs(item, depth) for item in sub_schema]
+            return sub_schema
+
+        dereferenced_schema = _resolve_refs(schema)
+        if "$defs" in dereferenced_schema:
+            del dereferenced_schema["$defs"]
+        return dereferenced_schema
+
+    _schema_util._dereference_schema = _safe_dereference_schema
+except Exception as patch_err:
+    logging.warning(f"Failed to apply ADK Schema Recursion Patch: {patch_err}")
+# ----------------------------------
+
 # Initialize Tools
 ${toolInitializations.length > 0 ? toolInitializations.join('\n\n') : '# No additional tools defined'}
 
@@ -2304,8 +2221,7 @@ ${config.enableThinking ? `
 # Define Thinking Planner
 thinking_planner = BuiltInPlanner(
     thinking_config=genai_types.ThinkingConfig(
-        include_thoughts=True,
-        thinking_budget=${config.thinkingBudget},
+        include_thoughts=True,${config.model && config.model.startsWith('gemini-3') ? `\n        thinking_level="${config.thinkingLevel || 'HIGH'}",` : `\n        thinking_budget=${config.thinkingBudget},`}
     )
 )
 ` : ''}
@@ -2395,70 +2311,15 @@ const generateAdkDeployScript = (config: AdkAgentConfig): string => {
 import os
 import logging
 import vertexai
-from vertexai.preview import reasoning_engines
+from vertexai import agent_engines
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-location = os.getenv("GOOGLE_CLOUD_LOCATION")
-staging_bucket = os.getenv("STAGING_BUCKET")
-
-logger.info(f"Initializing Vertex AI: project={project_id}, location={location}, staging_bucket={staging_bucket}")
-vertexai.init(project=project_id, location=location, staging_bucket=staging_bucket)
-
-try:
-    import app
-    if hasattr(app, 'app'):
-        # If the user defined an App, use it.
-        app_obj = app.app
-    logger.info(f"Imported 'app' from app.py. Attributes: {dir(app_obj)}")
-    if hasattr(app_obj, '_lazy_agent'):
-        logger.info(f"App has _lazy_agent. Initial state: {app_obj._lazy_agent}")
-    if hasattr(app_obj, 'agent'):
-        logger.info("WARNING: App still has 'agent' attribute!")
-    else:
-    logger.error("No 'app' variable found in app.py")
-        raise AttributeError("No 'app' variable")
-except ImportError as e:
-    logger.error(f"Failed to import app: {e}")
-    raise
-
-# Read requirements
-    reqs = ["google-cloud-aiplatform[adk,agent_engines]>=1.75.0", "google-adk>=0.1.0", "python-dotenv", "nest_asyncio"]
-if os.path.exists("requirements.txt"):
-    with open("requirements.txt", "r") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#"):
-                reqs.append(line)
-reqs = list(set(reqs))
-
-# Parse .env for deploymentSpec
-env_vars = []
-if os.path.exists(".env"):
-    try:
-        with open(".env", "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, value = line.split("=", 1)
-                    key = key.strip()
-                    value = value.strip()
-                    if not key:
-                        continue
-
-                    # Handle quotes if present
-                    if value.startswith('"') and value.endswith('"'):
-                        value = value[1:-1]
-                    elif value.startswith("'") and value.endswith("'"):
-                        value = value[1:-1]
-
-                    # Update os.environ so the SDK can pick it up
-                    os.environ[key] = value
-
                     # Append strictly non-reserved keys to env_vars list for deployment
-                    if (key not in ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "STAGING_BUCKET", "PROJECT_ID"]
+                    # We explicitly allow GOOGLE_CLOUD_LOCATION to pass into the container
+                    # to specify the model endpoint location (e.g. 'global' for Gemini 3).
+                    if (key not in ["GOOGLE_CLOUD_PROJECT", "STAGING_BUCKET", "PROJECT_ID", "DEPLOYMENT_LOCATION"]
                         and not key.startswith("OTEL_")
                         and not key.startswith("GOOGLE_CLOUD_AGENT_ENGINE_")):
                         env_vars.append(key)
@@ -2469,6 +2330,22 @@ if os.path.exists(".env"):
         logger.info(f"Parsed {len(env_vars)} environment variables for deploymentSpec.")
     except Exception as e:
         logger.warning(f"Failed to parse .env file: {e}")
+
+project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+# OVERRIDE: The Vertex AI Agent Engine deployer requires the SDK to point to the region
+# where the Agent Engine itself will live (e.g. us-central1). However, we passed 'global'
+# into GOOGLE_CLOUD_LOCATION via the .env file so the model uses the global endpoint.
+# We MUST use DEPLOYMENT_LOCATION for the SDK init, or fall back to GOOGLE_CLOUD_LOCATION.
+location = os.getenv("DEPLOYMENT_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION")
+staging_bucket = os.getenv("STAGING_BUCKET")
+
+logger.info(f"Initializing Vertex AI: project={project_id}, location={location}, staging_bucket={staging_bucket}")
+# WARNING: We must momentarily overwrite the environment so 'vertexai.init' connects to the correct regional registry pipeline.
+original_os_location = os.environ.get("GOOGLE_CLOUD_LOCATION")
+os.environ["GOOGLE_CLOUD_LOCATION"] = location
+vertexai.init(project=project_id, location=location, staging_bucket=staging_bucket)
+if original_os_location:
+    os.environ["GOOGLE_CLOUD_LOCATION"] = original_os_location # Restore for normal model usage debugging.
 
 logger.info("Creating Agent Engine...")
 
@@ -2485,22 +2362,56 @@ for f in os.listdir("."):
 
 logger.info(f"Extra packages detected: {extra_packages}")
 
-remote_app = reasoning_engines.ReasoningEngine.create(
-    app_to_deploy,
-    requirements=reqs,
-    env_vars=env_vars,
-    extra_packages=extra_packages,
-    display_name=os.getenv("AGENT_DISPLAY_NAME", "${config.name || 'my-agent'}"),
-)
+agent_display_name = os.getenv("AGENT_DISPLAY_NAME", "${config.name || 'my-agent'}")
 
-print(f"Deployment finished!")
-print(f"Resource Name: {remote_app.resource_name}")
+try:
+    logger.info(f"Checking for existing agent with display name '{agent_display_name}'...")
+    existing_agents = agent_engines.list()
+    
+    target_agent = None
+    for agent in existing_agents:
+        if agent.display_name == agent_display_name:
+            target_agent = agent
+            break
+            
+    if target_agent:
+        logger.info(f"Found existing agent: {target_agent.name}. Updating...")
+        remote_app = agent_engines.update(
+            target_agent.name,
+            agent_engine=app_to_deploy,
+            requirements=reqs,
+            env_vars=env_vars,
+            extra_packages=extra_packages,
+        )
+        logger.info("Update Succeeded!")
+    else:
+        logger.info("No existing agent found. Creating new...")
+        remote_app = agent_engines.create(
+            agent_engine=app_to_deploy,
+            display_name=agent_display_name,
+            requirements=reqs,
+            env_vars=env_vars,
+            extra_packages=extra_packages,
+        )
+        logger.info("Deployment Succeeded!")
+        
+    print(f"Deployment finished!")
+    print(f"Resource Name: {remote_app.resource_name}")
+except Exception as e:
+    logger.error(f"Deployment/Update Failed: {e}")
+    raise
 `.trim();
 };
 
 const generateAdkEnvFile = (config: AdkAgentConfig, projectNumber: string, location: string, stagingBucket: string): string => {
+    // If using Gemini 3 models, the model endpoint location must be "global". 
+    // The Agent Engine deployment location itself remains the specified \`location\`.
+    const isGemini3 = config.model && config.model.startsWith('gemini-3');
+    const modelLocation = isGemini3 ? 'global' : location;
+
     let env = `GOOGLE_CLOUD_PROJECT="${projectNumber}"
-GOOGLE_CLOUD_LOCATION="${location}"
+GOOGLE_CLOUD_LOCATION="${modelLocation}"
+DEPLOYMENT_LOCATION="${location}"
 STAGING_BUCKET="${stagingBucket}"
 GOOGLE_GENAI_USE_VERTEXAI="true"`;
 
@@ -2510,10 +2421,6 @@ GOOGLE_GENAI_USE_VERTEXAI="true"`;
 
     if (config.enableOAuth && config.authId) {
         env += `\nAUTH_ID="${config.authId}"`;
-    }
-
-    if (config.enableArchitectureDiagramming) {
-        env += `\nIMAGE_GENERATION_MODEL="imagen-3.0-generate-001"`;
     }
 
     if (config.enableTelemetry) {
@@ -2552,7 +2459,9 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
         "google-auth",
         "requests",
         "google-genai",
-        "cloudpickle"
+        "cloudpickle",
+        "mcp",
+        "httpx"
     ];
 
     if (config.enableOAuth) {
@@ -2596,7 +2505,7 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
     }
 
     if (config.enableResourceManagerApi) {
-        defaultDeps.push("google-cloud-resourcemanager");
+        defaultDeps.push("google-cloud-resource-manager");
     }
 
     if (config.enableAdminActivityApi) {
@@ -2695,7 +2604,7 @@ IMPORTANT:
 - Always verify the project ID before querying.`,
         useGoogleSearch: true,
         enableCloudLoggingMcp: true,
-        enableCodeExecution: true,
+        enableCodeExecution: false,
         enableOAuth: true,
         tools: [],
         customMcpEndpoints: []
@@ -2838,7 +2747,6 @@ When asked to analyze data or create a visualization:
 2.  **Query**: Use the BigQuery tool to execute an optimized Standard SQL query and get the results.
 3.  **Choose the Right Tool**:
     - For charts and data plots (bar charts, line graphs, scatter plots): Provide the query results to \`code_exec_agent\` and ask it to generate the requested chart.
-    - For system architectures, schemas, or flowcharts: Provide the structural information to \`architecture_diagram_agent\` and ask it to generate the diagram.
 4.  **Explain**: Present the insights and explain the visualization to the user.`,
         useGoogleSearch: true,
         enableBigQueryMcp: true,
@@ -2849,11 +2757,47 @@ When asked to analyze data or create a visualization:
     }
 };
 
+const ARCHITECTURE_AGENT_TEMPLATE: AgentTemplate = {
+    id: 'architecture_diagram_agent',
+    name: 'GCP Architecture Diagram Agent',
+    description: 'An expert that designs cloud infrastructure and renders architecture diagrams as code.',
+    config: {
+        name: 'GCP_Architecture_Designer',
+        description: 'An expert agent for designing cloud architecture diagrams.',
+        model: 'gemini-2.5-flash',
+        instruction: `You are an expert Google Cloud Solutions Architect. You design, critique, and document cloud applications.
+
+Your core capability is designing cloud architecture and visualizing it via Mermaid.js or Graphviz.
+
+When asked to design or visualize architecture:
+1. Reason about the optimal GCP components and their relationships.
+2. Outline the structure and data flow clearly.
+3. Write a complete Graphviz .dot code block representing the architecture. Keep the formatting clean.
+4. IMPORTANT: Pass your generated .dot code to the \`code_exec_agent\` and instruct it to compile the code into a PNG using the \`graphviz\` Python library, and then display the resulting artifact.
+
+When analyzing existing designs: Provide constructive feedback on reliability, scalability, security, and cost.`,
+        useGoogleSearch: true,
+        enableCodeExecution: true,
+        enableThinking: true,
+        thinkingBudget: 1024,
+        thinkingLevel: 'HIGH',
+        enableNetworkManagementApi: true,
+        enableComputeEngineMcp: true,
+        enableResourceManagerMcp: true,
+        enableCloudRunApi: true,
+        enableGkeMcp: true,
+        enableCloudSqlMcp: true,
+        tools: [],
+        customMcpEndpoints: []
+    }
+};
+
 const TEMPLATES: AgentTemplate[] = [
     GCP_LOGS_READER_TEMPLATE,
     GCP_HEALTH_MONITORING_AGENT_TEMPLATE,
     GCP_HEALTH_MONITORING_API_TEMPLATE,
-    GCP_BIGQUERY_AGENT_TEMPLATE
+    GCP_BIGQUERY_AGENT_TEMPLATE,
+    ARCHITECTURE_AGENT_TEMPLATE
 ];
 
 interface AgentBuilderPageProps {
@@ -2920,6 +2864,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         bqTableId: '',
         enableThinking: false,
         thinkingBudget: 1024,
+        thinkingLevel: 'HIGH',
         enableStreaming: false,
         enableBigQueryMcp: false,
         enableCodeExecution: false,
@@ -2948,7 +2893,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         enableSpannerMcp: false,
         enableDeveloperKnowledgeMcp: false,
         enableMapsGroundingMcp: false,
-        enableArchitectureDiagramming: false,
         enableEvaluation: false,
         enableCiCd: false,
         ciCdRunner: 'none',
@@ -3223,16 +3167,31 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         } else if (type === 'checkbox') {
             const isChecked = (e.target as HTMLInputElement).checked;
 
-            // Link MCPs, APIs, and Plugins to OAuth
-            if ((name.endsWith('Mcp') || name.endsWith('Api') || name === 'enableEmailTool' || name === 'enableBqAnalytics') && isChecked) {
-                setAdkConfig(prev => ({
-                    ...prev,
-                    [name]: isChecked,
-                    enableOAuth: true
-                }));
-            } else {
-                setAdkConfig(prev => ({ ...prev, [name]: isChecked }));
-            }
+            setAdkConfig(prev => {
+                const updates: any = { [name]: isChecked };
+
+                // Link MCPs, APIs, and Plugins to OAuth
+                if ((name.endsWith('Mcp') || name.endsWith('Api') || name === 'enableEmailTool' || name === 'enableBqAnalytics') && isChecked) {
+                    updates.enableOAuth = true;
+                }
+
+                // Enforce mutual exclusivity between API and MCP counterparts
+                if (isChecked) {
+                    if (name.endsWith('Mcp')) {
+                        const apiCounterpart = name.replace('Mcp', 'Api');
+                        if (apiCounterpart in prev) {
+                            updates[apiCounterpart] = false;
+                        }
+                    } else if (name.endsWith('Api')) {
+                        const mcpCounterpart = name.replace('Api', 'Mcp');
+                        if (mcpCounterpart in prev) {
+                            updates[mcpCounterpart] = false;
+                        }
+                    }
+                }
+
+                return { ...prev, ...updates };
+            });
         } else if (name === 'name') {
             const sanitizedValue = value.replace(/\s+/g, '_');
             setAdkConfig(prev => ({ ...prev, [name]: sanitizedValue }));
@@ -3283,15 +3242,31 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         setRewritingField(field);
 
         const currentInstruction = builderTab === 'a2a' ? a2aConfig.instruction : adkConfig.instruction;
+
+        let toolNames = '';
+        if (builderTab === 'a2a') {
+            toolNames = a2aConfig.tools.map(t => t.displayName || t.variableName).join(', ') || 'None';
+        } else {
+            const adkTools = [...adkConfig.tools.map(t => t.displayName || t.variableName)];
+            if (adkConfig.useGoogleSearch) adkTools.push('Google Search');
+            if (adkConfig.enableCodeExecution) adkTools.push('Code Execution Sub-Agent');
+            if (adkConfig.enableBigQueryMcp) adkTools.push('BigQuery MCP');
+            if (adkConfig.enableCloudLoggingMcp) adkTools.push('Cloud Logging MCP');
+            if (adkConfig.enableCloudSqlMcp) adkTools.push('Cloud SQL MCP');
+            if (adkConfig.customMcpEndpoints.length > 0) adkTools.push(...adkConfig.customMcpEndpoints.map(e => e.name));
+            toolNames = adkTools.join(', ') || 'None';
+        }
+
         const prompt = `You are an expert prompt engineer. Your task is to rewrite the following system instruction to be highly effective for a Large Language Model (LLM).
         Structure the rewritten prompt clearly.
         Add necessary context and details to make the agent robust while preserving the user's original intent.
+        The agent has access to the following tools: [${toolNames}]. Ensure the instructions explicitly guide the agent on when and how to use these tools effectively.
         Output ONLY the rewritten system instruction.
         
         Original Instruction: "${currentInstruction}"`;
 
         try {
-            const text = await api.generateVertexContent(apiConfig, prompt, 'gemini-2.5-flash');
+            const text = await api.generateVertexContent(apiConfig, prompt, 'gemini-2.5-flash', 8192);
             const rewrittenText = text.trim().replace(/^["']|["']$/g, '').replace(/^```\w*\n?|\n?```$/g, '').trim();
             if (builderTab === 'a2a') {
                 setA2aConfig(prev => ({ ...prev, instruction: rewrittenText }));
@@ -3576,6 +3551,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                                         bqTableId: '',
                                                         enableThinking: false,
                                                         thinkingBudget: 1024,
+                                                        thinkingLevel: 'HIGH',
                                                         enableStreaming: false,
                                                         enableBigQueryMcp: false,
                                                         enableCodeExecution: false,
@@ -3604,7 +3580,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                                         enableSpannerMcp: false,
                                                         enableDeveloperKnowledgeMcp: false,
                                                         enableMapsGroundingMcp: false,
-                                                        enableArchitectureDiagramming: false,
                                                         enableEvaluation: false,
                                                         enableCiCd: false,
                                                         ciCdRunner: 'none',
@@ -3646,6 +3621,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                 <div>
                                     <label className="block text-sm font-medium text-gray-400 mb-1">Model</label>
                                     <select name="model" value={adkConfig.model} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]">
+                                        <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</option>
+                                        <option value="gemini-3-flash-preview">Gemini 3.0 Flash (Preview)</option>
                                         <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
 
@@ -3704,15 +3681,30 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                             </label>
                                             {adkConfig.enableThinking && (
                                                 <div className="flex flex-col">
-                                                    <input
-                                                        type="number"
-                                                        name="thinkingBudget"
-                                                        value={adkConfig.thinkingBudget}
-                                                        onChange={handleAdkConfigChange}
-                                                        placeholder="Limit (-1)"
-                                                        title="Token limit for thinking process (-1 for unlimited)"
-                                                        className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-24"
-                                                    />
+                                                    {adkConfig.model && adkConfig.model.startsWith('gemini-3') ? (
+                                                        <select
+                                                            name="thinkingLevel"
+                                                            value={adkConfig.thinkingLevel}
+                                                            onChange={handleAdkConfigChange}
+                                                            title="Thinking depth for Gemini 3 models"
+                                                            className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-32"
+                                                        >
+                                                            <option value="MINIMAL">Minimal</option>
+                                                            <option value="LOW">Low</option>
+                                                            <option value="MEDIUM">Medium</option>
+                                                            <option value="HIGH">High</option>
+                                                        </select>
+                                                    ) : (
+                                                            <input
+                                                                type="number"
+                                                                name="thinkingBudget"
+                                                                value={adkConfig.thinkingBudget}
+                                                                onChange={handleAdkConfigChange}
+                                                                placeholder="Limit (-1)"
+                                                                title="Token limit for thinking process (-1 for unlimited)"
+                                                                className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-24"
+                                                            />
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -3723,10 +3715,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                         <label className="flex items-center space-x-3 cursor-pointer">
                                             <input type="checkbox" name="enableCodeExecution" checked={adkConfig.enableCodeExecution} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
                                             <span className="text-sm text-gray-300">Enable Code Execution Sub-Agent</span>
-                                        </label>
-                                        <label className="flex items-center space-x-3 cursor-pointer">
-                                            <input type="checkbox" name="enableArchitectureDiagramming" checked={adkConfig.enableArchitectureDiagramming} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
-                                            <span className="text-sm text-gray-300">Enable Architecture Diagram Sub-Agent</span>
                                         </label>
                                     </div>
 
@@ -3977,6 +3965,8 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                 <div><label className="block text-sm font-medium text-gray-400 mb-1">Provider Organization</label><input name="providerOrganization" type="text" value={a2aConfig.providerOrganization} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]" /></div>
                                 <div><label className="block text-sm font-medium text-gray-400 mb-1">Model</label>
                                     <select name="model" value={a2aConfig.model} onChange={handleA2aConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-200 w-full h-[42px]">
+                                            <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</option>
+                                            <option value="gemini-3-flash-preview">Gemini 3.0 Flash (Preview)</option>
                                         <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                                         <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
 

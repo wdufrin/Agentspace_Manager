@@ -1029,7 +1029,7 @@ export const streamQueryReasoningEngine = async (engineName: string, query: stri
 };
 
 // Generate Vertex Content (AI Helpers) with robust stream parsing
-export const generateVertexContent = async (config: Config, prompt: string, model: string = 'gemini-2.5-flash') => {
+export const generateVertexContent = async (config: Config, prompt: string, model: string = 'gemini-2.5-flash', maxOutputTokens: number = 2048) => {
     const location = 'us-central1';
     const url = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${config.projectId}/locations/${location}/publishers/google/models/${model}:streamGenerateContent`;
     
@@ -1038,7 +1038,7 @@ export const generateVertexContent = async (config: Config, prompt: string, mode
 
     const body = {
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 2048 }
+        generationConfig: { temperature: 0.2, maxOutputTokens }
     };
 
     const response = await fetch(url, {
