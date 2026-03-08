@@ -166,6 +166,7 @@ export const validateEnabledApis = async (projectId: string): Promise<{ enabled:
         'storage.googleapis.com',
         'bigquery.googleapis.com',
         'logging.googleapis.com',
+        'cloudbilling.googleapis.com',
         'cloudresourcemanager.googleapis.com',
         'iam.googleapis.com',
         'serviceusage.googleapis.com',
@@ -215,7 +216,7 @@ export const checkServiceAccountPermissions = async (projectId: string, saEmail:
 
 // --- Discovery Engine Resources ---
 
-export const listResources = async (resourceType: 'agents'|'engines'|'dataStores'|'collections'|'assistants', config: Config): Promise<any> => {
+export const listResources = async (resourceType: 'agents' | 'engines' | 'dataStores' | 'collections' | 'assistants', config: Config, pageToken?: string, pageSize: number = 200): Promise<any> => {
     const { projectId, appLocation, collectionId, appId, assistantId } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
     let url = '';
@@ -237,6 +238,10 @@ export const listResources = async (resourceType: 'agents'|'engines'|'dataStores
             url = `${baseUrl}/${DISCOVERY_API_BETA}/projects/${projectId}/locations/${appLocation}/collections/${collectionId || 'default_collection'}/dataStores`;
             break;
     }
+
+    url += `?pageSize=${pageSize}`;
+    if (pageToken) url += `&pageToken=${pageToken}`;
+
     return gapiRequest(url, 'GET', projectId);
 };
 
@@ -764,11 +769,11 @@ export const importDocuments = async (dataStoreName: string, gcsUris: string[], 
     return gapiRequest<any>(`${baseUrl}/${DISCOVERY_API_BETA}/${dataStoreName}/branches/default_branch/documents:import`, 'POST', config.projectId, undefined, payload);
 };
 
-// Authorizations
-export const listAuthorizations = async (config: Config) => {
+export const listAuthorizations = async (config: Config, pageToken?: string, pageSize: number = 200) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${config.projectId}/locations/${config.appLocation}/authorizations`;
-    return gapiRequest<{ authorizations: Authorization[] }>(url, 'GET', config.projectId);
+    let url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${config.projectId}/locations/${config.appLocation}/authorizations?pageSize=${pageSize}`;
+    if (pageToken) url += `&pageToken=${pageToken}`;
+    return gapiRequest<{ authorizations: Authorization[], nextPageToken?: string }>(url, 'GET', config.projectId);
 };
 
 // Helper to extract location from resource name
@@ -823,10 +828,11 @@ export const deleteAuthorization = async (name: string, config: Config) => {
 };
 
 // Vertex AI Reasoning Engines
-export const listReasoningEngines = async (config: Config) => {
+export const listReasoningEngines = async (config: Config, pageToken?: string, pageSize: number = 200) => {
     const location = config.reasoningEngineLocation || 'us-central1';
-    const url = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${config.projectId}/locations/${location}/reasoningEngines`;
-    return gapiRequest<{ reasoningEngines: ReasoningEngine[] }>(url, 'GET', config.projectId);
+    let url = `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${config.projectId}/locations/${location}/reasoningEngines?pageSize=${pageSize}`;
+    if (pageToken) url += `&pageToken=${pageToken}`;
+    return gapiRequest<{ reasoningEngines: ReasoningEngine[], nextPageToken?: string }>(url, 'GET', config.projectId);
 };
 
 export const getReasoningEngine = async (name: string, config: Config) => {

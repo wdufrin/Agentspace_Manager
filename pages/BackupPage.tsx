@@ -435,8 +435,13 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
   // --- Backup Handlers ---
   const handleBackupDiscovery = async () => executeOperation('BackupDiscoveryResources', async () => {
     addLog('Starting Discovery Resources backup for default_collection...');
-    const collectionsResponse = await api.listResources('collections', apiConfig);
-    const collections: Collection[] = (collectionsResponse.collections || []).filter(c => c.name.endsWith('/default_collection'));
+    const collections: Collection[] = [];
+    let colToken: string | undefined = undefined;
+    do {
+      const collectionsResponse = await api.listResources('collections', apiConfig, colToken);
+      collections.push(...(collectionsResponse.collections || []).filter(c => c.name.endsWith('/default_collection')));
+      colToken = collectionsResponse.nextPageToken;
+    } while (colToken);
 
     if (collections.length === 0) {
         addLog('Warning: default_collection not found in this location.');
@@ -445,14 +450,27 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     
     for (const collection of collections) {
         const collectionId = collection.name.split('/').pop()!;
-        const enginesResponse = await api.listResources('engines', { ...apiConfig, collectionId });
-        const engines: AppEngine[] = enginesResponse.engines || [];
+
+      const engines: AppEngine[] = [];
+      let engToken: string | undefined = undefined;
+      do {
+        const enginesResponse = await api.listResources('engines', { ...apiConfig, collectionId }, engToken);
+        engines.push(...(enginesResponse.engines || []));
+        engToken = enginesResponse.nextPageToken;
+      } while (engToken);
         collection.engines = engines;
 
         for (const engine of engines) {
             const appId = engine.name.split('/').pop()!;
-            const assistantsResponse = await api.listResources('assistants', { ...apiConfig, collectionId, appId });
-            engine.assistants = (assistantsResponse.assistants || []).filter(a => a.name.endsWith('/default_assistant'));
+
+          const assistants: Assistant[] = [];
+          let asstToken: string | undefined = undefined;
+          do {
+            const assistantsResponse = await api.listResources('assistants', { ...apiConfig, collectionId, appId }, asstToken);
+            assistants.push(...(assistantsResponse.assistants || []).filter(a => a.name.endsWith('/default_assistant')));
+            asstToken = assistantsResponse.nextPageToken;
+          } while (asstToken);
+          engine.assistants = assistants;
         }
     }
 
@@ -484,8 +502,14 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     
     const assistant = await api.getAssistant(assistantName, apiConfig);
 
-    const agentsResponse = await api.listResources('agents', apiConfig);
-    assistant.agents = agentsResponse.agents || [];
+    const agents: Agent[] = [];
+    let pageToken: string | undefined = undefined;
+    do {
+      const agentsResponse = await api.listResources('agents', apiConfig, pageToken);
+      agents.push(...(agentsResponse.agents || []));
+      pageToken = agentsResponse.nextPageToken;
+    } while (pageToken);
+    assistant.agents = agents;
     
     const backupData = { type: 'Assistant', createdAt: new Date().toISOString(), sourceConfig: apiConfig, assistant };
     await uploadBackupToGcs(backupData, `agentspace-assistant-${apiConfig.assistantId}-backup`);
@@ -498,8 +522,13 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
     }
     addLog(`Starting backup for agents in Assistant: ${apiConfig.assistantId}...`);
     
-    const agentsResponse = await api.listResources('agents', apiConfig);
-    const agents: Agent[] = agentsResponse.agents || [];
+    const agents: Agent[] = [];
+    let pageToken: string | undefined = undefined;
+    do {
+      const agentsResponse = await api.listResources('agents', apiConfig, pageToken);
+      agents.push(...(agentsResponse.agents || []));
+      pageToken = agentsResponse.nextPageToken;
+    } while (pageToken);
     
     const backupData = { type: 'Agents', createdAt: new Date().toISOString(), sourceConfig: apiConfig, agents };
     await uploadBackupToGcs(backupData, `agentspace-agents-${apiConfig.assistantId}-backup`);
@@ -508,8 +537,13 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
   const handleBackupDataStores = async () => executeOperation('BackupDataStores', async () => {
     addLog('Starting Data Stores backup for default_collection...');
-    const dataStoresResponse = await api.listResources('dataStores', apiConfig);
-    const dataStores: DataStore[] = dataStoresResponse.dataStores || [];
+    const dataStores: DataStore[] = [];
+    let pageToken: string | undefined = undefined;
+    do {
+      const dataStoresResponse = await api.listResources('dataStores', apiConfig, pageToken);
+      dataStores.push(...(dataStoresResponse.dataStores || []));
+      pageToken = dataStoresResponse.nextPageToken;
+    } while (pageToken);
     
     const backupData = { type: 'DataStores', createdAt: new Date().toISOString(), sourceConfig: apiConfig, dataStores };
     await uploadBackupToGcs(backupData, 'agentspace-data-stores-backup');
@@ -557,14 +591,20 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
 
   const handleBackupAuthorizations = async () => executeOperation('BackupAuthorizations', async () => {
       addLog("Starting Authorizations backup...");
-      const response = await api.listAuthorizations(apiConfig);
-      const authorizations: Authorization[] = (response.authorizations || []).map(auth => {
-          // Explicitly remove client secret for security
-          if (auth.serverSideOauth2.clientSecret) {
+    const authorizations: Authorization[] = [];
+    let pageToken: string | undefined = undefined;
+    do {
+      const response = await api.listAuthorizations(apiConfig, pageToken);
+      const rawAuths: Authorization[] = response.authorizations || [];
+      authorizations.push(...rawAuths.map(auth => {
+    // Explicitly remove client secret for security
+            if (auth.serverSideOauth2?.clientSecret) {
               delete auth.serverSideOauth2.clientSecret;
-          }
-          return auth;
-      });
+            }
+            return auth;
+          }));
+        pageToken = response.nextPageToken;
+      } while (pageToken);
       
       const backupData = { type: 'Authorizations', createdAt: new Date().toISOString(), sourceConfig: apiConfig, authorizations };
       await uploadBackupToGcs(backupData, 'agentspace-authorizations-backup');

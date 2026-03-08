@@ -636,7 +636,7 @@ if os.path.exists(".env"):
                     
                     # Append strictly non-reserved keys to env_vars list for deployment
                     # GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are reserved by Vertex AI
-                    if (key not in ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "STAGING_BUCKET", "PROJECT_ID"]
+                    if (key not in ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "PROJECT_ID"]
                         and not key.startswith("OTEL_")
                         and not key.startswith("GOOGLE_CLOUD_AGENT_ENGINE_")):
                         env_vars.append(key)
@@ -716,7 +716,10 @@ print(f"Resource Name: {remote_app.resource_name}")
             }
 
             // Generate .env file from envVars state to ensure UI values are used
-            const envContent = envVars.map(e => `${e.key}=${e.value}`).join('\n');
+            let envContent = envVars.map(e => `${e.key}=${e.value}`).join('\n');
+            if (selectedBucket) {
+                envContent += `\\nSTAGING_BUCKET=gs://${selectedBucket}`;
+            }
             zip.file('.env', envContent);
             addLog('Generated .env file from metadata.');
 

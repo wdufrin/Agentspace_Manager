@@ -54,6 +54,7 @@ interface AdkAgentConfig {
     enableStreaming: boolean;
     enableBigQueryMcp: boolean;
     enableCodeExecution: boolean;
+    enableGraphvizRendering: boolean;
     enableEmailTool: boolean;
     enableSecurityCommandCenterApi: boolean;
     enableRecommenderApi: boolean;
@@ -406,7 +407,7 @@ ${config.instruction.split('\n').map(line => '  ' + line).join('\n')}
 `.trim();
 };
 
-const generateDockerfile = (): string => `
+const generateDockerfile = (config: AdkAgentConfig): string => `
 # Use an official lightweight Python image.
 FROM python:3.10-slim
 
@@ -1606,6 +1607,79 @@ def investigate_with_cloud_assist(tool_context: ToolContext, query: str, project
 `;
     }
 
+    if (config.enableGraphvizRendering) {
+        code += `
+import os
+import time
+import asyncio
+import urllib.request
+import json
+from google.adk.tools import ToolContext
+from typing import Any
+
+async def render_graphviz(dot_code: str, tool_context: ToolContext) -> str:
+    """
+    Renders Graphviz .dot syntax into a PNG image using the public QuickChart API.
+    Bypasses Vertex AI sandboxes and OS restrictions by relying entirely on web REST endpoints.
+    Pass the raw .dot code block string into 'dot_code'.
+    
+    Returns the public URL of the saved artifact on success, or an error message.
+    """
+    try:
+        # Clean the input if the LLM wrapped it in markdown code blocks
+        if dot_code.startswith('\`\`\`dot'):
+            dot_code = dot_code[6:]
+        if dot_code.startswith('\`\`\`'):
+            dot_code = dot_code[3:]
+        if dot_code.endswith('\`\`\`'):
+            dot_code = dot_code[:-3]
+            
+        dot_code = dot_code.strip()
+        
+        def _render():
+            url = "https://quickchart.io/graphviz"
+            payload = {"graph": dot_code, "format": "png"}
+            data = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(url, data=data, method='POST')
+            req.add_header('Content-Type', 'application/json')
+            with urllib.request.urlopen(req) as response:
+                return response.read()
+            
+        # Process API request in a separate thread so we don't block the ADK local async loop
+        png_data = await asyncio.to_thread(_render)
+        
+        import uuid
+        
+        bucket_name = os.getenv("STAGING_BUCKET", "").replace("gs://", "").split("/")[0]
+        if not bucket_name:
+            import base64
+            # Fallback to local storage 
+            b64_string = base64.b64encode(png_data).decode("utf-8")
+            return f"Successfully generated graph via QuickChart! Respond to the user with this exact string: ![Architecture Diagram](data:image/png;base64,{b64_string})"
+            
+        try:
+            from google.cloud import storage
+            
+            client = storage.Client()
+            bucket = client.bucket(bucket_name)
+            blob_name = f"graphs/graph_{uuid.uuid4().hex[:8]}.png"
+            blob = bucket.blob(blob_name)
+            blob.upload_from_string(png_data, content_type='image/png')
+            
+            # --- Make the object public so the UI can render the markdown link ---
+            blob.make_public()
+            # ---------------------------------------------------------------------
+            
+            public_url = f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
+            return f"Successfully generated graph! Respond to the user with this exact string: \\n\\n![Architecture Diagram]({public_url})\\n\\n[🔍 Click here to open the Architecture Diagram in full screen]({public_url})"
+        except Exception as upload_err:
+            return f"Graph generated but failed to upload to storage: {str(upload_err)}"
+        
+    except Exception as e:
+        return f"Error rendering Graphviz via QuickChart: {str(e)}"
+`
+    }
+
     return code;
 };
 
@@ -2103,12 +2177,23 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
     };
 
     let finalInstruction = config.instruction;
-    if (config.enableCodeExecution) {
-        finalInstruction += `\\n\\nAdditionally, you have access to specialized sub-agents:`;
+    if (config.enableCodeExecution || config.enableGraphvizRendering) {
+        finalInstruction += `\\n\\nAdditionally, you have access to specialized tools and sub-agents:`;
+        if (config.enableCodeExecution) {
         finalInstruction += `\\n- \`code_exec_agent\`: A specialized Python Data Science Expert for generating charts, graphs, and plots from data.`;
+        }
+        if (config.enableGraphvizRendering) {
+            finalInstruction += `\\n- \`render_graphviz\`: A specialized tool for locally rendering Graphviz (.dot) architecture diagrams.`;
+        }
         finalInstruction += `\\n\\nWhen asked to analyze data or create a visualization:`;
+        if (config.enableCodeExecution) {
         finalInstruction += `\\n- For charts and data plots: Provide the query results to \`code_exec_agent\` and ask it to generate the requested chart.`;
-        finalInstruction += `\\nDO NOT output raw Python code to the user. Always delegate explicitly to the appropriate sub-agent tool to generate the visual artifact.`;
+        }
+        if (config.enableGraphvizRendering) {
+            finalInstruction += `\\n- For system architectures, schemas, or flowcharts: Generate the .dot code and use the \`render_graphviz\` tool to create the diagram.`;
+            finalInstruction += `\\n  CRITICAL: When render_graphviz returns the markdown image string AND the clickable hyperlink, you MUST output BOTH strings verbatim to the user in your final response. Do NOT summarize or omit the image link or the hyperlink.`;
+        }
+        finalInstruction += `\\nDO NOT output raw code to the user. Always delegate explicitly to the appropriate tool or sub-agent to generate the visual artifact.`;
     }
 
     const imports = [
@@ -2121,13 +2206,19 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
         'from typing import Any',
         agentImport,
         config.enableThinking ? 'from google.adk.planners import BuiltInPlanner' : '',
-        config.enableThinking ? 'from google.genai import types as genai_types' : '',
+        'from google.genai import types as genai_types',
         ...Array.from(toolImports),
         ...Array.from(pluginsImports),
     ].filter(Boolean);
 
+    if (config.enableGraphvizRendering) {
+        toolsImport.add('render_graphviz');
+        toolListForAgent.push('render_graphviz');
+    }
+
     if (toolsImport.size > 0) {
-        imports.push(`from ${useRelativeImports ? '.' : ''}tools import ${Array.from(toolsImport).join(', ')}`);
+        const importPath = useRelativeImports ? 'app.tools' : 'tools';
+        imports.push(`from ${importPath} import ${Array.from(toolsImport).join(', ')}`);
     }
 
     return `
@@ -2135,11 +2226,13 @@ ${imports.join('\n')}
 
 load_dotenv()
 
+# Force Vertex AI API variant to prevent the 'Missing key inputs argument' Google AI validation error
+os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "1"
+
 ${config.model && config.model.startsWith('gemini-3') ? `
 # Force Gemini 3 global routing override inside the container execution runtime
 os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
 ` : ''}
-
 # --- ADK Resilience Patch ---
 # Prevents the entire agent stream from crashing if an MCP server returns an HTTP error (e.g. 400 Bad Request)
 # The error happens deep inside an anyio.TaskGroup, so we must monkey-patch the streamable transport.
@@ -2218,11 +2311,9 @@ ${toolInitializations.length > 0 ? toolInitializations.join('\n\n') : '# No addi
 ${pluginInitializations.length > 0 ? pluginInitializations.join('\n\n') : '# No plugins defined'}
 
 ${config.enableThinking ? `
-# Define Thinking Planner
-thinking_planner = BuiltInPlanner(
-    thinking_config=genai_types.ThinkingConfig(
-        include_thoughts=True,${config.model && config.model.startsWith('gemini-3') ? `\n        thinking_level="${config.thinkingLevel || 'HIGH'}",` : `\n        thinking_budget=${config.thinkingBudget},`}
-    )
+# Define generation_content_config for Thinking
+thinking_config = genai_types.ThinkingConfig(
+    include_thoughts=True,${config.model && config.model.startsWith('gemini-3') ? `\n    thinking_level="${config.thinkingLevel || 'HIGH'}",` : `\n    thinking_budget=${config.thinkingBudget},`}
 )
 ` : ''}
 
@@ -2241,7 +2332,39 @@ class SyncAgentWrapper(BaseAgent):
 
         # Handle both 'input' (RE) and 'message' (legacy/other)
         prompt = input or message
-        return self._lazy_agent.query(prompt, **kwargs)
+        
+        import asyncio
+        import uuid
+        from google.adk.runners import Runner
+        from google.adk.sessions import InMemorySessionService
+        from google.genai import types as genai_types
+        
+        async def _run_loop():
+            session_id = str(uuid.uuid4())
+            session_service = InMemorySessionService()
+            await session_service.create_session(
+                app_name="deployed_app", user_id="default_user", session_id=session_id
+            )
+            runner = Runner(agent=self._lazy_agent, app_name="deployed_app", session_service=session_service)
+
+            final_text = ""
+            async for event in runner.run_async(
+                user_id="default_user",
+                session_id=session_id,
+                new_message=genai_types.Content(
+                    role="user",
+                    parts=[genai_types.Part.from_text(text=prompt)]
+                ),
+            ):
+                if event.content and getattr(event.content, "parts", None):
+                    for part in event.content.parts:
+                        if getattr(part, "text", None):
+                            final_text += part.text
+                if event.is_final_response():
+                    break
+            return final_text
+            
+        return asyncio.run(_run_loop())
 
     def set_up(self):
         """
@@ -2261,8 +2384,10 @@ class SyncAgentWrapper(BaseAgent):
                 yield event
         else:
             # Fallback for sync-only agents
-            response = await asyncio.to_thread(self._lazy_agent.query, prompt, **kwargs)
-            yield response
+            response = await asyncio.to_thread(self.query, prompt, **kwargs)
+            from google.adk.events import Event
+            from google.genai import types as genai_types
+            yield Event(content=genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=response)]))
 
 # Define the agent factory
 def create_agent():
@@ -2271,8 +2396,14 @@ def create_agent():
         description=${formatPythonString(config.description)},
         model=os.getenv("MODEL", ${formatPythonString(modelName)}),
         instruction=${formatPythonString(finalInstruction)},
+        generate_content_config=genai_types.GenerateContentConfig(
+            http_options=genai_types.HttpOptions(
+                retry_options=genai_types.HttpRetryOptions(initial_delay=1, attempts=2)
+            ),${config.enableThinking ? `
+            thinking_config=thinking_config,` : ''}
+        ),
         tools=[${toolListForAgent.join(', ')}],
-    ${config.enableThinking ? '    planner=thinking_planner,' : ''}
+        # planner=BuiltInPlanner() # Default planner
     )
 
 root_agent = create_agent()
@@ -2313,9 +2444,30 @@ import logging
 import vertexai
 from vertexai import agent_engines
 
+try:
+    from vertexai.preview import reasoning_engines
+except ImportError:
+    pass
+
+from app import app as app_to_deploy
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Parse .env if it exists
+env_vars = []
+reqs = []
+try:
+    if os.path.exists("requirements.txt"):
+        with open("requirements.txt", "r") as f:
+            reqs = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+
+    if os.path.exists(".env"):
+        with open(".env", "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    key = line.split("=")[0]
                     # Append strictly non-reserved keys to env_vars list for deployment
                     # We explicitly allow GOOGLE_CLOUD_LOCATION to pass into the container
                     # to specify the model endpoint location (e.g. 'global' for Gemini 3).
@@ -2381,7 +2533,8 @@ try:
             agent_engine=app_to_deploy,
             requirements=reqs,
             env_vars=env_vars,
-            extra_packages=extra_packages,
+            extra_packages=extra_packages,${config.enableGraphvizRendering ? `
+            build_options={"installation_scripts": ["installation_scripts/install_graphviz.sh"]},` : ''}
         )
         logger.info("Update Succeeded!")
     else:
@@ -2391,7 +2544,8 @@ try:
             display_name=agent_display_name,
             requirements=reqs,
             env_vars=env_vars,
-            extra_packages=extra_packages,
+            extra_packages=extra_packages,${config.enableGraphvizRendering ? `
+            build_options={"installation_scripts": ["installation_scripts/install_graphviz.sh"]},` : ''}
         )
         logger.info("Deployment Succeeded!")
         
@@ -2452,7 +2606,7 @@ BQ_USER_PROJECT="${projectNumber}"`;
 
 const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
     const defaultDeps = [
-        "google-adk>=0.1.0",
+        "google-adk>=1.26.0",
         "google-cloud-aiplatform[adk,agent_engines]>=1.75.0",
         "python-dotenv",
         "nest_asyncio",
@@ -2466,6 +2620,10 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
 
     if (config.enableOAuth) {
         defaultDeps.push("google-auth-oauthlib>=1.2.2", "google-api-python-client");
+    }
+
+    if (config.enableGraphvizRendering) {
+        defaultDeps.push("google-cloud-storage");
     }
 
     if (config.enableBigQueryMcp) {
@@ -2521,6 +2679,10 @@ const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
 
     if (config.enableCodeExecution) {
         defaultDeps.push("networkx", "matplotlib", "pandas", "seaborn");
+    }
+
+    if (config.enableGraphvizRendering) {
+        defaultDeps.push("graphviz");
     }
 
     // A2A clients usually need requests or aiohttp, already got requests.
@@ -2605,6 +2767,7 @@ IMPORTANT:
         useGoogleSearch: true,
         enableCloudLoggingMcp: true,
         enableCodeExecution: false,
+        enableGraphvizRendering: false,
         enableOAuth: true,
         tools: [],
         customMcpEndpoints: []
@@ -2665,6 +2828,7 @@ Report formatting guidelines:
         enableOAuth: true,
         enableEmailTool: true,
         enableCodeExecution: true,
+        enableGraphvizRendering: false,
         tools: [],
         customMcpEndpoints: []
     }
@@ -2723,6 +2887,7 @@ Report formatting guidelines:
         enableOAuth: true,
         enableEmailTool: true,
         enableCodeExecution: true,
+        enableGraphvizRendering: false,
         tools: [],
         customMcpEndpoints: []
     }
@@ -2752,11 +2917,11 @@ When asked to analyze data or create a visualization:
         enableBigQueryMcp: true,
         enableOAuth: true,
         enableCodeExecution: true,
+        enableGraphvizRendering: false,
         tools: [],
         customMcpEndpoints: []
     }
 };
-
 const ARCHITECTURE_AGENT_TEMPLATE: AgentTemplate = {
     id: 'architecture_diagram_agent',
     name: 'GCP Architecture Diagram Agent',
@@ -2767,17 +2932,19 @@ const ARCHITECTURE_AGENT_TEMPLATE: AgentTemplate = {
         model: 'gemini-2.5-flash',
         instruction: `You are an expert Google Cloud Solutions Architect. You design, critique, and document cloud applications.
 
-Your core capability is designing cloud architecture and visualizing it via Mermaid.js or Graphviz.
+Your core capability is designing cloud architecture and visualizing it via Graphviz.
 
 When asked to design or visualize architecture:
 1. Reason about the optimal GCP components and their relationships.
 2. Outline the structure and data flow clearly.
 3. Write a complete Graphviz .dot code block representing the architecture. Keep the formatting clean.
-4. IMPORTANT: Pass your generated .dot code to the \`code_exec_agent\` and instruct it to compile the code into a PNG using the \`graphviz\` Python library, and then display the resulting artifact.
+4. IMPORTANT: You MUST pass your generated .dot code directly to the \`render_graphviz\` tool. Do not try to output the raw .dot code block or mermaid code blocks to the user yourself.
+5. The tool will return a final message (either a public Markdown image string or a localized text notification). You must include that exact message verbatim in your final response to the user. Do not invent your own image URLs.
 
 When analyzing existing designs: Provide constructive feedback on reliability, scalability, security, and cost.`,
         useGoogleSearch: true,
-        enableCodeExecution: true,
+        enableCodeExecution: false,
+        enableGraphvizRendering: true,
         enableThinking: true,
         thinkingBudget: 1024,
         thinkingLevel: 'HIGH',
@@ -2787,6 +2954,8 @@ When analyzing existing designs: Provide constructive feedback on reliability, s
         enableCloudRunApi: true,
         enableGkeMcp: true,
         enableCloudSqlMcp: true,
+        enableEmailTool: true,
+        enableOAuth: true,
         tools: [],
         customMcpEndpoints: []
     }
@@ -2868,6 +3037,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         enableStreaming: false,
         enableBigQueryMcp: false,
         enableCodeExecution: false,
+        enableGraphvizRendering: false,
         enableEmailTool: false,
         enableSecurityCommandCenterApi: false,
         enableRecommenderApi: false,
@@ -3033,7 +3203,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     useEffect(() => {
         setA2aGeneratedCode({
             main: generateMainPy(a2aConfig),
-            dockerfile: generateDockerfile(),
+            dockerfile: generateDockerfile(adkConfig),
             requirements: generateRequirementsTxt(),
             gcloud: generateGcloudCommand(a2aConfig, deployProjectId),
             yaml: generateA2aEnvYaml(a2aConfig, deployProjectId)
@@ -3250,6 +3420,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
             const adkTools = [...adkConfig.tools.map(t => t.displayName || t.variableName)];
             if (adkConfig.useGoogleSearch) adkTools.push('Google Search');
             if (adkConfig.enableCodeExecution) adkTools.push('Code Execution Sub-Agent');
+            if (adkConfig.enableGraphvizRendering) adkTools.push('Graphviz Renderer');
             if (adkConfig.enableBigQueryMcp) adkTools.push('BigQuery MCP');
             if (adkConfig.enableCloudLoggingMcp) adkTools.push('Cloud Logging MCP');
             if (adkConfig.enableCloudSqlMcp) adkTools.push('Cloud SQL MCP');
@@ -3388,7 +3559,6 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         { name: 'requirements.txt', content: adkGeneratedCode.requirements },
         { name: 'auth.py', content: adkGeneratedCode.auth },
         { name: 'tools.py', content: adkGeneratedCode.tools },
-        { name: '__init__.py', content: adkGeneratedCode.init }
     ];
 
     const a2aFilesForBuild = [
@@ -3555,6 +3725,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                                         enableStreaming: false,
                                                         enableBigQueryMcp: false,
                                                         enableCodeExecution: false,
+                                                        enableGraphvizRendering: false,
                                                         enableEmailTool: false,
                                                         enableSecurityCommandCenterApi: false,
                                                         enableRecommenderApi: false,
@@ -3715,6 +3886,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                         <label className="flex items-center space-x-3 cursor-pointer">
                                             <input type="checkbox" name="enableCodeExecution" checked={adkConfig.enableCodeExecution} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
                                             <span className="text-sm text-gray-300">Enable Code Execution Sub-Agent</span>
+                                        </label>
+                                        <label className="flex items-center space-x-3 cursor-pointer">
+                                            <input type="checkbox" name="enableGraphvizRendering" checked={adkConfig.enableGraphvizRendering} onChange={handleAdkConfigChange} className="h-4 w-4 bg-gray-700 border-gray-600 rounded" />
+                                            <span className="text-sm text-gray-300">Enable Graphviz Local Renderer</span>
                                         </label>
                                     </div>
 
