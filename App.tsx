@@ -701,7 +701,7 @@ const InnerApp: React.FC = () => {
       case Page.AGENTS:
         return <AgentsPage {...projectProps} accessToken={accessToken} />;
       case Page.ASSISTANT:
-            return <AssistantPage {...projectProps} accessToken={accessToken} userProfile={userProfile} />;
+            return <AssistantPage projectId={projectId} {...projectProps} accessToken={accessToken} userProfile={userProfile} onBuildTriggered={handleBuildTriggered} />;
       case Page.AUTHORIZATIONS:
             return <AuthorizationsPage
                 {...commonProps}

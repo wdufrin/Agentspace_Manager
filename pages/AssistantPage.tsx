@@ -31,9 +31,11 @@ import NotebookListViewer from '../components/assistants/NotebookListViewer';
 
 interface AssistantPageProps {
   projectNumber: string;
+  projectId?: string;
   setProjectNumber: (projectNumber: string) => void;
   accessToken: string;
-    userProfile: UserProfile | null;
+  userProfile: UserProfile | null;
+  onBuildTriggered?: (buildId: string, projectId?: string) => void;
 }
 
 interface AssistantRowData {
@@ -107,7 +109,7 @@ const determineAppType = (engine: AppEngine): string => {
     return engine.solutionType?.replace('SOLUTION_TYPE_', '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()) || 'Unknown';
 };
 
-const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProjectNumber, accessToken, userProfile }) => {
+const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId, setProjectNumber, accessToken, userProfile, onBuildTriggered }) => {
   const [config, setConfig] = useState(getInitialConfig);
   
   // List View State
@@ -139,12 +141,12 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
   }, [config]);
 
   const baseApiConfig: Config = useMemo(() => ({
-    projectId: projectNumber,
+    projectId: projectId || projectNumber,
     appLocation: config.appLocation,
     collectionId: 'default_collection',
     appId: '', // Dynamic
     assistantId: 'default_assistant'
-  }), [projectNumber, config]);
+  }), [projectNumber, projectId, config]);
 
   const handleConfigChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -643,6 +645,8 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, setProject
                         isOpen={isExportModalOpen}
                         onClose={() => setIsExportModalOpen(false)}
                         config={currentConfig}
+                        onBuildTriggered={onBuildTriggered}
+                        projectNumber={projectNumber}
                     />
                       </div>
             )}

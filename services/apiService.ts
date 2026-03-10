@@ -1350,7 +1350,7 @@ export const exportAnalyticsMetrics = async (config: Config, datasetId: string, 
     const { projectId, appLocation, collectionId, appId } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
     const url = `${baseUrl}/v1alpha/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/analytics:exportMetrics`;
-    const payload = {
+    const payload: any = {
         outputConfig: {
             bigqueryDestination: {
                 datasetId: datasetId,
@@ -1358,6 +1358,7 @@ export const exportAnalyticsMetrics = async (config: Config, datasetId: string, 
             }
         }
     };
+    // Note: The v1alpha exportMetrics API currently strictly limits to the last 30 days.
     return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
 };
 
