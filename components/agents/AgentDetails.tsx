@@ -255,7 +255,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
                 ORDER BY timestamp DESC
                 LIMIT 50
             `;
-            const result = await runBigQueryQuery(bqProjectId, query, config.accessToken);
+            const result = await runBigQueryQuery(bqProjectId, query);
             setMetricsData(result);
         } catch (err: any) {
             setMetricsError(err.message || 'Failed to fetch metrics from BigQuery.');
