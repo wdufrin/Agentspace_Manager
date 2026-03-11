@@ -42,6 +42,7 @@ import CurlInfoModal from './components/CurlInfoModal';
 import DirectQueryChatWindow from './components/agent-engines/DirectQueryChatWindow';
 import AssistantPage from './pages/AssistantPage';
 import LicensePage from './pages/LicensePage';
+import GEQuotaUsagePage from './pages/GEQuotaUsagePage';
 import CloudBuildProgress from './components/agent-builder/CloudBuildProgress';
 import Breadcrumbs from './components/Breadcrumbs';
 import HeaderProjectInput from './components/HeaderProjectInput';
@@ -744,7 +745,9 @@ const InnerApp: React.FC = () => {
         return <BackupPage {...projectProps} accessToken={accessToken} />;
       case Page.LICENSE:
         return <LicensePage {...projectProps} onBuildTriggered={handleBuildTriggered} />;
-        case Page.CONNECTORS:
+      case Page.GE_QUOTA_USAGE:
+        return <GEQuotaUsagePage projectNumber={projectNumber} />;
+      case Page.CONNECTORS:
             return <ConnectorsPage {...projectProps} accessToken={accessToken} />;
       case Page.ARCHITECTURE:
         return <ArchitecturePage 

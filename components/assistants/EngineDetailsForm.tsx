@@ -44,6 +44,8 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
     const [formData, setFormData] = useState({
         displayName: '',
         disableAnalytics: false,
+        observabilityEnabled: false,
+        sensitiveLoggingEnabled: false,
     });
     const [features, setFeatures] = useState<Record<string, boolean>>({});
     const [modelConfigs, setModelConfigs] = useState<Record<string, boolean>>({});
@@ -89,6 +91,8 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
         setFormData({
             displayName: engine.displayName || '',
             disableAnalytics: (engine as any).disableAnalytics || false,
+            observabilityEnabled: engine.observabilityConfig?.observabilityEnabled || false,
+            sensitiveLoggingEnabled: engine.observabilityConfig?.sensitiveLoggingEnabled || false,
         });
 
         const currentFeatures: Record<string, boolean> = {};
@@ -154,6 +158,17 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             if (formData.disableAnalytics !== ((engine as any).disableAnalytics || false)) {
                 payload.disableAnalytics = formData.disableAnalytics;
                 updateMask.push('disableAnalytics');
+            }
+
+            const currentObservability = engine.observabilityConfig?.observabilityEnabled || false;
+            const currentSensitive = engine.observabilityConfig?.sensitiveLoggingEnabled || false;
+
+            if (formData.observabilityEnabled !== currentObservability || formData.sensitiveLoggingEnabled !== currentSensitive) {
+                payload.observabilityConfig = {
+                    observabilityEnabled: formData.observabilityEnabled,
+                    sensitiveLoggingEnabled: formData.sensitiveLoggingEnabled
+                };
+                updateMask.push('observabilityConfig');
             }
 
             // Calculate changed features
@@ -225,6 +240,41 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                         <InfoTooltip text="Disables the collection of analytics data for this engine." />
                     </label>
                 </div>
+
+                <CollapsibleSection title="Usage Audit Logging (Observability)">
+                    <div className="space-y-4 p-4 bg-gray-900/30 rounded-md">
+                        <div className="flex items-center space-x-3 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                name="observabilityEnabled"
+                                id="observabilityEnabled"
+                                checked={Boolean(formData.observabilityEnabled)}
+                                onChange={handleChange}
+                                className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
+                            />
+                            <label htmlFor="observabilityEnabled" className="flex items-center text-sm font-medium text-gray-300 cursor-pointer">
+                                Enable Usage Audit Logging
+                                <InfoTooltip text="Captures request and response data, including prompts and grounding metadata, and stores it in Cloud Logging." />
+                            </label>
+                        </div>
+                        
+                        <div className={`flex items-center space-x-3 pl-6 transition-opacity ${formData.observabilityEnabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                            <input
+                                type="checkbox"
+                                name="sensitiveLoggingEnabled"
+                                id="sensitiveLoggingEnabled"
+                                checked={Boolean(formData.sensitiveLoggingEnabled)}
+                                onChange={handleChange}
+                                disabled={!formData.observabilityEnabled}
+                                className="h-4 w-4 bg-gray-700 border-gray-600 rounded text-blue-600 focus:ring-blue-500"
+                            />
+                            <label htmlFor="sensitiveLoggingEnabled" className="flex items-center text-sm font-medium text-gray-300 cursor-pointer">
+                                Enable Sensitive Data Logging
+                                <InfoTooltip text="WARNING: Sensitive data isn't filtered out of the audit logs when this is enabled." />
+                            </label>
+                        </div>
+                    </div>
+                </CollapsibleSection>
 
                 <CollapsibleSection title="Feature Management">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-gray-900/30 rounded-md">

@@ -1362,6 +1362,16 @@ export const exportAnalyticsMetrics = async (config: Config, datasetId: string, 
     return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
 };
 
+export const getAgentEngineToolLatencies = async (config: Config, engineId: string, startTime: string, endTime: string) => {
+    // Queries Cloud Monitoring for the tool_total_latencies metric for a specific engine.
+    const filter = `metric.type="discoveryengine.googleapis.com/tool_total_latencies" AND resource.labels.engine_id="${engineId}"`;
+    const url = `https://monitoring.googleapis.com/v3/projects/${config.projectId}/timeSeries?filter=${encodeURIComponent(filter)}&interval.startTime=${encodeURIComponent(startTime)}&interval.endTime=${encodeURIComponent(endTime)}`;
+    
+    // Using standard fetch because `gapiRequest` headers might interfere and the generic fetch is safer for alternative Google APIs.
+    // However, monitoring.googleapis.com expects a standard Bearer token. gapiRequest handles token auth. Let's use it.
+    return gapiRequest<any>(url, 'GET', config.projectId);
+};
+
 
 
 export const listUserStoreLicenses = async (config: Config, userStoreId: string, filter?: string, pageToken?: string, pageSize: number = 20) => {
@@ -1775,4 +1785,20 @@ export const checkMcpCompliance = async (projectId: string, serviceName: string)
         // If the check fails (e.g. 403, 404), assume disabled
         return false;
     }
+};
+
+// --- Cloud Monitoring ---
+
+export const getCloudMonitoringMetrics = async (projectId: string, metricFilter: string, startTime: string, endTime: string) => {
+    // API: GET https://monitoring.googleapis.com/v3/projects/{projectId}/timeSeries
+    // Requires monitoring.timeSeries.list permission
+    const url = `https://monitoring.googleapis.com/v3/projects/${projectId}/timeSeries`;
+    
+    const params = new URLSearchParams({
+        filter: metricFilter,
+        'interval.startTime': startTime,
+        'interval.endTime': endTime
+    });
+
+    return gapiRequest<any>(`${url}?${params.toString()}`, 'GET', projectId);
 };
