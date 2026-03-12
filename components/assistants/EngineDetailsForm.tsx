@@ -49,6 +49,18 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
     });
     const [features, setFeatures] = useState<Record<string, boolean>>({});
     const [modelConfigs, setModelConfigs] = useState<Record<string, boolean>>({});
+    const [idpData, setIdpData] = useState({
+        idpType: 'IDP_TYPE_UNSPECIFIED',
+        workforcePoolName: ''
+    });
+    const [originalIdpData, setOriginalIdpData] = useState({
+        idpType: 'IDP_TYPE_UNSPECIFIED',
+        workforcePoolName: ''
+    });
+    const [widgetConfig, setWidgetConfig] = useState<any>(null);
+    const [originalWidgetConfig, setOriginalWidgetConfig] = useState<any>(null);
+    const [isLoadingIdp, setIsLoadingIdp] = useState(false);
+    const [idpProviders, setIdpProviders] = useState<any[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
@@ -67,12 +79,15 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
         'feedback': 'Allows users to provide feedback on responses.',
         'session-sharing': 'Enables users to share their chat sessions.',
         'personalization-memory': 'Allows the AI to remember user preferences and context.',
+        'personalization-suggested-highlights': 'Provides AI-suggested personalized highlights.',
         'disable-agent-sharing': 'Prevents users from sharing custom agents.',
+        'agent-sharing-without-admin-approval': 'Allows users to share custom agents without needing explicit admin approval.',
         'disable-image-generation': 'Disables image generation capabilities.',
         'disable-video-generation': 'Disables video generation capabilities.',
         'disable-onedrive-upload': 'Prevents uploading files from OneDrive.',
         'disable-talk-to-content': 'Disables Q&A on specific content.',
-        'disable-google-drive-upload': 'Prevents uploading files from Google Drive.'
+        'disable-google-drive-upload': 'Prevents uploading files from Google Drive.',
+        'disable-welcome-emails': 'Prevents sending welcome emails to new users.'
     };
 
     const KNOWN_FEATURES = Object.keys(FEATURE_INFO);
@@ -121,6 +136,47 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
         setModelConfigs(currentModels);
     }, [engine]);
 
+    useEffect(() => {
+        const fetchConfigs = async () => {
+            setIsLoadingIdp(true);
+            try {
+                 const [acl, widget] = await Promise.all([
+                     api.getAclConfig(config).catch(e => { console.error("Acl error", e); return null; }),
+                     api.getWidgetConfig(engine.name, config).catch(e => { console.error("Widget error", e); return null; })
+                 ]);
+
+                 if (acl) {
+                     const type = acl.idpConfig?.idpType || 'IDP_TYPE_UNSPECIFIED';
+                     const poolName = acl.idpConfig?.externalIdpConfig?.workforcePoolName || '';
+                     setIdpData({ idpType: type, workforcePoolName: poolName });
+                     setOriginalIdpData({ idpType: type, workforcePoolName: poolName });
+
+                     if (type === 'THIRD_PARTY' && poolName) {
+                         const providerData = await api.getWorkforcePoolProviders(poolName, config);
+                         if (providerData && providerData.workforcePoolProviders) {
+                             setIdpProviders(providerData.workforcePoolProviders);
+                         }
+                     }
+                 }
+
+                 if (widget) {
+                     setWidgetConfig(widget);
+                     setOriginalWidgetConfig(JSON.parse(JSON.stringify(widget)));
+                 } else {
+                     const newConfig = { name: `${engine.name}/widgetConfigs/default_search_widget_config`, accessSettings: {} };
+                     setWidgetConfig(newConfig);
+                     setOriginalWidgetConfig(JSON.parse(JSON.stringify(newConfig)));
+                 }
+            } catch (e) {
+                 console.error("Failed to load configs:", e);
+                 // Gracefully fallback
+            } finally {
+                 setIsLoadingIdp(false);
+            }
+        };
+        fetchConfigs();
+    }, [config, engine.name]);
+
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
         setFormData({ ...formData, [e.target.name]: value });
@@ -138,6 +194,10 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
             ...prev,
             [model]: !prev[model]
         }));
+    };
+
+    const handleIdpChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
+        setIdpData({ ...idpData, [e.target.name]: e.target.value });
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -169,6 +229,33 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                     sensitiveLoggingEnabled: formData.sensitiveLoggingEnabled
                 };
                 updateMask.push('observabilityConfig');
+            }
+
+            // Calculate idp config changes
+            let idpChanged = false;
+            if (idpData.idpType !== originalIdpData.idpType || (idpData.idpType === 'THIRD_PARTY' && idpData.workforcePoolName !== originalIdpData.workforcePoolName)) {
+                const aclPayload: any = {
+                    idpConfig: {
+                        idpType: idpData.idpType,
+                    }
+                };
+                if (idpData.idpType === 'THIRD_PARTY') {
+                    aclPayload.idpConfig.externalIdpConfig = { workforcePoolName: idpData.workforcePoolName };
+                }
+                const aclUpdateMask = ['idpConfig'];
+                await api.updateAclConfig(aclPayload, aclUpdateMask, config);
+                idpChanged = true;
+            }
+
+            // Calculate widget config changes
+            let widgetChanged = false;
+            if (widgetConfig && originalWidgetConfig) {
+                const currentProvider = widgetConfig.accessSettings?.workforceIdentityPoolProvider || '';
+                const origProvider = originalWidgetConfig.accessSettings?.workforceIdentityPoolProvider || '';
+                if (currentProvider !== origProvider) {
+                    await api.updateWidgetConfig(engine.name, { accessSettings: widgetConfig.accessSettings }, ['accessSettings'], config);
+                    widgetChanged = true;
+                }
             }
 
             // Calculate changed features
@@ -205,15 +292,26 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                 updateMask.push('modelConfigs');
             }
 
-            if (updateMask.length === 0) {
+            if (updateMask.length === 0 && !idpChanged && !widgetChanged) {
                 setSuccess("No changes detected.");
                 setTimeout(() => setSuccess(null), 3000);
                 setIsSubmitting(false);
                 return;
             }
 
-            const updatedEngine = await api.updateEngine(engine.name, payload, updateMask, config);
-            onUpdateSuccess(updatedEngine);
+            if (updateMask.length > 0) {
+                const updatedEngine = await api.updateEngine(engine.name, payload, updateMask, config);
+                onUpdateSuccess(updatedEngine);
+            }
+
+            if (idpChanged) {
+               setOriginalIdpData(idpData); // keep it synced
+            }
+
+            if (widgetChanged) {
+               setOriginalWidgetConfig(JSON.parse(JSON.stringify(widgetConfig)));
+            }
+
             setSuccess("Engine updated successfully!");
             setTimeout(() => setSuccess(null), 3000);
 
@@ -273,6 +371,149 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                                 <InfoTooltip text="WARNING: Sensitive data isn't filtered out of the audit logs when this is enabled." />
                             </label>
                         </div>
+                    </div>
+                </CollapsibleSection>
+
+                <CollapsibleSection title="Identity Provider (IDP) Configuration (Applies to Location)">
+                    <div className="space-y-4 p-4 bg-gray-900/30 rounded-md">
+                        {isLoadingIdp ? (
+                             <div className="text-gray-400 text-sm">Loading IDP Configuration...</div>
+                        ) : (
+                        <>
+                        <div className="bg-yellow-900/40 border border-yellow-700 p-3 rounded-md mb-4">
+                            <p className="text-yellow-400 text-sm">
+                                <strong>Warning:</strong> IDP Configuration is shared across all engines in the <code>{config.appLocation}</code> location. Changing this setting will affect access to all data sources in this region.
+                            </p>
+                        </div>
+                        <div>
+                            <label htmlFor="idpType" className="block text-sm font-medium text-gray-300 mb-1">
+                                IDP Type <InfoTooltip text="Configure the Identity Provider used for data source access control." />
+                            </label>
+                            <select
+                                name="idpType"
+                                value={idpData.idpType}
+                                onChange={handleIdpChange}
+                                className="block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm text-gray-200 focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2 px-3 h-[42px]"
+                            >
+                                <option value="IDP_TYPE_UNSPECIFIED">None (Unspecified)</option>
+                                <option value="GSUITE">Google Workspace / Cloud Identity (GSUITE)</option>
+                                <option value="THIRD_PARTY">Third-Party IdP via Workforce Identity Federation</option>
+                            </select>
+                        </div>
+
+                        {idpData.idpType === 'THIRD_PARTY' && (
+                            <div className="animate-fade-in-up mt-4">
+                                <label htmlFor="workforcePoolName" className="block text-sm font-medium text-gray-300">
+                                    Workforce Identity Pool Name
+                                </label>
+                                <input
+                                    type="text"
+                                    name="workforcePoolName"
+                                    value={idpData.workforcePoolName}
+                                    onChange={handleIdpChange}
+                                    placeholder="locations/global/workforcePools/my-pool"
+                                    className="mt-1 block w-full bg-gray-800 border-gray-600 rounded-md shadow-sm text-gray-200 sm:text-sm font-mono placeholder-gray-500 focus:border-blue-500 focus:ring-blue-500 py-2 px-3"
+                                    required={idpData.idpType === 'THIRD_PARTY'}
+                                />
+                            </div>
+                        )}
+
+                        {/* Render Identity Providers if we loaded any */}
+                        {idpProviders.length > 0 && (
+                                <div className="mt-6 space-y-4 border-t border-gray-700 pt-4">
+                                    <h4 className="text-md font-medium text-gray-200 mb-2">Attached Providers</h4>
+                                    <p className="text-sm text-gray-400 mb-4">Select the default provider that the Gemini Web App should use for authentication.</p>
+                                    {idpProviders.map((provider: any, idx) => {
+                                        const isSelected = widgetConfig?.accessSettings?.workforceIdentityPoolProvider === provider.name;
+                                        return (
+                                        <div key={idx} className={`border rounded-md p-4 text-sm transition-colors ${isSelected ? 'bg-blue-900/40 border-blue-500' : 'bg-gray-800 border-gray-600'}`}>
+                                            <div className="flex justify-between items-center mb-3">
+                                                <label className="flex items-center space-x-3 cursor-pointer group">
+                                                    <input 
+                                                        type="radio" 
+                                                        name="activeProvider" 
+                                                        checked={isSelected}
+                                                        onChange={() => setWidgetConfig({
+                                                            ...widgetConfig,
+                                                            name: widgetConfig?.name || '',
+                                                            accessSettings: {
+                                                                ...widgetConfig?.accessSettings,
+                                                                workforceIdentityPoolProvider: provider.name
+                                                            }
+                                                        })}
+                                                        className="h-4 w-4 bg-gray-700 border-gray-500 text-blue-500 focus:ring-blue-500 focus:ring-opacity-50"
+                                                    />
+                                                    <span className="font-semibold text-white group-hover:text-blue-300 transition-colors">{provider.displayName || provider.name.split('/').pop()}</span>
+                                                    {isSelected && <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full ml-2">Active</span>}
+                                                </label>
+                                                <span className="bg-gray-900 text-gray-300 px-2 py-1 rounded text-xs font-mono border border-gray-700">{provider.name.split('/').pop()}</span>
+                                            </div>
+                                            
+                                            {provider.saml && (
+                                                <div className="space-y-2 text-gray-300">
+                                                    <div><strong className="text-gray-400">Protocol:</strong> SAML</div>
+                                                    <div>
+                                                        <strong className="text-gray-400">SSO Redirect URL:</strong>
+                                                        <span className="font-mono text-xs block text-blue-400 break-all bg-gray-900/50 p-1 rounded mt-1 select-all">
+                                                            https://auth.cloud.google/signin-callback/{provider.name}
+                                                        </span>
+                                                    </div>
+                                                    <div>
+                                                        <strong className="text-gray-400">Entity ID:</strong>
+                                                        <span className="font-mono text-xs block text-blue-400 break-all bg-gray-900/50 p-1 rounded mt-1 select-all">
+                                                            https://iam.googleapis.com/{provider.name}
+                                                        </span>
+                                                    </div>
+                                                    <div><strong className="text-gray-400">SAML Metadata:</strong> <span className="font-mono text-xs block truncate" title={provider.saml.idpMetadataXml ? 'Included in XML metadata' : 'Unknown'}>{provider.saml.idpMetadataXml ? '(See SAML Metadata XML)' : 'Not Set'}</span></div>
+                                                </div>
+                                            )}
+                                            {provider.oidc && (
+                                                <div className="space-y-2 text-gray-300">
+                                                    <div><strong className="text-gray-400">Protocol:</strong> OIDC</div>
+                                                    <div>
+                                                        <strong className="text-gray-400">SSO Redirect URL:</strong>
+                                                        <span className="font-mono text-xs block text-blue-400 break-all bg-gray-900/50 p-1 rounded mt-1 select-all">
+                                                            https://auth.cloud.google/signin-callback/{provider.name}
+                                                        </span>
+                                                    </div>
+                                                    <div><strong className="text-gray-400">Issuer URI:</strong> <a href={provider.oidc.issuerUri} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline break-all">{provider.oidc.issuerUri}</a></div>
+                                                    <div><strong className="text-gray-400">Client ID:</strong> <span className="font-mono text-xs break-all">{provider.oidc.clientId}</span></div>
+                                                </div>
+                                            )}
+
+                                            <div className="mt-4 pt-3 border-t border-gray-700">
+                                                <strong className="text-gray-400 block mb-2">Attribute Mappings:</strong>
+                                                <div className="bg-gray-900 rounded p-2">
+                                                    {provider.attributeMapping ? (
+                                                        <ul className="space-y-1 font-mono text-xs">
+                                                            {Object.entries(provider.attributeMapping).map(([key, val]) => (
+                                                                <li key={key} className="flex flex-col sm:flex-row sm:justify-between border-b border-gray-800 last:border-0 pb-1">
+                                                                    <span className="text-green-400 truncate pr-2">{key}</span>
+                                                                    <span className="text-yellow-400 truncate">{String(val)}</span>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    ) : (
+                                                        <span className="text-gray-500 italic">No attribute mappings configured</span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {provider.attributeCondition && (
+                                                <div className="mt-3">
+                                                    <strong className="text-gray-400 block mb-1">Attribute Condition:</strong>
+                                                    <div className="bg-gray-900 rounded p-2 text-xs font-mono text-purple-400 break-all">
+                                                        {provider.attributeCondition}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                        </div>
+                                    )})}
+                                </div>
+                            )}
+                        </>
+                        )}
                     </div>
                 </CollapsibleSection>
 

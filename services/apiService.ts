@@ -15,7 +15,7 @@
  */
 
 
-import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, LogEntry, ReasoningEngine, CloudRunService, GcsBucket, GcsObject, DialogflowAgent, DiscoverySession, ReasoningEngineSession } from '../types';
+import { Agent, AppEngine, Assistant, Authorization, ChatMessage, Config, DataStore, Document, LogEntry, ReasoningEngine, CloudRunService, GcsBucket, GcsObject, DialogflowAgent, DiscoverySession, ReasoningEngineSession, WidgetConfig } from '../types';
 import { getGapiClient } from './gapiService';
 
 const DISCOVERY_API_VERSION = 'v1alpha';
@@ -226,7 +226,7 @@ export const listResources = async (resourceType: 'agents' | 'engines' | 'dataSt
             url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections`;
             break;
         case 'engines':
-            url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections/${collectionId || 'default_collection'}/engines`;
+            url = `${baseUrl}/${DISCOVERY_API_BETA}/projects/${projectId}/locations/${appLocation}/collections/${collectionId || 'default_collection'}/engines`;
             break;
         case 'assistants':
             url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${appId}/assistants`;
@@ -342,21 +342,72 @@ export const getVertexAiOperation = async (name: string, config: Config) => {
 // Engines
 export const getEngine = async (name: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-    return gapiRequest<AppEngine>(`${baseUrl}/${DISCOVERY_API_VERSION}/${name}`, 'GET', config.projectId);
+    const engine = await gapiRequest<AppEngine>(`${baseUrl}/${DISCOVERY_API_BETA}/${name}`, 'GET', config.projectId);
+    console.log('[DEBUG] getEngine:', engine);
+    return engine;
 };
 
 export const createEngine = async (engineId: string, payload: any, config: Config) => {
     const { projectId, appLocation, collectionId } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines?engineId=${engineId}`;
+    const url = `${baseUrl}/${DISCOVERY_API_BETA}/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines?engineId=${engineId}`;
     return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
 };
 
 export const updateEngine = async (name: string, payload: any, updateMask: string[], config: Config) => {
     const { projectId, appLocation } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}?updateMask=${updateMask.join(',')}`;
+    const url = `${baseUrl}/${DISCOVERY_API_BETA}/${name}?updateMask=${updateMask.join(',')}`;
     return gapiRequest<AppEngine>(url, 'PATCH', projectId, undefined, payload);
+};
+
+export const getWidgetConfig = async (name: string, config: Config) => {
+    // name is the engine name
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    // Widget configs use v1alpha in the user's curl payload, but we can try v1beta if available. We'll use v1alpha to match HAR capture safely. 
+    const url = `${baseUrl}/v1alpha/${name}/widgetConfigs/default_search_widget_config`;
+    return gapiRequest<WidgetConfig>(url, 'GET', projectId);
+};
+
+export const updateWidgetConfig = async (name: string, payload: any, updateMask: string[], config: Config) => {
+    // name is the engine name
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/v1alpha/${name}/widgetConfigs/default_search_widget_config?updateMask=${updateMask.join(',')}`;
+    return gapiRequest<WidgetConfig>(url, 'PATCH', projectId, undefined, payload);
+};
+
+// AclConfig (Location level IDP)
+export const getAclConfig = async (config: Config) => {
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/${DISCOVERY_API_BETA}/projects/${projectId}/locations/${appLocation}/aclConfig`;
+    return gapiRequest<any>(url, 'GET', projectId); // Type will be AclConfig
+};
+
+export const updateAclConfig = async (payload: any, updateMask: string[], config: Config) => {
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/${DISCOVERY_API_BETA}/projects/${projectId}/locations/${appLocation}/aclConfig?updateMask=${updateMask.join(',')}`;
+    return gapiRequest<any>(url, 'PATCH', projectId, undefined, payload); // Type will be AclConfig
+};
+
+// IAM Workforce Pool Providers
+export const getWorkforcePoolProviders = async (poolName: string, config: Config) => {
+    // poolName is typically formatted as: "locations/global/workforcePools/wdufrin-okta"
+    const poolId = poolName.split('/').pop();
+    if (!poolId) return { workforcePoolProviders: [] };
+
+    // Use standard IAM API to get the providers for the given pool
+    const url = `https://iam.googleapis.com/v1/locations/global/workforcePools/${poolId}/providers`;
+    try {
+        const response = await gapiRequest<any>(url, 'GET', config.projectId);
+        return response;
+    } catch (err) {
+        console.error("Failed to fetch workforce pool providers:", err);
+        return { workforcePoolProviders: [] };
+    }
 };
 
 // Assistants

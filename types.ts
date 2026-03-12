@@ -64,6 +64,14 @@ export interface Config {
   suppressErrorLog?: boolean;
 }
 
+export interface WidgetConfig {
+  name: string;
+  accessSettings?: {
+    enableWebApp?: boolean;
+    workforceIdentityPoolProvider?: string;
+  };
+}
+
 export interface StarterPrompt {
   text: string;
 }
@@ -192,6 +200,16 @@ export interface AppEngine { // Renamed from Engine to avoid conflict with Reaso
     };
   features?: Record<string, string>; // Map of feature name to 'FEATURE_STATE_ON'|'FEATURE_STATE_OFF'
   modelConfigs?: Record<string, string>; // Map of model name to 'MODEL_ENABLED'|'MODEL_DISABLED'
+}
+
+export interface AclConfig {
+  name: string;
+  idpConfig?: {
+    idpType?: 'IDP_TYPE_UNSPECIFIED' | 'GSUITE' | 'THIRD_PARTY';
+    externalIdpConfig?: {
+      workforcePoolName?: string;
+    };
+  };
 }
 
 export interface VertexAiAgentConfig {
