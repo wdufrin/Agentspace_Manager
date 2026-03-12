@@ -19,6 +19,7 @@ import { Agent, ReasoningEngine, Config, EnvVar } from '../../types';
 import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
 import ConfirmationModal from '../ConfirmationModal';
+import AgentEngineMetricsViewer from '../assistants/AgentEngineMetricsViewer';
 
 interface EngineDetailsProps {
     engine: ReasoningEngine;
@@ -91,40 +92,7 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({ engine, usingAgents, onBa
 
     // State for Model Armor
     const [isModelArmorModalOpen, setIsModelArmorModalOpen] = useState(false);
-
-    // State for Metrics
     const [activeTab, setActiveTab] = useState<'details' | 'metrics'>('details');
-    const [bqProjectId, setBqProjectId] = useState(config.projectId);
-    const [bqDatasetId, setBqDatasetId] = useState('agent_logs');
-    const [metricsData, setMetricsData] = useState<any[] | null>(null);
-    const [isFetchingMetrics, setIsFetchingMetrics] = useState(false);
-    const [metricsError, setMetricsError] = useState<string | null>(null);
-
-    const handleFetchMetrics = async () => {
-        setIsFetchingMetrics(true);
-        setMetricsError(null);
-        setMetricsData(null);
-        try {
-            const query = `
-                SELECT 
-                    JSON_EXTRACT_SCALAR(data, '$.agent_id') as agent_id,
-                    timestamp,
-                    JSON_EXTRACT_SCALAR(data, '$.latency_ms') as latency_ms,
-                    JSON_EXTRACT_SCALAR(data, '$.user_input') as user_input,
-                    JSON_EXTRACT_SCALAR(data, '$.assistant_response') as assistant_response
-                FROM \`${bqProjectId}.${bqDatasetId}.agent_logs\`
-                WHERE JSON_EXTRACT_SCALAR(data, '$.agent_id') = '${engineId}'
-                ORDER BY timestamp DESC
-                LIMIT 50
-            `;
-            const result = await api.runBigQueryQuery(bqProjectId, query);
-            setMetricsData(result);
-        } catch (err: any) {
-            setMetricsError(err.message || 'Failed to fetch metrics from BigQuery.');
-        } finally {
-            setIsFetchingMetrics(false);
-        }
-    };
 
      useEffect(() => {
         const fetchDetails = async () => {
@@ -229,7 +197,7 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({ engine, usingAgents, onBa
                     </div>
                     <button onClick={onBack} className="text-gray-400 hover:text-white">&larr; Back to list</button>
                 </div>
-                
+
                 <div className="mt-4 border-b border-gray-700">
                     <nav className="-mb-px flex space-x-4" aria-label="Tabs">
                         <button
@@ -381,94 +349,12 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({ engine, usingAgents, onBa
                         </button>
                     </div>
                 </div>
-                </>
+                    </>
                 )}
 
                 {activeTab === 'metrics' && (
                     <div className="mt-6">
-                        <div className="bg-gray-900/50 p-4 rounded border border-gray-700 mb-6">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-400 mb-1">Target Project ID</label>
-                                    <input
-                                        type="text"
-                                        value={bqProjectId}
-                                        onChange={(e) => setBqProjectId(e.target.value)}
-                                        className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white font-mono text-sm focus:border-blue-500 focus:outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-400 mb-1">BigQuery Dataset ID</label>
-                                    <input
-                                        type="text"
-                                        value={bqDatasetId}
-                                        onChange={(e) => setBqDatasetId(e.target.value)}
-                                        className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white font-mono text-sm focus:border-blue-500 focus:outline-none"
-                                    />
-                                </div>
-                            </div>
-                            <div className="mt-4">
-                                <button
-                                    onClick={handleFetchMetrics}
-                                    disabled={isFetchingMetrics || !bqProjectId || !bqDatasetId}
-                                    className="px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-50"
-                                >
-                                    {isFetchingMetrics ? 'Fetching Metrics...' : 'Load Engine Metrics from BigQuery'}
-                                </button>
-                                <p className="inline-block md:ml-4 mt-2 md:mt-0 text-xs text-gray-400 italic">Queries `{bqProjectId}.{bqDatasetId}.agent_logs` for Agent ID: {engineId}</p>
-                            </div>
-                            {metricsError && <p className="text-red-400 mt-2 text-sm">{metricsError}</p>}
-                        </div>
-
-                        {metricsData && (
-                            <div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                                    <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-4">
-                                        <h4 className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-1">Total Invocations (Recent)</h4>
-                                        <p className="text-2xl font-bold text-white">{metricsData.length}</p>
-                                    </div>
-                                    <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-4">
-                                        <h4 className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-1">Average Latency</h4>
-                                        <p className="text-2xl font-bold text-white">
-                                            {metricsData.length > 0
-                                                ? `${Math.round(metricsData.reduce((acc, curr) => acc + (parseInt(curr.latency_ms) || 0), 0) / metricsData.length)} ms`
-                                                : 'N/A'}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <div className="overflow-x-auto bg-gray-900/50 rounded-lg border border-gray-700">
-                                    <table className="min-w-full divide-y divide-gray-700">
-                                        <thead className="bg-gray-800 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                                            <tr>
-                                                <th className="px-4 py-3">Timestamp</th>
-                                                <th className="px-4 py-3">Latency (ms)</th>
-                                                <th className="px-4 py-3">User Prompt</th>
-                                                <th className="px-4 py-3">Response Snippet</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-700 text-sm p-4">
-                                            {metricsData.length > 0 ? (
-                                                metricsData.map((row, index) => (
-                                                    <tr key={index} className="hover:bg-gray-800 transition-colors">
-                                                        <td className="px-4 py-3 whitespace-nowrap text-gray-300 font-mono text-xs">
-                                                            {row.timestamp && row.timestamp.value ? new Date(row.timestamp.value).toLocaleString() : 'N/A'}
-                                                        </td>
-                                                        <td className="px-4 py-3 whitespace-nowrap text-gray-300 font-mono text-xs">{row.latency_ms}</td>
-                                                        <td className="px-4 py-3 text-gray-400 max-w-xs truncate" title={row.user_input}>{row.user_input}</td>
-                                                        <td className="px-4 py-3 text-gray-400 max-w-xs truncate" title={row.assistant_response}>{row.assistant_response}</td>
-                                                    </tr>
-                                                ))
-                                            ) : (
-                                                <tr>
-                                                    <td colSpan={4} className="px-4 py-4 text-center text-gray-500 italic">No logs found for this engine in the specified BigQuery table.</td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        )}
+                        <AgentEngineMetricsViewer config={config} engineId={engineId} filterBy="tool_id" />
                     </div>
                 )}
 

@@ -1362,9 +1362,13 @@ export const exportAnalyticsMetrics = async (config: Config, datasetId: string, 
     return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
 };
 
-export const getAgentEngineToolLatencies = async (config: Config, engineId: string, startTime: string, endTime: string) => {
-    // Queries Cloud Monitoring for the tool_total_latencies metric for a specific engine.
-    const filter = `metric.type="discoveryengine.googleapis.com/tool_total_latencies" AND resource.labels.engine_id="${engineId}"`;
+export const getAgentEngineToolLatencies = async (config: Config, resourceId: string, startTime: string, endTime: string, filterBy: 'engine_id' | 'tool_id' = 'engine_id') => {
+    let filter = '';
+    if (filterBy === 'engine_id') {
+        filter = `metric.type="discoveryengine.googleapis.com/tool_total_latencies" AND resource.labels.engine_id="${resourceId}"`;
+    } else {
+        filter = `metric.type="discoveryengine.googleapis.com/tool_total_latencies" AND resource.labels.tool_id=has_substring("${resourceId}")`;
+    }
     const url = `https://monitoring.googleapis.com/v3/projects/${config.projectId}/timeSeries?filter=${encodeURIComponent(filter)}&interval.startTime=${encodeURIComponent(startTime)}&interval.endTime=${encodeURIComponent(endTime)}`;
     
     // Using standard fetch because `gapiRequest` headers might interfere and the generic fetch is safer for alternative Google APIs.

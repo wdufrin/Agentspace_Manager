@@ -27,6 +27,7 @@ import ExportMetricsModal from '../components/assistants/ExportMetricsModal';
 import ChatWindow from '../components/agents/ChatWindow';
 import ChatHistoryViewer from '../components/assistants/ChatHistoryViewer';
 import NotebookListViewer from '../components/assistants/NotebookListViewer';
+import AgentEngineMetricsViewer from '../components/assistants/AgentEngineMetricsViewer';
 
 interface AssistantPageProps {
   projectNumber: string;
@@ -620,6 +621,10 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                                               onUpdateSuccess={handleUpdateSuccess}
                                           />
                                       </div>
+                                      <AgentEngineMetricsViewer
+                                          config={currentConfig}
+                                          engineId={selectedRow.engine.name.split('/').pop() || ''}
+                                      />
                                   </>
                               )}
 
