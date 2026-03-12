@@ -245,7 +245,9 @@ const ArchitecturePage: React.FC<ArchitecturePageProps> = ({
             <div className="bg-gray-800 p-4 rounded-lg shadow-md shrink-0">
                 <div className="flex flex-col md:flex-row gap-4 items-end">
                     <div className="flex-1 w-full">
-                        <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
+                        <div className="mb-1">
+                            <label className="block text-sm font-medium text-gray-400">Project ID / Number</label>
+                        </div>
                         <ProjectInput value={projectNumber} onChange={setProjectNumber} />
                     </div>
                     <div className="flex items-end gap-2 w-full md:w-auto">

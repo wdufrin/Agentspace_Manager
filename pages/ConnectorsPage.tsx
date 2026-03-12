@@ -20,6 +20,7 @@ import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
 import Spinner from '../components/Spinner';
 import ConnectorDetailsModal from '../components/ConnectorDetailsModal';
+import CloudConsoleButton from '../components/CloudConsoleButton';
 
 interface ConnectorsPageProps {
     projectNumber: string;
@@ -253,7 +254,10 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({ projectNumber, setProje
     return (
         <div className="space-y-6">
             <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700">
-                <h2 className="text-lg font-semibold text-white mb-3">Connector Configuration</h2>
+                <div className="flex justify-between items-center mb-3">
+                    <h2 className="text-lg font-semibold text-white">Connector Configuration</h2>
+                    <CloudConsoleButton url={`https://console.cloud.google.com/gemini-enterprise/data-stores?project=${projectNumber}`} />
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                         <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>

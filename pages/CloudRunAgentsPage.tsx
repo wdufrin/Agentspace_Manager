@@ -21,6 +21,7 @@ import * as api from '../services/apiService';
 import ProjectInput from '../components/ProjectInput';
 import Spinner from '../components/Spinner';
 import ConfirmationModal from '../components/ConfirmationModal';
+import CloudConsoleButton from '../components/CloudConsoleButton';
 
 interface CloudRunAgentsPageProps {
   projectNumber: string;
@@ -409,7 +410,10 @@ const CloudRunAgentsPage: React.FC<CloudRunAgentsPageProps> = ({ projectNumber, 
         <div className="space-y-6 flex flex-col h-full">
             {/* Header / Config */}
             <div className="bg-gray-800 p-4 rounded-lg shadow-md shrink-0">
-                <h2 className="text-lg font-semibold text-white mb-3">Cloud Run Agents</h2>
+                <div className="flex justify-between items-center mb-3">
+                    <h2 className="text-lg font-semibold text-white">Cloud Run Agents</h2>
+                    <CloudConsoleButton url={`https://console.cloud.google.com/run?project=${projectNumber}`} />
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                     <div>
                         <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>

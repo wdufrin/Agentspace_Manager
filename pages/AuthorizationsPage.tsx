@@ -325,7 +325,9 @@ const AuthorizationsPage: React.FC<AuthorizationsPageProps> = ({
   return (
     <div>
       <div className="bg-gray-800 p-4 rounded-lg mb-6 shadow-md">
-            <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
+            <div className="flex justify-between items-center mb-3">
+                <h2 className="text-lg font-semibold text-white">Configuration</h2>
+            </div>
             <div>
                 <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>
                 <div className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-300 font-mono h-[38px] flex items-center">

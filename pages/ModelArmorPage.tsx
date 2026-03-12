@@ -20,6 +20,7 @@ import { Config, LogEntry } from '../types';
 import * as api from '../services/apiService';
 import Spinner from '../components/Spinner';
 import ProjectInput from '../components/ProjectInput';
+import CloudConsoleButton from '../components/CloudConsoleButton';
 
 // --- Icons ---
 
@@ -443,6 +444,24 @@ const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (proje
       setIsLoading(false);
     }
   }, [apiConfig, filterText, projectNumber, filterBlockedOnly, daysFilter]);
+
+  const cloudConsoleUrl = useMemo(() => {
+    const filters = [`resource.type="modelarmor.googleapis.com/SanitizeOperation"`];
+    if (filterBlockedOnly) {
+        filters.push(`(jsonPayload.sanitizationResult.sanitizationVerdict="BLOCKED" OR jsonPayload.sanitizationResult.sanitizationVerdict="MODEL_ARMOR_SANITIZATION_VERDICT_BLOCK")`);
+    }
+    if (filterText.trim()) {
+        filters.push(`(${filterText.trim()})`);
+    }
+    
+    const combinedQuery = filters.join('\n');
+    const encodedQuery = encodeURIComponent(combinedQuery);
+    
+    // Convert days to ISO 8601 duration
+    const durationStr = `P${daysFilter}D`;
+    
+    return `https://console.cloud.google.com/logs/query;query=${encodedQuery};duration=${durationStr}?referrer=search&project=${projectNumber}`;
+  }, [filterBlockedOnly, filterText, daysFilter, projectNumber]);
   
   const renderContent = () => {
     if (!projectNumber) {
@@ -478,16 +497,17 @@ const ModelArmorPage: React.FC<{ projectNumber: string; setProjectNumber: (proje
         {/* Header & Main Controls */}
         <div className="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-sm">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 border-b border-gray-700 pb-4">
-                <div>
-                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                        <ShieldIcon />
-                        Model Armor Manager
-                    </h2>
-                    <p className="text-sm text-gray-400 mt-1">Monitor content safety violations and configure protection policies.</p>
+                <div className="flex items-center gap-4">
+                    <div>
+                        <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                            <ShieldIcon />
+                            Model Armor Manager
+                        </h2>
+                        <p className="text-sm text-gray-400 mt-1">Monitor content safety violations and configure protection policies.</p>
+                    </div>
                 </div>
                 <div className="w-full md:w-auto">
-                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Target Project</label>
-                     <ProjectInput value={projectNumber} onChange={setProjectNumber} />
+                    <CloudConsoleButton url={cloudConsoleUrl} />
                 </div>
             </div>
 

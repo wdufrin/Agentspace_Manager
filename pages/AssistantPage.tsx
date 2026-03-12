@@ -28,6 +28,7 @@ import ChatWindow from '../components/agents/ChatWindow';
 import ChatHistoryViewer from '../components/assistants/ChatHistoryViewer';
 import NotebookListViewer from '../components/assistants/NotebookListViewer';
 import AgentEngineMetricsViewer from '../components/assistants/AgentEngineMetricsViewer';
+import CloudConsoleButton from '../components/CloudConsoleButton';
 
 interface AssistantPageProps {
   projectNumber: string;
@@ -588,7 +589,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
             ) : (
                       <div className="space-y-6">
                           {/* Tabs Navigation */}
-                          <div className="border-b border-gray-700">
+                          <div className="border-b border-gray-700 flex justify-between items-center">
                               <nav className="-mb-px flex space-x-8" aria-label="Tabs">
                                   {['overview', 'agents', 'notebooks', 'history'].map((tab) => (
                                       <button
@@ -604,7 +605,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                                   ))}
                               </nav>
                           </div>
-
+                          
                           {/* Tab Content */}
                           <div className="py-4">
                               {activeTab === 'overview' && (

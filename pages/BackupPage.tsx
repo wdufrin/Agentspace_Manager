@@ -23,6 +23,7 @@ import RestoreSelectionModal from '../components/backup/RestoreSelectionModal';
 import ChatHistoryArchiveViewer from '../components/backup/ChatHistoryArchiveViewer';
 import ClientSecretPrompt from '../components/backup/ClientSecretPrompt';
 import CurlInfoModal from '../components/CurlInfoModal';
+import CloudConsoleButton from '../components/CloudConsoleButton';
 
 interface BackupPageProps {
   accessToken: string;
@@ -1548,7 +1549,10 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       )}
 
       <div className="bg-gray-800 p-4 rounded-lg shadow-md">
-        <h2 className="text-lg font-semibold text-white mb-3">Configuration for Backup & Restore</h2>
+        <div className="flex justify-between items-center mb-3">
+            <h2 className="text-lg font-semibold text-white">Configuration for Backup & Restore</h2>
+            <CloudConsoleButton url={`https://console.cloud.google.com/storage/browser/${selectedBucket}?project=${projectNumber}`} />
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">Target Project ID / Number</label>

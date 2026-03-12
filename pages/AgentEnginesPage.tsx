@@ -23,6 +23,7 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import EngineDetails from '../components/agent-engines/EngineDetails';
 import McpServerDetails from '../components/mcp-servers/McpServerDetails';
 import CloudRunQueryModal from '../components/agent-engines/CloudRunQueryModal';
+import CloudConsoleButton from '../components/CloudConsoleButton';
 
 interface AgentEnginesPageProps {
   projectNumber: string;
@@ -389,18 +390,21 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
         <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
                 <h2 className="text-xl font-bold text-white">Available Agents</h2>
-                 {selectedIds.size > 0 && (
-                    <div className="flex items-center gap-4">
-                        <span className="text-sm text-gray-300">{selectedIds.size} selected</span>
-                        <button
-                            onClick={() => openDeleteModal()}
-                            disabled={isDeleting}
-                            className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700 disabled:bg-red-800"
-                        >
-                            Delete Selected
-                        </button>
-                    </div>
-                )}
+                <div className="flex items-center gap-4">
+                     <CloudConsoleButton url={`https://console.cloud.google.com/vertex-ai/agents/agent-engines?project=${projectNumber}`} />
+                     {selectedIds.size > 0 && (
+                        <div className="flex items-center gap-4 border-l border-gray-700 pl-4">
+                            <span className="text-sm text-gray-300">{selectedIds.size} selected</span>
+                            <button
+                                onClick={() => openDeleteModal()}
+                                disabled={isDeleting}
+                                className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-md hover:bg-red-700 disabled:bg-red-800"
+                            >
+                                Delete Selected
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
              {permissionWarnings.length > 0 && (
                  <div className="p-4 bg-yellow-900/30 border-b border-yellow-800">

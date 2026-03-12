@@ -22,6 +22,7 @@ import Spinner from '../components/Spinner';
 import DataStoreList from '../components/datastores/DataStoreList';
 import DataStoreDetails from '../components/datastores/DataStoreDetails';
 import ConfirmationModal from '../components/ConfirmationModal';
+import CloudConsoleButton from '../components/CloudConsoleButton';
 
 interface CreateDataStoreModalProps {
   isOpen: boolean;
@@ -606,7 +607,10 @@ const DataStoresPage: React.FC<DataStoresPageProps> = ({ projectNumber }) => {
         dataStore={dataStoreToEdit}
       />
       <div className="bg-gray-800 p-4 rounded-lg shadow-md">
-            <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
+            <div className="flex justify-between items-center mb-3">
+                <h2 className="text-lg font-semibold text-white">Configuration</h2>
+                <CloudConsoleButton url={`https://console.cloud.google.com/gen-app-builder/data-stores?project=${projectNumber}`} />
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>

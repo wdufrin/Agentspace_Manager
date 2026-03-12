@@ -22,6 +22,7 @@ import ProjectInput from '../components/ProjectInput';
 import Spinner from '../components/Spinner';
 import DialogflowQueryModal from '../components/agent-engines/DialogflowQueryModal';
 import ConfirmationModal from '../components/ConfirmationModal';
+import CloudConsoleButton from '../components/CloudConsoleButton';
 
 interface DialogflowAgentsPageProps {
   projectNumber: string;
@@ -91,7 +92,10 @@ const DialogflowAgentsPage: React.FC<DialogflowAgentsPageProps> = ({ projectNumb
   return (
     <div className="space-y-6">
       <div className="bg-gray-800 p-4 rounded-lg shadow-md">
-        <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-lg font-semibold text-white">Configuration</h2>
+          <CloudConsoleButton url={`https://console.cloud.google.com/dialogflow/cx/projects/${projectNumber}/locations/${location}`} />
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>

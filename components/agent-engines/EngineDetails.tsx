@@ -20,6 +20,7 @@ import * as api from '../../services/apiService';
 import Spinner from '../Spinner';
 import ConfirmationModal from '../ConfirmationModal';
 import AgentEngineMetricsViewer from '../assistants/AgentEngineMetricsViewer';
+import CloudConsoleButton from '../CloudConsoleButton';
 
 interface EngineDetailsProps {
     engine: ReasoningEngine;
@@ -198,7 +199,7 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({ engine, usingAgents, onBa
                     <button onClick={onBack} className="text-gray-400 hover:text-white">&larr; Back to list</button>
                 </div>
 
-                <div className="mt-4 border-b border-gray-700">
+                <div className="mt-4 border-b border-gray-700 flex justify-between items-center">
                     <nav className="-mb-px flex space-x-4" aria-label="Tabs">
                         <button
                             onClick={() => setActiveTab('details')}
@@ -213,6 +214,13 @@ const EngineDetails: React.FC<EngineDetailsProps> = ({ engine, usingAgents, onBa
                             Metrics
                         </button>
                     </nav>
+                    <div className="py-2">
+                        <CloudConsoleButton
+                            url={activeTab === 'details' 
+                                ? `https://console.cloud.google.com/vertex-ai/agents/agent-engines/locations/${engine.name.split('/')[3]}/agent-engines/${engineId}/dashboard?project=${config.projectId}&pageState=(%22timeRange%22:(%22duration%22:%22PT1H%22))` 
+                                : `https://console.cloud.google.com/monitoring?project=${config.projectId}`}
+                        />
+                    </div>
                 </div>
                 
                 {activeTab === 'details' && (

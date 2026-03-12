@@ -6,6 +6,7 @@ import AgentDeploymentModal from '../components/agent-catalog/AgentDeploymentMod
 import A2aDeployModal from '../components/a2a/A2aDeployModal';
 import ProjectInput from '../components/ProjectInput';
 import { McpServiceCheck } from '../components/McpServiceCheck';
+import CloudConsoleButton from '../components/CloudConsoleButton';
 
 
 declare var JSZip: any;
@@ -3682,7 +3683,10 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
 
                 {/* Left Column: Configuration (Box 1) */}
                 <div className="bg-gray-800 p-4 rounded-lg shadow-md lg:w-1/3 flex flex-col overflow-y-auto border border-gray-700">
-                    <h2 className="text-lg font-semibold text-white mb-3 shrink-0">1. Configure Agent</h2>
+                    <div className="flex justify-between items-center mb-3 shrink-0">
+                        <h2 className="text-lg font-semibold text-white">1. Configure Agent</h2>
+                        <CloudConsoleButton url={`https://console.cloud.google.com/vertex-ai/agents/agent-engines?project=${projectNumber}`} />
+                    </div>
                     <div className="space-y-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-400 mb-1">Project Number</label>

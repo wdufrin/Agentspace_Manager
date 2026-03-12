@@ -24,6 +24,7 @@ import JsonViewModal from '../components/license/JsonViewModal';
 import PruneLicensesModal from '../components/license/PruneLicensesModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import PrunerDeploymentModal from '../components/license/PrunerDeploymentModal';
+import CloudConsoleButton from '../components/CloudConsoleButton';
 import DistributeLicenseModal from '../components/license/DistributeLicenseModal';
 import RetractLicenseModal from '../components/license/RetractLicenseModal';
 
@@ -603,6 +604,9 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                   >
                       Allocation Management (Billing Account)
                   </button>
+                  <div className="flex-grow"></div>
+                  <div className="py-2">
+                  </div>
               </nav>
           </div>
 
