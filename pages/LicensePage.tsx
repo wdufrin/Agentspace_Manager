@@ -26,7 +26,6 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import PrunerDeploymentModal from '../components/license/PrunerDeploymentModal';
 import DistributeLicenseModal from '../components/license/DistributeLicenseModal';
 import RetractLicenseModal from '../components/license/RetractLicenseModal';
-import CostsUI from '../components/dashboard/CostsUI';
 
 interface LicensePageProps {
   projectNumber: string;
@@ -71,7 +70,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
   const [isActionLoading, setIsActionLoading] = useState(false); // For delete/prune
 
     // --- Billing Account State ---
-    const [activeTab, setActiveTab] = useState<'user_licenses' | 'allocations' | 'quotas'>('user_licenses');
+    const [activeTab, setActiveTab] = useState<'user_licenses' | 'allocations'>('user_licenses');
     const [billingAccountId, setBillingAccountId] = useState('');
     const [billingConfigs, setBillingConfigs] = useState<any[]>([]);
     const [isBillingLoading, setIsBillingLoading] = useState(false);
@@ -604,15 +603,6 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                   >
                       Allocation Management (Billing Account)
                   </button>
-                  <button
-                      onClick={() => setActiveTab('quotas')}
-                      className={`${activeTab === 'quotas'
-                          ? 'border-blue-500 text-blue-400'
-                          : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
-                          } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-150`}
-                  >
-                      Quotas & Overages
-                  </button>
               </nav>
           </div>
 
@@ -788,7 +778,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
         )}
       </div>
               </>
-          ) : activeTab === 'allocations' ? (
+          ) : (
               /* --- Allocation Management View --- */
               <div className="space-y-6">
                   <div className="bg-gray-800 p-6 rounded-lg shadow-md border border-gray-700">
@@ -908,9 +898,8 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                       !isBillingLoading && billingAccountId && <div className="text-center p-8 bg-gray-800 rounded-lg border border-gray-700 text-gray-400">No configs found for this billing account.</div>
                   )}
               </div>
-              ) : (
-                  <CostsUI />
           )}
+
 
       </div>
   );
