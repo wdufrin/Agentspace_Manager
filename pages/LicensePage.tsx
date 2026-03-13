@@ -70,6 +70,13 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
   
   const [isActionLoading, setIsActionLoading] = useState(false); // For delete/prune
 
+  // Column Filters State
+  const [filterPrincipal, setFilterPrincipal] = useState<string>('');
+  const [filterConfig, setFilterConfig] = useState<string>('');
+  const [filterStatus, setFilterStatus] = useState<string>('');
+  const [filterDateOperator, setFilterDateOperator] = useState<'>' | '<' | '='>('>');
+  const [filterDateValue, setFilterDateValue] = useState<string>('');
+
     // --- Billing Account State ---
     const [activeTab, setActiveTab] = useState<'user_licenses' | 'allocations'>('user_licenses');
     const [billingAccountId, setBillingAccountId] = useState('');
@@ -439,10 +446,64 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
       }));
   };
 
-  const sortedUserLicenses = useMemo(() => {
+  const filteredUserLicenses = useMemo(() => {
       if (!userLicenses) return [];
       
-      return [...userLicenses].sort((a, b) => {
+      const normalizeDateString = (dateStr: string) => {
+          // Reset time to start of day for accurate comparison if it's a date input
+          const d = new Date(dateStr);
+          d.setUTCHours(0, 0, 0, 0);
+          return d.getTime();
+      };
+      
+      const filterDateMs = filterDateValue ? normalizeDateString(filterDateValue) : null;
+
+      return userLicenses.filter(l => {
+          // 1. Principal Filter (Substring, case-insensitive)
+          if (filterPrincipal) {
+              const principalLower = filterPrincipal.toLowerCase();
+              if (!l.userPrincipal?.toLowerCase().includes(principalLower)) return false;
+          }
+
+          // 2. State Filter (Exact match)
+          if (filterStatus) {
+              if (l.licenseAssignmentState !== filterStatus) return false;
+          }
+
+          // 3. Config Filter (Substring, case-insensitive)
+          if (filterConfig) {
+              const configLower = filterConfig.toLowerCase();
+              const resourceName = l.licenseConfig || '';
+              const friendlyName = licenseNames[resourceName] || resourceName.split('/').pop() || '';
+              
+              if (!resourceName.toLowerCase().includes(configLower) && 
+                  !friendlyName.toLowerCase().includes(configLower)) {
+                  return false;
+              }
+          }
+
+          // 4. Last Login Filter
+          if (filterDateMs !== null) {
+               if (!l.lastLoginTime) return false; // If filtering by date, users who never logged in are excluded
+               const userLoginMs = normalizeDateString(l.lastLoginTime);
+               
+               if (filterDateOperator === '>') {
+                   if (!(userLoginMs > filterDateMs)) return false;
+               } else if (filterDateOperator === '<') {
+                   if (!(userLoginMs < filterDateMs)) return false;
+               } else if (filterDateOperator === '=') {
+                   if (userLoginMs !== filterDateMs) return false;
+               }
+          }
+          
+          return true;
+      });
+  }, [userLicenses, filterPrincipal, filterStatus, filterConfig, filterDateOperator, filterDateValue, licenseNames]);
+
+  const sortedUserLicenses = useMemo(() => {
+      if (!filteredUserLicenses) return [];
+      
+      return [...filteredUserLicenses].sort((a, b) => {
           const aVal = a[sortConfig.key];
           const bVal = b[sortConfig.key];
           
@@ -719,6 +780,84 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                                 </div>
                             </th>
                             <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
+                        </tr>
+                        {/* Filter Row */}
+                        <tr>
+                            <th className="px-6 py-2 bg-gray-800 border-b border-gray-700">
+                                <input 
+                                    type="text" 
+                                    placeholder="Filter Principal..." 
+                                    value={filterPrincipal} 
+                                    onChange={(e) => setFilterPrincipal(e.target.value)} 
+                                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-white" 
+                                />
+                            </th>
+                            <th className="px-6 py-2 bg-gray-800 border-b border-gray-700">
+                                <select 
+                                    value={filterStatus} 
+                                    onChange={(e) => setFilterStatus(e.target.value)} 
+                                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-white"
+                                >
+                                    <option value="">All States</option>
+                                    <option value="ASSIGNED">ASSIGNED</option>
+                                    <option value="UNASSIGNED">UNASSIGNED</option>
+                                </select>
+                            </th>
+                            <th className="px-6 py-2 bg-gray-800 border-b border-gray-700">
+                                <input 
+                                    type="text" 
+                                    placeholder="Filter Config..." 
+                                    value={filterConfig} 
+                                    onChange={(e) => setFilterConfig(e.target.value)} 
+                                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-white" 
+                                />
+                            </th>
+                            <th className="px-6 py-2 bg-gray-800 border-b border-gray-700"></th> {/* Empty for License ID */}
+                            <th className="px-6 py-2 bg-gray-800 border-b border-gray-700">
+                                <div className="flex space-x-1">
+                                    <select 
+                                        title="Date Operator"
+                                        value={filterDateOperator} 
+                                        onChange={(e) => setFilterDateOperator(e.target.value as any)} 
+                                        className="bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-white w-10 text-center"
+                                    >
+                                        <option value=">">&gt;</option>
+                                        <option value="<">&lt;</option>
+                                        <option value="=">=</option>
+                                    </select>
+                                    <input 
+                                        title="Date Value"
+                                        type="date" 
+                                        value={filterDateValue} 
+                                        onChange={(e) => setFilterDateValue(e.target.value)} 
+                                        className="flex-grow bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-white min-w-0" 
+                                    />
+                                    {filterDateValue && (
+                                        <button 
+                                            title="Clear Date"
+                                            onClick={() => setFilterDateValue('')} 
+                                            className="text-gray-400 hover:text-white px-1 font-bold"
+                                        >
+                                            &times;
+                                        </button>
+                                    )}
+                                </div>
+                            </th>
+                            <th className="px-6 py-2 bg-gray-800 border-b border-gray-700 text-right">
+                                {(filterPrincipal || filterStatus || filterConfig || filterDateValue) && (
+                                     <button 
+                                        onClick={() => {
+                                            setFilterPrincipal('');
+                                            setFilterConfig('');
+                                            setFilterStatus('');
+                                            setFilterDateValue('');
+                                        }}
+                                        className="text-xs text-blue-400 hover:text-blue-300 underline"
+                                     >
+                                         Clear All
+                                     </button>
+                                )}
+                            </th>
                         </tr>
                     </thead>
                     <tbody className="bg-gray-800 divide-y divide-gray-700">
