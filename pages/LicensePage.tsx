@@ -27,6 +27,7 @@ import PrunerDeploymentModal from '../components/license/PrunerDeploymentModal';
 import CloudConsoleButton from '../components/CloudConsoleButton';
 import DistributeLicenseModal from '../components/license/DistributeLicenseModal';
 import RetractLicenseModal from '../components/license/RetractLicenseModal';
+import BulkReassignModal from '../components/license/BulkReassignModal';
 
 interface LicensePageProps {
   projectNumber: string;
@@ -69,6 +70,12 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   
   const [isActionLoading, setIsActionLoading] = useState(false); // For delete/prune
+
+  // Bulk Actions State
+  const [selectedConfigFilter, setSelectedConfigFilter] = useState<string>('');
+  const [activityFilter, setActivityFilter] = useState<string>('all');
+  const [selectedPrincipals, setSelectedPrincipals] = useState<Set<string>>(new Set());
+  const [isBulkReassignModalOpen, setIsBulkReassignModalOpen] = useState(false);
 
     // --- Billing Account State ---
     const [activeTab, setActiveTab] = useState<'user_licenses' | 'allocations'>('user_licenses');
@@ -130,6 +137,9 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
 
           setUserLicenses(allLicenses);
           
+          // Clear selections when list refreshes
+          setSelectedPrincipals(new Set());
+
           // Resolve friendly names for license configs
           resolveLicenseNames(allLicenses);
           
@@ -439,10 +449,47 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
       }));
   };
 
-  const sortedUserLicenses = useMemo(() => {
+  const availableConfigsForFilter = useMemo(() => {
+      const uniqueConfigs = Array.from(new Set(userLicenses.map(l => l.licenseConfig).filter(Boolean)));
+      return uniqueConfigs.map(configName => ({
+          name: typeof configName === 'string' ? configName : '',
+          displayName: typeof configName === 'string' ? (licenseNames[configName] || configName.split('/').pop() || configName) : ''
+      })).filter(c => c.name).sort((a, b) => a.displayName.localeCompare(b.displayName));
+  }, [userLicenses, licenseNames]);
+
+  const filteredUserLicenses = useMemo(() => {
       if (!userLicenses) return [];
       
-      return [...userLicenses].sort((a, b) => {
+      const now = new Date().getTime();
+      const daysToMs = (days: number) => days * 24 * 60 * 60 * 1000;
+
+      return userLicenses.filter(l => {
+          if (selectedConfigFilter) {
+              const configName = l.licenseConfig || '';
+              if (configName !== selectedConfigFilter) return false;
+          }
+          
+          if (activityFilter !== 'all') {
+              if (activityFilter === 'never') {
+                  if (l.lastLoginTime) return false;
+              } else {
+                  const days = parseInt(activityFilter);
+                  if (!isNaN(days)) {
+                      if (!l.lastLoginTime) return false; // Never logged in doesn't count as > 30 days inactive
+                      const loginTime = new Date(l.lastLoginTime).getTime();
+                      if (now - loginTime <= daysToMs(days)) return false;
+                  }
+              }
+          }
+          
+          return true;
+      });
+  }, [userLicenses, selectedConfigFilter, activityFilter]);
+
+  const sortedUserLicenses = useMemo(() => {
+      if (!filteredUserLicenses) return [];
+      
+      return [...filteredUserLicenses].sort((a, b) => {
           const aVal = a[sortConfig.key];
           const bVal = b[sortConfig.key];
           
@@ -465,7 +512,68 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
           if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
           return 0;
       });
-  }, [userLicenses, sortConfig, licenseNames]);
+  }, [filteredUserLicenses, sortConfig, licenseNames]);
+
+  const handleSelectAll = (e?: React.ChangeEvent<HTMLInputElement>) => {
+      const isChecked = e ? e.target.checked : !(selectedPrincipals.size === sortedUserLicenses.length && sortedUserLicenses.length > 0);
+      if (!isChecked) {
+          setSelectedPrincipals(new Set());
+      } else {
+          const newSet = new Set(sortedUserLicenses.map(l => l.userPrincipal).filter(Boolean));
+          setSelectedPrincipals(newSet);
+      }
+  };
+
+  const handleSelectRow = (principal: string) => {
+      setSelectedPrincipals(prev => {
+          const next = new Set(prev);
+          if (next.has(principal)) {
+              next.delete(principal);
+          } else {
+              next.add(principal);
+          }
+          return next;
+      });
+  };
+
+  const handleOpenBulkReassign = async () => {
+      // If we don't have project license configs yet, we need to fetch them
+      // but also we need to make sure we show *unassigned* subscriptions
+      // which requires looking at the billing account allocations.
+      if (projectLicenseConfigs.length === 0) {
+          try {
+              // 1. Get the billing account if we don't have it
+              let currentBillingAccountId = billingAccountId;
+              const config: Config = {
+                  projectId: projectNumber,
+                  appLocation: apiConfig.appLocation,
+                  collectionId: '', appId: '', assistantId: ''
+              } as any;
+
+              if (!currentBillingAccountId) {
+                  const res = await api.listBillingAccounts(config);
+                  if (res.billingAccounts && res.billingAccounts.length > 0) {
+                      currentBillingAccountId = res.billingAccounts[0].name.split('/').pop();
+                      setBillingAccountId(currentBillingAccountId);
+                  }
+              }
+
+              // 2. Fetch billing configs to get all subscriptions (even those with 0 usage)
+              if (currentBillingAccountId) {
+                  const bRes = await api.listBillingAccountLicenseConfigs(currentBillingAccountId, config);
+                  setBillingConfigs(bRes.billingAccountLicenseConfigs || []);
+              }
+
+              // 3. Fetch project stats (which overlays with billing configs if they exist)
+              await fetchProjectStats();
+          } catch (e) {
+              console.error("Failed to load configs for reassignment", e);
+              // Fallback to basic fetch
+              fetchProjectStats();
+          }
+      }
+      setIsBulkReassignModalOpen(true);
+  };
 
   // Calculate total used licenses from the full fetched list
   const totalLicensesUsed = useMemo(() => {
@@ -498,6 +606,35 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
           isDeleting={isActionLoading}
       />
       
+      {isBulkReassignModalOpen && (
+          <BulkReassignModal
+              isOpen={isBulkReassignModalOpen}
+              onClose={() => setIsBulkReassignModalOpen(false)}
+              onSuccess={() => {
+                  setSelectedPrincipals(new Set());
+                  fetchUserLicenses();
+              }}
+              selectedLicenses={Array.from(selectedPrincipals).map(principal => {
+                  const license = userLicenses.find(l => l.userPrincipal === principal);
+                  return {
+                      userPrincipal: principal,
+                      licenseConfig: license?.licenseConfig || ''
+                  };
+              })}
+              availableLicenseConfigs={
+                  // Combine project configs and raw billing configs to ensure unassigned subscriptions are visible
+                  Array.from(new Map<string, any>([
+                      ...billingConfigs.filter(c => c?.name).map(c => [c.name.split('/').pop() || '', c] as [string, any]),
+                      ...projectLicenseConfigs.filter(c => c?.name).map(c => [c.name.split('/').pop() || '', c] as [string, any]),
+                      // Fallback to purely local filter names if needed
+                      ...availableConfigsForFilter.filter(c => c?.name).map(c => [c.name.split('/').pop() || '', c] as [string, any])
+                  ]).values())
+              }
+              projectNumber={projectNumber}
+              apiConfig={apiConfig}
+          />
+      )}
+
       {isDeploymentModalOpen && (
           <PrunerDeploymentModal 
             isOpen={isDeploymentModalOpen}
@@ -630,6 +767,27 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                 <h2 className="text-lg font-semibold text-white mb-1">Manage User Licenses</h2>
                 <p className="text-gray-400 text-sm mb-4">View, filter, and manage the list of assigned licenses.</p>
                 <div className="flex flex-col sm:flex-row gap-3">
+                     <select 
+                        value={selectedConfigFilter}
+                        onChange={(e) => setSelectedConfigFilter(e.target.value)}
+                        className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white h-[38px] max-w-[250px]"
+                     >
+                        <option value="">All License Configs</option>
+                        {availableConfigsForFilter.map(cfg => (
+                            <option key={cfg.name} value={cfg.name}>{cfg.displayName}</option>
+                        ))}
+                     </select>
+                     <select 
+                        value={activityFilter}
+                        onChange={(e) => setActivityFilter(e.target.value)}
+                        className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white h-[38px] max-w-[200px]"
+                     >
+                        <option value="all">Any Activity</option>
+                        <option value="30">Inactive &gt; 30 Days</option>
+                        <option value="60">Inactive &gt; 60 Days</option>
+                        <option value="90">Inactive &gt; 90 Days</option>
+                        <option value="never">Never Logged In</option>
+                     </select>
                      <input 
                         type="text" 
                         value={userLicensesFilter}
@@ -643,6 +801,13 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                         className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center whitespace-nowrap h-[38px]"
                     >
                         {isLicensesLoading ? 'Loading...' : 'Refresh List'}
+                    </button>
+                    <button 
+                        onClick={handleOpenBulkReassign}
+                        disabled={selectedPrincipals.size === 0}
+                        className="px-4 py-2 bg-yellow-600 text-white text-sm font-semibold rounded-md hover:bg-yellow-700 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center whitespace-nowrap h-[38px]"
+                    >
+                        Bulk Reassign ({selectedPrincipals.size})
                     </button>
                     <button 
                         onClick={() => setIsPruneModalOpen(true)}
@@ -672,6 +837,14 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                 <table className="min-w-full divide-y divide-gray-700 bg-gray-900">
                     <thead className="bg-gray-700/50">
                         <tr>
+                            <th scope="col" className="px-6 py-3 text-left w-12 cursor-pointer" onClick={() => handleSelectAll()}>
+                                <input 
+                                    type="checkbox" 
+                                    checked={sortedUserLicenses.length > 0 && selectedPrincipals.size === sortedUserLicenses.length}
+                                    onChange={(e) => handleSelectAll(e)}
+                                    className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                                />
+                            </th>
                             <th 
                                 scope="col" 
                                 className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:text-white hover:bg-gray-700"
@@ -731,6 +904,14 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
 
                             return (
                                 <tr key={idx} className="hover:bg-gray-700/50 transition-colors">
+                                    <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                        <input 
+                                            type="checkbox"
+                                            checked={!!license.userPrincipal && selectedPrincipals.has(license.userPrincipal)}
+                                            onChange={() => license.userPrincipal && handleSelectRow(license.userPrincipal)}
+                                            className="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
+                                        />
+                                    </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
                                         {license.userPrincipal || 'Unknown User'}
                                     </td>

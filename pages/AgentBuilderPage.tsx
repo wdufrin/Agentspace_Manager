@@ -4,6 +4,9 @@ import { Config, DataStore, CloudRunService, GcsBucket } from '../types';
 import * as api from '../services/apiService';
 import AgentDeploymentModal from '../components/agent-catalog/AgentDeploymentModal';
 import A2aDeployModal from '../components/a2a/A2aDeployModal';
+import InfoTooltip from '../components/InfoTooltip';
+import CloudBuildProgress from '../components/agent-builder/CloudBuildProgress';
+import GitHubDeployModal from '../components/agent-builder/GitHubDeployModal';
 import ProjectInput from '../components/ProjectInput';
 import { McpServiceCheck } from '../components/McpServiceCheck';
 import CloudConsoleButton from '../components/CloudConsoleButton';
@@ -2526,8 +2529,7 @@ try:
         if agent.display_name == agent_display_name:
             target_agent = agent
             break
-            
-    if target_agent:
+          if target_agent:
         logger.info(f"Found existing agent: {target_agent.name}. Updating...")
         remote_app = agent_engines.update(
             target_agent.name,
@@ -2552,6 +2554,71 @@ try:
         
     print(f"Deployment finished!")
     print(f"Resource Name: {remote_app.resource_name}")
+${config.enableDiscoveryApi ? `
+    logger.info("Auto-registering Agent to Gemini Enterprise (Discovery Engine)...")
+    import requests
+    import google.auth
+    from google.auth.transport.requests import Request
+    
+    disc_project = os.getenv("DISCOVERY_ENGINE_PROJECT_ID", project_id)
+    disc_location = os.getenv("DISCOVERY_ENGINE_LOCATION", "global")
+    disc_collection = os.getenv("DISCOVERY_ENGINE_COLLECTION", "default_collection")
+    disc_engine = os.getenv("DISCOVERY_ENGINE_ENGINE_ID")
+    
+    if disc_engine:
+        logger.info(f"Using Discovery Engine: {disc_engine}")
+        credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        credentials.refresh(Request())
+        
+        # Note: If target_agent is True, the agent might already be registered. 
+        # For simplicity, we fire the POST and let it fail with 409 Conflict if it already exists,
+        # or we could list first. 
+        # We'll just try to create it.
+        api_url = f"https://discoveryengine.googleapis.com/v1alpha/projects/{disc_project}/locations/{disc_location}/collections/{disc_collection}/engines/{disc_engine}/assistants/default_assistant/agents"
+        
+        auth_config = {}
+        if os.getenv("AUTH_ID"):
+            auth_config = {
+                "toolAuthorizations": [
+                    f"projects/{disc_project}/locations/global/authorizations/{os.getenv('AUTH_ID')}"
+                ]
+            }
+
+        payload = {
+            "displayName": agent_display_name,
+            "description": ${JSON.stringify(config.description || '')},
+            "icon": {
+                "uri": "https://www.svgrepo.com/show/533810/chef-man-cap.svg"
+            },
+            "adkAgentDefinition": {
+                "toolSettings": {
+                    "toolDescription": f"[Agent Metadata]\\nCreated By: Automated CI/CD\\nAgent Engine: {remote_app.resource_name}\\nAdditional Info: None"
+                },
+                "provisionedReasoningEngine": {
+                    "reasoningEngine": remote_app.resource_name
+                }
+            },
+            "authorizationConfig": auth_config
+        }
+        
+        headers = {
+            "Authorization": f"Bearer {credentials.token}",
+            "Content-Type": "application/json",
+            "X-Goog-User-Project": disc_project
+        }
+        
+        # Create
+        if not target_agent:
+            logger.info("Sending registration POST request to Discovery Engine...")
+            res = requests.post(api_url, headers=headers, json=payload)
+            if res.status_code == 200:
+                logger.info("Successfully registered in Gemini Enterprise!")
+            else:
+                logger.warning(f"Registration failed ({res.status_code}): {res.text}")
+        else:
+            logger.info("Agent is an update. Assuming it is already registered in Gemini Enterprise.")
+            # Advanced: We could issue a PATCH to update the description/auth here.
+` : ''}
 except Exception as e:
     logger.error(f"Deployment/Update Failed: {e}")
     raise
@@ -3010,6 +3077,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     const [a2aCopySuccess, setA2aCopySuccess] = useState('');
     const [isFixMode, setIsFixMode] = useState(false);
     const [isA2aDeployModalOpen, setIsA2aDeployModalOpen] = useState(false);
+    const [isGithubModalOpen, setIsGithubModalOpen] = useState(false);
 
     // --- ADK State ---
     const [adkConfig, setAdkConfig] = useState<AdkAgentConfig>({
@@ -3649,6 +3717,31 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         { id: 'env', label: 'env.yaml' },
     ];
 
+    // Map generated ADK code into the format expected by the GitHub API
+    const githubDeploymentFiles = [
+        { path: 'app/app.py', content: adkGeneratedCode.app },
+        { path: 'app/agent.py', content: adkGeneratedCode.agent },
+        { path: 'app/.env', content: adkGeneratedCode.env },
+        { path: 'app/requirements.txt', content: adkGeneratedCode.requirements },
+        { path: 'app/__init__.py', content: adkGeneratedCode.init },
+        { path: 'Makefile', content: generateMakefile(adkConfig) },
+        { path: 'README.md', content: adkGeneratedCode.readme }
+    ];
+
+    if (adkConfig.enableOAuth) {
+        githubDeploymentFiles.push({ path: 'app/auth.py', content: adkGeneratedCode.auth });
+    }
+
+    if (adkConfig.tools.length > 0 || adkConfig.useGoogleSearch || adkConfig.enableEmailTool || adkConfig.enableSecurityCommandCenterApi || adkConfig.enableRecommenderApi || adkConfig.enableServiceHealthApi || adkConfig.enableNetworkManagementApi || adkConfig.enableCloudLoggingApi || adkConfig.enableCloudMonitoringApi || adkConfig.enableCloudRunApi || adkConfig.enableResourceManagerApi || adkConfig.enableAdminActivityApi || adkConfig.enableDatabaseFleetApi || adkConfig.enableCloudAssistApi) {
+        githubDeploymentFiles.push({ path: 'app/tools.py', content: adkGeneratedCode.tools });
+    }
+    
+    // Always push the GitHub actions deploy config if they enabled GitHub CI/CD here!
+    if (adkConfig.enableCiCd && adkConfig.ciCdRunner === 'github_actions') {
+        githubDeploymentFiles.push({ path: '.github/workflows/deploy.yaml', content: generateGithubWorkflow(adkConfig) });
+    }
+
+
     return (
         <div className="space-y-6 flex flex-col lg:h-full">
             <div className="flex justify-between items-center shrink-0">
@@ -3670,6 +3763,14 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
             {/* Deploy Modals */}
             <AgentDeploymentModal isOpen={isAdkDeployModalOpen} onClose={() => setIsAdkDeployModalOpen(false)} agentName={adkConfig.name || 'my-agent'} files={adkFilesForBuild} projectNumber={projectNumber} onBuildTriggered={handleBuildTriggered} initialBucket={stagingBucket ? stagingBucket.replace('gs://', '') : undefined} />
             <A2aDeployModal isOpen={isA2aDeployModalOpen} onClose={() => setIsA2aDeployModalOpen(false)} projectNumber={projectNumber} serviceName={a2aConfig.serviceName} region={a2aConfig.region} files={a2aFilesForBuild} onBuildTriggered={handleBuildTriggered} />
+            
+            <GitHubDeployModal
+                isOpen={isGithubModalOpen}
+                onClose={() => setIsGithubModalOpen(false)}
+                projectId={deployProjectId}
+                agentName={adkConfig.name}
+                files={githubDeploymentFiles}
+            />
 
             {isFixMode && builderTab === 'a2a' && (
                 <div className="bg-yellow-900/30 border border-yellow-700 p-4 rounded-lg shrink-0">
@@ -4099,6 +4200,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                                     <div>
                                                         <label className="block text-xs font-medium text-gray-400 mb-1">Service Account Email</label>
                                                         <input type="email" name="githubServiceAccount" value={adkConfig.githubServiceAccount || ''} onChange={handleAdkConfigChange} placeholder="sa@my-project.iam.gserviceaccount.com" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" />
+                                                    </div>
+                                                    <div className="pt-2 flex justify-end">
+                                                        <button 
+                                                            onClick={() => setIsGithubModalOpen(true)}
+                                                            className="text-xs bg-gray-600 hover:bg-gray-500 text-white py-1.5 px-3 rounded flex items-center gap-1 transition-colors border border-gray-500"
+                                                        >
+                                                            <svg viewBox="0 0 16 16" className="w-3 h-3 fill-current"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+                                                            Automate GitHub & CI/CD Setup
+                                                        </button>
                                                     </div>
                                                 </div>
                                             )}
