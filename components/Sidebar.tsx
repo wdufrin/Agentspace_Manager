@@ -129,7 +129,10 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
         <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
         </svg>
-        <span className="ml-3 text-lg font-bold text-gray-100 tracking-tight">Gemini Enterprise</span>
+        <div className="flex flex-col ml-3 justify-center">
+            <span className="text-lg font-bold text-gray-100 tracking-tight leading-none">Gemini Enterprise</span>
+            <span className="text-[10px] text-gray-500 font-mono mt-1">v1.0.0</span>
+        </div>
       </div>
       
       {/* Scrollable Navigation */}

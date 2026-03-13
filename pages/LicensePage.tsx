@@ -98,10 +98,18 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
     const [hasFetchedProjectStats, setHasFetchedProjectStats] = useState(false);
     const [projectStatsError, setProjectStatsError] = useState<string | null>(null);
 
+    const [apiLicenseConfigs, setApiLicenseConfigs] = useState<any[]>([]);
+
+    // Bulk Actions
+    const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
+    const [bulkActionConfig, setBulkActionConfig] = useState<string>('');
+    const [isBulkActionLoading, setIsBulkActionLoading] = useState(false);
+
   // --- Auto Fetch Data ---
   useEffect(() => {
       if (projectNumber) {
           fetchUserLicenses();
+          fetchApiLicenseConfigs();
       }
   }, [projectNumber, apiConfig.appLocation, apiConfig.userStoreId]);
 
@@ -147,6 +155,21 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
       }
   };
   
+  const fetchApiLicenseConfigs = async () => {
+      if (!projectNumber) return;
+      try {
+          const config: Config = {
+              projectId: projectNumber,
+              appLocation: apiConfig.appLocation,
+              collectionId: '', appId: '', assistantId: ''
+          } as any;
+          const res = await api.listLicenseConfigs(config);
+          const activeConfigs = (res.licenseConfigs || []).filter((cfg: any) => cfg.state === 'ACTIVE');
+          setApiLicenseConfigs(activeConfigs);
+      } catch (e) {
+          console.error("Failed to fetch license configs for dropdown", e);
+      }
+  };
   const resolveLicenseNames = async (licenses: any[]) => {
       // Get all unique license config resource names
       const uniqueConfigNames = Array.from(new Set(licenses.map((l: any) => l.licenseConfig).filter((c: any) => typeof c === 'string')));
@@ -446,6 +469,62 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
       }));
   };
 
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.checked) {
+          // Select all visible (filtered/sorted) users that actually have a principal
+          const allVisiblePrincipals = sortedUserLicenses
+              .map(l => l.userPrincipal)
+              .filter(Boolean) as string[];
+          setSelectedUsers(new Set(allVisiblePrincipals));
+      } else {
+          setSelectedUsers(new Set());
+      }
+  };
+
+  const handleSelectUser = (principal: string) => {
+      const newSelected = new Set(selectedUsers);
+      if (newSelected.has(principal)) {
+          newSelected.delete(principal);
+      } else {
+          newSelected.add(principal);
+      }
+      setSelectedUsers(newSelected);
+  };
+
+  const handleBulkAction = async () => {
+      if (selectedUsers.size === 0 || !projectNumber || !bulkActionConfig) return;
+      
+      setIsBulkActionLoading(true);
+      setLicensesError(null);
+      
+      try {
+          const config: Config = {
+              projectId: projectNumber,
+              appLocation: apiConfig.appLocation,
+              collectionId: '', appId: '', assistantId: ''
+          } as any;
+
+          const principals = Array.from(selectedUsers);
+
+          if (bulkActionConfig === 'REVOKE') {
+              await api.revokeUserLicenses(config, apiConfig.userStoreId, principals);
+          } else {
+              // Extract just the config name if it's currently formatted as license_config="projects/..."
+              const targetConfigName = bulkActionConfig.replace('license_config="', '').replace('"', '');
+              await api.assignUserLicenses(config, apiConfig.userStoreId, principals, targetConfigName);
+          }
+          
+          // Clear selection and refresh list
+          setSelectedUsers(new Set());
+          await fetchUserLicenses();
+          
+      } catch (err: any) {
+          setLicensesError(`Bulk action failed: ${err.message}`);
+      } finally {
+          setIsBulkActionLoading(false);
+      }
+  };
+
   const filteredUserLicenses = useMemo(() => {
       if (!userLicenses) return [];
       
@@ -691,13 +770,26 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                 <h2 className="text-lg font-semibold text-white mb-1">Manage User Licenses</h2>
                 <p className="text-gray-400 text-sm mb-4">View, filter, and manage the list of assigned licenses.</p>
                 <div className="flex flex-col sm:flex-row gap-3">
-                     <input 
-                        type="text" 
-                        value={userLicensesFilter}
-                        onChange={(e) => setUserLicensesFilter(e.target.value)}
-                        placeholder='Filter (e.g. license_assignment_state=ASSIGNED)'
-                        className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white flex-grow h-[38px]"
-                    />
+                     <select 
+                        value={bulkActionConfig}
+                        onChange={(e) => setBulkActionConfig(e.target.value)}
+                        className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white flex-grow h-[38px] min-w-0"
+                    >
+                        <option value="" disabled>Select Target License...</option>
+                        <option value="REVOKE" className="text-red-400">Revoke License</option>
+                        {apiLicenseConfigs.map(cfg => (
+                            <option key={cfg.name} value={`license_config="${cfg.name}"`}>
+                                Apply: {cfg.displayName || cfg.name.split('/').pop()}
+                            </option>
+                        ))}
+                    </select>
+                    <button 
+                        onClick={handleBulkAction} 
+                        disabled={isBulkActionLoading || selectedUsers.size === 0 || !bulkActionConfig}
+                        className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center whitespace-nowrap h-[38px]"
+                    >
+                        {isBulkActionLoading ? 'Applying...' : `Apply (${selectedUsers.size})`}
+                    </button>
                     <button 
                         onClick={fetchUserLicenses} 
                         disabled={isLicensesLoading || !projectNumber}
@@ -733,6 +825,14 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                 <table className="min-w-full divide-y divide-gray-700 bg-gray-900">
                     <thead className="bg-gray-700/50">
                         <tr>
+                            <th scope="col" className="px-6 py-3 border-b border-gray-700 bg-gray-700 w-10 text-center">
+                                <input 
+                                    type="checkbox" 
+                                    className="rounded border-gray-500 bg-gray-600 text-blue-500 focus:ring-blue-500 h-4 w-4"
+                                    onChange={handleSelectAll}
+                                    checked={sortedUserLicenses.length > 0 && selectedUsers.size === sortedUserLicenses.filter(l => Boolean(l.userPrincipal)).length}
+                                />
+                            </th>
                             <th 
                                 scope="col" 
                                 className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:text-white hover:bg-gray-700"
@@ -783,6 +883,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                         </tr>
                         {/* Filter Row */}
                         <tr>
+                            <th className="px-6 py-2 bg-gray-800 border-b border-gray-700"></th> {/* Empty space for checkbox col */}
                             <th className="px-6 py-2 bg-gray-800 border-b border-gray-700">
                                 <input 
                                     type="text" 
@@ -869,7 +970,17 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                             const licenseId = license.name ? license.name.split('/').pop() : (license.userPrincipal ? <span className="text-gray-500 italic">(will infer)</span> : <span className="text-red-400 italic">Missing</span>);
 
                             return (
-                                <tr key={idx} className="hover:bg-gray-700/50 transition-colors">
+                                <tr key={idx} className={`hover:bg-gray-700/50 transition-colors ${selectedUsers.has(license.userPrincipal) ? 'bg-blue-900/20' : ''}`}>
+                                     <td className="px-6 py-4 whitespace-nowrap text-center">
+                                        {license.userPrincipal && (
+                                            <input 
+                                                type="checkbox" 
+                                                className="rounded border-gray-500 bg-gray-600 text-blue-500 focus:ring-blue-500 h-4 w-4"
+                                                checked={selectedUsers.has(license.userPrincipal)}
+                                                onChange={() => handleSelectUser(license.userPrincipal)}
+                                            />
+                                        )}
+                                    </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
                                         {license.userPrincipal || 'Unknown User'}
                                     </td>

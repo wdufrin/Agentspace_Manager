@@ -1530,6 +1530,23 @@ export const revokeUserLicenses = async (config: Config, userStoreId: string, us
     return gapiRequest<any>(url, 'POST', projectId, undefined, body);
 };
 
+export const assignUserLicenses = async (config: Config, userStoreId: string, userPrincipals: string[], targetLicenseConfigName: string) => {
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/v1/projects/${projectId}/locations/${appLocation}/userStores/${userStoreId}:batchUpdateUserLicenses`;
+    
+    // API limitation: updateMask breaks the reassignment payload, setting it to NO_LICENSE. Do not include it.
+    const body = {
+        inlineSource: {
+            userLicenses: userPrincipals.map(p => ({ 
+                userPrincipal: p, 
+                licenseConfig: targetLicenseConfigName
+            }))
+        }
+    };
+    return gapiRequest<any>(url, 'POST', projectId, undefined, body);
+};
+
 export const registerA2aAgent = async (config: Config, agentId: string, payload: any) => {
     return createAgent(payload, config, agentId);
 };
@@ -1635,10 +1652,16 @@ export const listBillingAccountLicenseConfigs = async (billingAccountId: string,
     // API: GET .../billingAccounts/{BILLING_ACCOUNT_ID}/billingAccountLicenseConfigs
     // Uses discoveryengine.googleapis.com (v1alpha)
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-    // Note: The user's instructions say "https://discoveryengine.googleapis.com/v1alpha/..."
-    // We reuse getDiscoveryEngineUrl which handles global/regional domains.
     const url = `${baseUrl}/${DISCOVERY_API_VERSION}/billingAccounts/${billingAccountId}/billingAccountLicenseConfigs`;
     return gapiRequest<{ billingAccountLicenseConfigs: any[] }>(url, 'GET', config.projectId);
+};
+
+export const listLicenseConfigs = async (config: Config) => {
+    // API: GET .../projects/{project}/locations/{location}/licenseConfigs
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/projects/${projectId}/locations/${appLocation}/licenseConfigs`;
+    return gapiRequest<{ licenseConfigs: any[] }>(url, 'GET', projectId);
 };
 
 export const listLicenseConfigsUsageStats = async (config: Config, userStoreId: string = 'default_user_store') => {
