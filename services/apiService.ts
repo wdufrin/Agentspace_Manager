@@ -1515,99 +1515,20 @@ export const downloadGcsObject = async (bucketInfo: string, objectName: string, 
     return response.blob();
 };
 
-export const revokeSpecificLicenses = async (config: Config, userStoreId: string, licensesToRevoke: { userPrincipal: string; licenseConfig: string }[]) => {
-    // 1. Fetch ALL current licenses in the user store
-    let allLicenses: any[] = [];
-    let nextPageToken: string | undefined = undefined;
-    
-    do {
-        const result: any = await listUserStoreLicenses(config, userStoreId, '', nextPageToken, 100);
-        if (result.userLicenses) {
-            allLicenses = [...allLicenses, ...result.userLicenses];
-        }
-        nextPageToken = result.nextPageToken;
-    } while (nextPageToken);
-
-    // 2. Filter out the specific licenses we want to revoke
-    const licensesToKeep = allLicenses.filter(existing => {
-        return !licensesToRevoke.some(revoke => 
-            revoke.userPrincipal === existing.userPrincipal && 
-            revoke.licenseConfig === existing.licenseConfig
-        );
-    });
-
-    // 3. Submit the entire filtered list with deleteUnassignedUserLicenses: true
-    const { projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/v1/projects/${projectId}/locations/${appLocation}/userStores/${userStoreId}:batchUpdateUserLicenses`;
-    
-    // Map existing licenses into the correct API format
-    const body = {
-        inlineSource: {
-            userLicenses: licensesToKeep.map((p: any) => ({
-                userPrincipal: p.userPrincipal,
-                licenseConfig: p.licenseConfig
-            }))
-        },
-        deleteUnassignedUserLicenses: true
-    };
-    
-    return gapiRequest<any>(url, 'POST', projectId, undefined, body);
-};
-
 export const revokeUserLicenses = async (config: Config, userStoreId: string, userPrincipals: string[]) => {
-    // This maintains backward compatibility. It revokes ALL licenses for these users.
-    // To do this safely using our new insight into how `deleteUnassignedUserLicenses` works:
-    // Actually, the original implementation would delete ALL users if they weren't in the payload.
-    // Wait... if `deleteUnassignedUserLicenses: true` is passed, then ANY user NOT in the `inlineSource` is DELETED globally!
-    // Therefore, the original `revokeUserLicenses` was EXTREMELY dangerous—it deleted all other users' licenses!
-    // Let's fix this immediately to use the full user-store replacement logic.
-    let allLicenses: any[] = [];
-    let nextPageToken: string | undefined = undefined;
-    
-    do {
-        const result: any = await listUserStoreLicenses(config, userStoreId, '', nextPageToken, 100);
-        if (result.userLicenses) {
-            allLicenses = [...allLicenses, ...result.userLicenses];
-        }
-        nextPageToken = result.nextPageToken;
-    } while (nextPageToken);
-
-    const licensesToKeep = allLicenses.filter(existing => !userPrincipals.includes(existing.userPrincipal));
-
     const { projectId, appLocation } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
     const url = `${baseUrl}/v1/projects/${projectId}/locations/${appLocation}/userStores/${userStoreId}:batchUpdateUserLicenses`;
     
     const body = {
         inlineSource: {
-            userLicenses: licensesToKeep.map((p: any) => ({
-                userPrincipal: p.userPrincipal,
-                licenseConfig: p.licenseConfig
-            }))
+            userLicenses: userPrincipals.map(p => ({ userPrincipal: p })),
+            updateMask: { paths: ["userPrincipal", "licenseConfig"] }
         },
         deleteUnassignedUserLicenses: true
     };
     return gapiRequest<any>(url, 'POST', projectId, undefined, body);
 };
-
-export const assignUserLicenses = async (config: Config, userStoreId: string, userPrincipals: string[], licenseConfigName: string) => {
-    const { projectId, appLocation } = config;
-    const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/v1/projects/${projectId}/locations/${appLocation}/userStores/${userStoreId}:batchUpdateUserLicenses`;
-    
-    const body = {
-        inlineSource: {
-            userLicenses: userPrincipals.map(p => ({ 
-                userPrincipal: p,
-                licenseConfig: licenseConfigName
-            }))
-        },
-        deleteUnassignedUserLicenses: false
-    };
-    return gapiRequest<any>(url, 'POST', projectId, undefined, body);
-};
-
 
 export const registerA2aAgent = async (config: Config, agentId: string, payload: any) => {
     return createAgent(payload, config, agentId);
