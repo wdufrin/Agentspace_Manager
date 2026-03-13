@@ -43,6 +43,7 @@ import DirectQueryChatWindow from './components/agent-engines/DirectQueryChatWin
 import AssistantPage from './pages/AssistantPage';
 import LicensePage from './pages/LicensePage';
 import GEQuotaUsagePage from './pages/GEQuotaUsagePage';
+import VanityUrlsPage from './pages/VanityUrlsPage';
 import CloudBuildProgress from './components/agent-builder/CloudBuildProgress';
 import Breadcrumbs from './components/Breadcrumbs';
 import HeaderProjectInput from './components/HeaderProjectInput';
@@ -747,6 +748,8 @@ const InnerApp: React.FC = () => {
         return <LicensePage {...projectProps} onBuildTriggered={handleBuildTriggered} />;
       case Page.GE_QUOTA_USAGE:
         return <GEQuotaUsagePage projectNumber={projectNumber} />;
+      case Page.VANITY_URLS:
+        return <VanityUrlsPage {...projectProps} onBuildTriggered={handleBuildTriggered} />;
       case Page.CONNECTORS:
             return <ConnectorsPage {...projectProps} accessToken={accessToken} />;
       case Page.ARCHITECTURE:

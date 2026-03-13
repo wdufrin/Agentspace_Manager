@@ -57,7 +57,7 @@ const generateCurlCommand = (url: string, method: string, headers: any, body: an
 };
 
 // Generic gapi request wrapper
-const gapiRequest = async <T>(
+export const gapiRequest = async <T>(
     path: string, 
     method: string = 'GET', 
     projectId?: string, 
@@ -1247,7 +1247,18 @@ export const deleteGcsObject = async (bucket: string, objectName: string, projec
 // --- Cloud Build ---
 
 export const createCloudBuild = async (projectId: string, buildConfig: any) => {
-    return gapiRequest<any>(`https://cloudbuild.googleapis.com/v1/projects/${projectId}/builds`, 'POST', projectId, undefined, buildConfig);
+    console.log("Submitting Cloud Build with payload:", JSON.stringify(buildConfig));
+    return gapiRequest<any>(
+        `https://cloudbuild.googleapis.com/v1/projects/${projectId}/builds`, 
+        'POST', 
+        projectId, 
+        undefined,
+        buildConfig,
+        {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        }
+    );
 };
 
 export const listCloudBuilds = async (projectId: string, filter?: string) => {
@@ -1393,6 +1404,50 @@ export const setAgentIamPolicy = async (name: string, policy: any, config: Confi
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
     const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}:setIamPolicy`;
     return gapiRequest<any>(url, 'POST', config.projectId, undefined, { policy });
+};
+
+// --- Compute Engine ---
+
+export const listGlobalForwardingRules = async (projectId: string) => {
+    return gapiRequest<any>(`https://compute.googleapis.com/compute/v1/projects/${projectId}/global/forwardingRules`, 'GET', projectId);
+};
+
+export const listManagedSslCertificates = async (projectId: string) => {
+    return gapiRequest<any>(`https://compute.googleapis.com/compute/v1/projects/${projectId}/global/sslCertificates`, 'GET', projectId);
+};
+
+export const deleteVanityUrl = async (projectId: string, serviceName: string) => {
+    const buildConfig = {
+        steps: [
+            {
+                name: 'gcr.io/google.com/cloudsdktool/cloud-sdk',
+                entrypoint: 'bash',
+                args: ['-c', `
+echo "========== STARTING GLOBAL LOAD BALANCER DISMANTLING =========="
+CERT_NAME="${serviceName}-cert"
+URL_MAP_NAME="${serviceName}-url-map"
+PROXY_NAME="${serviceName}-https-proxy"
+FWD_RULE_NAME="${serviceName}-fwd-rule"
+
+echo "1. Deleting Global Forwarding Rule..."
+gcloud compute forwarding-rules delete $$FWD_RULE_NAME --global --quiet || true
+
+echo "2. Deleting Target HTTPS Proxy..."
+gcloud compute target-https-proxies delete $$PROXY_NAME --global --quiet || true
+
+echo "3. Deleting URL Map..."
+gcloud compute url-maps delete $$URL_MAP_NAME --global --quiet || true
+
+echo "4. Deleting Managed SSL Certificate..."
+gcloud compute ssl-certificates delete $$CERT_NAME --global --quiet || true
+
+echo "========== LOAD BALANCER DISMANTLING COMPLETE =========="
+`]
+            }
+        ],
+    };
+    const buildOp = await createCloudBuild(projectId, buildConfig);
+    return buildOp.metadata?.build?.id || 'unknown';
 };
 
 // --- Assistant Export/Metrics ---

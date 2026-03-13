@@ -28,6 +28,7 @@ import ChatWindow from '../components/agents/ChatWindow';
 import ChatHistoryViewer from '../components/assistants/ChatHistoryViewer';
 import NotebookListViewer from '../components/assistants/NotebookListViewer';
 import AgentEngineMetricsViewer from '../components/assistants/AgentEngineMetricsViewer';
+import VanityUrlDeploymentForm from '../components/assistants/VanityUrlDeploymentForm';
 import CloudConsoleButton from '../components/CloudConsoleButton';
 
 interface AssistantPageProps {
@@ -132,7 +133,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
     const [agents, setAgents] = useState<Agent[]>([]);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'notebooks' | 'history'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'notebooks' | 'history' | 'customize'>('overview');
 
   // Chat State
   const [activeChatConfig, setActiveChatConfig] = useState<{ displayName: string; config: Config } | null>(null);
@@ -591,7 +592,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                           {/* Tabs Navigation */}
                           <div className="border-b border-gray-700 flex justify-between items-center">
                               <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                                  {['overview', 'agents', 'notebooks', 'history'].map((tab) => (
+                                  {['overview', 'agents', 'notebooks', 'history', 'customize'].map((tab) => (
                                       <button
                                           key={tab}
                                           onClick={() => setActiveTab(tab as any)}
@@ -639,6 +640,15 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
 
                               {activeTab === 'history' && (
                                   <ChatHistoryViewer config={currentConfig} />
+                              )}
+
+                              {activeTab === 'customize' && (
+                                  <VanityUrlDeploymentForm
+                                      engine={selectedRow.engine}
+                                      config={currentConfig}
+                                      projectNumber={projectNumber}
+                                      onBuildTriggered={onBuildTriggered}
+                                  />
                               )}
                           </div>
 

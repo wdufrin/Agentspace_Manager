@@ -36,6 +36,7 @@ export enum Page {
   CONNECTORS = 'Connectors',
   AGENT_STARTER_PACK = 'Agent Starter Pack',
   GE_QUOTA_USAGE = 'GE Quota Usage',
+  VANITY_URLS = 'Redirect URLs',
 }
 
 export type SortableAgentKey = 'displayName' | 'state' | 'name' | 'updateTime' | 'agentType';
@@ -336,6 +337,25 @@ export interface CloudRunService {
     createTime: string;
     updateTime: string;
     template?: ServiceTemplate;
+}
+
+// --- Compute Resources ---
+export interface GlobalForwardingRule {
+    name: string;
+    IPAddress: string;
+    target: string;
+    creationTimestamp: string;
+    description?: string;
+}
+
+export interface ManagedSslCertificate {
+    name: string;
+    type: string;
+    managed?: {
+        domains: string[];
+        status: string;
+    };
+    creationTimestamp: string;
 }
 
 // Architecture Graph Types
