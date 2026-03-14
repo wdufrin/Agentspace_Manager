@@ -19,6 +19,7 @@ It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates dir
 *   **Available Agents**: Discover and manage backend runtimes:
     *   **Agent Engines (Vertex AI)**: View active sessions, terminate sessions, and perform direct queries.
     *   **Direct Query**: Test runtimes directly without going through the high-level Agent API.
+    *   **Vanity (Redirect) URLs**: A dedicated page for listing, viewing status, and deleting global load balancer redirect URLs for your published Agent Engines.
 
 ### 🛠️ Builder & Catalog
 *   **Agent Builder**: A low-code tool to generate and deploy agents.
@@ -56,6 +57,8 @@ It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates dir
         *   Backup specific Agents, Data Stores, or Agent Engines.
         *   **Restore as User**: Restore chat history to a specific Target User ID (useful for debugging or migration).
 *   **Licenses**: Monitor user license assignments and prune inactive users.
+    *   **Granular Filters**: Filter user licenses down by Principal, Status, Assigned Config, and Last Login Time.
+    *   **Bulk Management**: Intuitive UI-selection for applying, reassigning, or revoking configuration licenses en masse.
     *   **Auto-Pruner**: Deploy a serverless job to automatically revoke licenses for users who haven't logged in for $N days.
 
 ## Setup & Configuration

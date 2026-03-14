@@ -72,10 +72,16 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
 
   // Column Filters State
   const [filterPrincipal, setFilterPrincipal] = useState<string>('');
+  const [inputPrincipal, setInputPrincipal] = useState<string>('');
+  
   const [filterConfig, setFilterConfig] = useState<string>('');
+  const [inputConfig, setInputConfig] = useState<string>('');
+  
   const [filterStatus, setFilterStatus] = useState<string>('');
   const [filterDateOperator, setFilterDateOperator] = useState<'>' | '<' | '='>('>');
+  
   const [filterDateValue, setFilterDateValue] = useState<string>('');
+  const [inputDateValue, setInputDateValue] = useState<string>('');
 
     // --- Billing Account State ---
     const [activeTab, setActiveTab] = useState<'user_licenses' | 'allocations'>('user_licenses');
@@ -605,7 +611,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
           if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
           return 0;
       });
-  }, [userLicenses, sortConfig, licenseNames]);
+  }, [filteredUserLicenses, sortConfig, licenseNames]);
 
   // Calculate total used licenses from the full fetched list
   const totalLicensesUsed = useMemo(() => {
@@ -888,8 +894,10 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                                 <input 
                                     type="text" 
                                     placeholder="Filter Principal..." 
-                                    value={filterPrincipal} 
-                                    onChange={(e) => setFilterPrincipal(e.target.value)} 
+                                    value={inputPrincipal} 
+                                    onChange={(e) => setInputPrincipal(e.target.value)}
+                                    onBlur={() => setFilterPrincipal(inputPrincipal)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') setFilterPrincipal(inputPrincipal); }}
                                     className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-white" 
                                 />
                             </th>
@@ -908,8 +916,10 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                                 <input 
                                     type="text" 
                                     placeholder="Filter Config..." 
-                                    value={filterConfig} 
-                                    onChange={(e) => setFilterConfig(e.target.value)} 
+                                    value={inputConfig} 
+                                    onChange={(e) => setInputConfig(e.target.value)}
+                                    onBlur={() => setFilterConfig(inputConfig)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') setFilterConfig(inputConfig); }}
                                     className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-white" 
                                 />
                             </th>
@@ -929,14 +939,16 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                                     <input 
                                         title="Date Value"
                                         type="date" 
-                                        value={filterDateValue} 
-                                        onChange={(e) => setFilterDateValue(e.target.value)} 
+                                        value={inputDateValue} 
+                                        onChange={(e) => setInputDateValue(e.target.value)}
+                                        onBlur={() => setFilterDateValue(inputDateValue)}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') setFilterDateValue(inputDateValue); }} 
                                         className="flex-grow bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-white min-w-0" 
                                     />
                                     {filterDateValue && (
                                         <button 
                                             title="Clear Date"
-                                            onClick={() => setFilterDateValue('')} 
+                                            onClick={() => { setFilterDateValue(''); setInputDateValue(''); }} 
                                             className="text-gray-400 hover:text-white px-1 font-bold"
                                         >
                                             &times;
@@ -945,13 +957,16 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                                 </div>
                             </th>
                             <th className="px-6 py-2 bg-gray-800 border-b border-gray-700 text-right">
-                                {(filterPrincipal || filterStatus || filterConfig || filterDateValue) && (
+                                {(filterPrincipal || inputPrincipal || filterStatus || filterConfig || inputConfig || filterDateValue || inputDateValue) && (
                                      <button 
                                         onClick={() => {
                                             setFilterPrincipal('');
+                                            setInputPrincipal('');
                                             setFilterConfig('');
+                                            setInputConfig('');
                                             setFilterStatus('');
                                             setFilterDateValue('');
+                                            setInputDateValue('');
                                         }}
                                         className="text-xs text-blue-400 hover:text-blue-300 underline"
                                      >
