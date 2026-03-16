@@ -445,7 +445,8 @@ export const getAgent = async (name: string, config: Config) => {
 
 export const getAgentView = async (name: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-    return gapiRequest<any>(`${baseUrl}/${DISCOVERY_API_VERSION}/${name}:getAgentView`, 'GET', config.projectId);
+    // Suppress error logging here because 403 Forbidden is expected for agents the user cannot view.
+    return gapiRequest<any>(`${baseUrl}/${DISCOVERY_API_VERSION}/${name}:getAgentView`, 'GET', config.projectId, undefined, undefined, undefined, true);
 };
 
 export const createAgent = async (payload: any, config: Config, agentId?: string) => {
@@ -1645,6 +1646,14 @@ export const listBillingAccounts = async (config: Config) => {
     // API: GET https://cloudbilling.googleapis.com/v1/billingAccounts
     const url = `https://cloudbilling.googleapis.com/v1/billingAccounts`;
     return gapiRequest<{ billingAccounts: any[] }>(url, 'GET', config.projectId);
+};
+
+export const testBillingAccountPermissions = async (billingAccountId: string, config: Config) => {
+    // API: POST https://cloudbilling.googleapis.com/v1/billingAccounts/{billingAccountId}:testIamPermissions
+    const url = `https://cloudbilling.googleapis.com/v1/billingAccounts/${billingAccountId}:testIamPermissions`;
+    return gapiRequest<{ permissions: string[] }>(url, 'POST', config.projectId, undefined, {
+        permissions: ["billing.accounts.get"]
+    }, undefined, true);
 };
 
 

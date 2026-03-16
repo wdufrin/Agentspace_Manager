@@ -186,12 +186,13 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
             }
         });
         
-        // Enrich agents with their type from agentView
         const baseAgents = allAgents;
         if (baseAgents.length > 0) {
           const agentViewPromises = baseAgents.map(agent => 
             api.getAgentView(agent.name, apiConfig).catch(err => {
-              console.warn(`Could not fetch agent view for ${agent.name}:`, err);
+              // 403 Forbidden is expected for agents that the user cannot view.
+              // We silently ignore these and return null so the agent is just missing
+              // the enriched type/origin data.
               return null;
             })
           );

@@ -165,6 +165,7 @@ const RetractLicenseModal: React.FC<RetractLicenseModalProps> = ({
                             onChange={(e) => setCount(parseInt(e.target.value))}
                             className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
+                        <p className="text-xs text-yellow-500 mt-2 font-semibold">Note: Only one reclaim per day is allowed for licenses.</p>
                         <p className="text-xs text-gray-500 mt-1">Number of unused licenses to return to the billing account.</p>
                         {maxRetractable === 0 && !isFetchingUsage && (
                             <p className="text-xs text-red-400 mt-1">No unused licenses available to retract.</p>

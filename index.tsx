@@ -18,6 +18,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import './src/index.css';
 
 // Suppress benign ResizeObserver errors usually caused by rapid layout changes in ReactFlow or containers
 const resizeObserverErrRegex = /ResizeObserver loop (completed with undelivered notifications|limit exceeded)/;

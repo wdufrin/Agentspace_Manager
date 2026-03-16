@@ -88,6 +88,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
     const [billingAccountId, setBillingAccountId] = useState('');
     const [billingConfigs, setBillingConfigs] = useState<any[]>([]);
     const [isBillingLoading, setIsBillingLoading] = useState(false);
+    const [hasBillingPermission, setHasBillingPermission] = useState<boolean | null>(null);
 
     // Allocation Modals
     const [distributeModalProps, setDistributeModalProps] = useState<any>(null);
@@ -362,10 +363,13 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
         }
     };
 
+
+
     const fetchBillingConfigs = async () => {
         if (!billingAccountId) return;
         setIsBillingLoading(true);
         setLicensesError(null);
+        setHasBillingPermission(null); // Reset permission state
         try {
             const config: Config = {
                 projectId: projectNumber,
@@ -373,6 +377,24 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                 // Dummy values
                 collectionId: '', appId: '', assistantId: ''
             } as any;
+
+            // 1. Check Permissions first
+            try {
+                const permRes = await api.testBillingAccountPermissions(billingAccountId, config);
+                if (!permRes.permissions || !permRes.permissions.includes("billing.accounts.get")) {
+                     setHasBillingPermission(false); // Set permission to false
+                     setIsBillingLoading(false);
+                     setBillingConfigs([]); // Clear billing configs if no permission
+                     return;
+                } else {
+                     setHasBillingPermission(true); // Set permission to true
+                }
+            } catch (e: any) {
+                 console.warn("Permission test failed:", e);
+                 // We don't necessarily hard-fail here to be robust, let the actual request fail if it's a real issue
+            }
+
+            // 2. Fetch Configs
             const res = await api.listBillingAccountLicenseConfigs(billingAccountId, config);
             setBillingConfigs(res.billingAccountLicenseConfigs || []);
         } catch (e: any) {
@@ -889,7 +911,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                         </tr>
                         {/* Filter Row */}
                         <tr>
-                            <th className="px-6 py-2 bg-gray-800 border-b border-gray-700"></th> {/* Empty space for checkbox col */}
+                            <th className="px-6 py-2 bg-gray-800 border-b border-gray-700"></th>
                             <th className="px-6 py-2 bg-gray-800 border-b border-gray-700">
                                 <input 
                                     type="text" 
@@ -923,7 +945,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                                     className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-white" 
                                 />
                             </th>
-                            <th className="px-6 py-2 bg-gray-800 border-b border-gray-700"></th> {/* Empty for License ID */}
+                            <th className="px-6 py-2 bg-gray-800 border-b border-gray-700"></th>
                             <th className="px-6 py-2 bg-gray-800 border-b border-gray-700">
                                 <div className="flex space-x-1">
                                     <select 
@@ -1062,7 +1084,11 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                               ) : (
                                   <select
                                       value={billingAccountId}
-                                      onChange={(e) => setBillingAccountId(e.target.value)}
+                                      onChange={(e) => {
+                                          setBillingAccountId(e.target.value);
+                                          setHasBillingPermission(null);
+                                          setBillingConfigs([]);
+                                      }}
                                       className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 h-[42px]"
                                   >
                                       <option value="">-- Select Billing Account --</option>
@@ -1077,14 +1103,48 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                                   </select>
                               )}
                           </div>
-                          <button
-                              onClick={fetchBillingConfigs}
-                              disabled={isBillingLoading || !billingAccountId}
-                              className="px-6 py-2 bg-blue-600 text-white font-semibold rounded hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed h-[42px]"
-                          >
-                              {isBillingLoading ? 'Loading...' : 'Load Configs'}
-                          </button>
+                          
+                          <div className="flex items-center gap-3">
+                              {hasBillingPermission === true && (
+                                  <div className="flex items-center text-green-400" title="Permissions Verified">
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                  </div>
+                              )}
+                              {hasBillingPermission === false && (
+                                  <div className="flex items-center text-red-500" title="Permission Denied">
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
+                                  </div>
+                              )}
+                              <button
+                                  onClick={fetchBillingConfigs}
+                                  disabled={isBillingLoading || !billingAccountId || hasBillingPermission === false}
+                                  className="px-6 py-2 bg-blue-600 text-white font-semibold rounded hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed h-[42px]"
+                              >
+                                  {isBillingLoading ? 'Loading...' : 'Load Configs'}
+                              </button>
+                          </div>
                       </div>
+                      
+                      {hasBillingPermission === false && (
+                          <div className="mt-4 p-4 bg-red-900/20 border border-red-800 rounded-lg">
+                              <h4 className="text-red-400 font-semibold mb-2 flex items-center">
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                  </svg>
+                                  Permission Required
+                              </h4>
+                              <p className="text-sm text-gray-300">
+                                  You do not have the required <code className="text-red-300 bg-red-900/40 px-1 rounded">billing.accounts.get</code> permission for this Billing Account.
+                              </p>
+                              <p className="text-sm text-gray-400 mt-2">
+                                  To manage license allocations, please ask a Billing Account Administrator to grant your account the <strong>Billing Account Viewer</strong> (or higher) role on this specific account in the Google Cloud Console.
+                              </p>
+                          </div>
+                      )}
                   </div>
 
                   {billingConfigs.length > 0 ? (
