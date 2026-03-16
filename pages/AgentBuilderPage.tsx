@@ -557,10 +557,13 @@ except ImportError:
         description: str = ""
 
 try:
-    from ${useRelativeImports ? '.' : ''}auth import get_user_credentials
+    from .auth import get_user_credentials
 except ImportError:
-    # Handle case where auth.py might not be generated or needed
-    def get_user_credentials(context): return None
+    try:
+        from auth import get_user_credentials
+    except ImportError:
+        # Handle case where auth.py might not be generated or needed
+        def get_user_credentials(context): return None
 
 logger = logging.getLogger(__name__)
 
@@ -1768,7 +1771,7 @@ deploy: ${deployTarget}
 .PHONY: deploy-agent-engine
 deploy-agent-engine:
 	@echo "Deploying to Agent Engine..."
-	uv run python -m app.deploy_re
+	python -m app.deploy_re
 
 .PHONY: deploy-cloud-run
 deploy-cloud-run:
@@ -1799,17 +1802,27 @@ const generateCloudBuildYaml = (config: AdkAgentConfig, projectId: string): stri
     args: ['-c', 'make deploy']
 
 options:
-  logging: CLOUD_LOGGING_ONLY
-`;
+  logging: CLOUD_LOGGING_ONLY`;
 };
 
-const generateGithubWorkflow = (config: AdkAgentConfig): string => {
-    return `name: Deploy Agent
+export const generateGithubWorkflow = (config: AdkAgentConfig): string => {
+    return `name: Deploy Agent (Reusable Template)
 
 on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      service_account:
+        description: 'Service Account email for GCP deployment'
+        required: true
+        type: string
+      gemini_app_id:
+        description: 'Gemini Enterprise App ID for automatic publishing'
+        required: false
+        type: string
+    secrets:
+      wif_provider:
+        description: 'Workload Identity Federation Provider ID'
+        required: true
 
 jobs:
   test-and-deploy:
@@ -1824,28 +1837,84 @@ jobs:
     - id: 'auth'
       uses: 'google-github-actions/auth@v2'
       with:
-        workload_identity_provider: '${config.githubWifProvider || 'projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider'}'
-        service_account: '${config.githubServiceAccount || 'my-service-account@my-project.iam.gserviceaccount.com'}'
+        workload_identity_provider: '\${{ secrets.wif_provider }}'
+        service_account: '\${{ inputs.service_account }}'
 
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
-    - name: Install dependencies
+    - name: Install uv and dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install -r app/requirements.txt
+        pip install uv==0.8.13
+        uv venv
+        uv pip install -r app/requirements.txt
 
     - name: Run Evaluation
       run: |
-        adk eval ./app tests/eval/evalsets/basic.evalset.json --config_file_path=tests/eval/test_config.json
+        uv run adk eval ./app tests/eval/evalsets/basic.evalset.json --config_file_path=tests/eval/test_config.json
 
     - name: Deploy
-      if: github.ref == 'refs/heads/main'
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      env:
+        DISCOVERY_ENGINE_ENGINE_ID: \${{ inputs.gemini_app_id }}
       run: |
-        make deploy
+        uv run make deploy
 `;
+};
+
+export const generateCallerGithubWorkflow = (config: AdkAgentConfig, templatePath: string, geminiAppId?: string): string => {
+    let withSection = `      service_account: "\${{ vars.GCP_SERVICE_ACCOUNT || '${config.githubServiceAccount || 'my-service-account@my-project.iam.gserviceaccount.com'}' }}"`;
+    if (geminiAppId) {
+        withSection += `\n      gemini_app_id: "${geminiAppId}"`;
+    }
+
+    return `name: Deploy Using Shared Template
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  call-deployment-template:
+    uses: ${templatePath}
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    with:
+${withSection}
+    secrets:
+      wif_provider: "\${{ secrets.GCP_WIF_PROVIDER || '${config.githubWifProvider || 'projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider'}' }}"
+`;
+};
+
+const generateTestConfig = (): string => {
+    return JSON.stringify({
+        criteria: {
+            tool_trajectory_avg_score: 1.0,
+            response_match_score: 0.8
+        }
+    }, null, 2);
+};
+
+const generateEvalSet = (): string => {
+    return JSON.stringify({
+        eval_set_id: "basic",
+        eval_cases: [
+            {
+                eval_id: "test_1",
+                conversation: [
+                    {
+                        user_content: { parts: [{ text: "Hello" }] },
+                        final_response: { role: "model", parts: [{ text: "Hello! How can I help you today?" }] }
+                    }
+                ],
+                session_input: { app_name: "app", user_id: "evaluator", state: {} }
+            }
+        ]
+    }, null, 2);
 };
 
 const generateDesignSpec = (config: AdkAgentConfig): string => {
@@ -2221,8 +2290,11 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
     }
 
     if (toolsImport.size > 0) {
-        const importPath = useRelativeImports ? 'app.tools' : 'tools';
-        imports.push(`from ${importPath} import ${Array.from(toolsImport).join(', ')}`);
+        const toolsList = Array.from(toolsImport).join(', ');
+        imports.push(`try:
+    from .tools import ${toolsList}
+except ImportError:
+    from tools import ${toolsList}`);
     }
 
     return `
@@ -2427,7 +2499,10 @@ try:
 except ImportError:
     pass
 
-from ${useRelativeImports ? '.' : ''}agent import SyncAgentWrapper
+try:
+    from .agent import SyncAgentWrapper
+except ImportError:
+    from agent import SyncAgentWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -2438,7 +2513,9 @@ app = SyncAgentWrapper(name="lazy_app")
 };
 
 const generateInitPy = (): string => {
-    return ``;
+    return `from . import agent
+from . import app
+`;
 };
 
 const generateAdkDeployScript = (config: AdkAgentConfig): string => {
@@ -2453,7 +2530,7 @@ try:
 except ImportError:
     pass
 
-from app import app as app_to_deploy
+from app.app import app as app_to_deploy
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -2462,20 +2539,25 @@ logger = logging.getLogger(__name__)
 env_vars = []
 reqs = []
 try:
-    if os.path.exists("requirements.txt"):
-        with open("requirements.txt", "r") as f:
+    req_path = "requirements.txt" if os.path.exists("requirements.txt") else "app/requirements.txt"
+    if os.path.exists(req_path):
+        with open(req_path, "r") as f:
             reqs = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
-    if os.path.exists(".env"):
-        with open(".env", "r") as f:
+    env_path = ".env" if os.path.exists(".env") else "app/.env"
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#"):
-                    key = line.split("=")[0]
+                    key = line.split("=")[0].strip()
+                    value = line.split("=", 1)[1].strip().strip("\\\"'") if "=" in line else ""
+                    os.environ[key] = value
                     # Append strictly non-reserved keys to env_vars list for deployment
                     # We explicitly allow GOOGLE_CLOUD_LOCATION to pass into the container
                     # to specify the model endpoint location (e.g. 'global' for Gemini 3).
-                    if (key not in ["GOOGLE_CLOUD_PROJECT", "STAGING_BUCKET", "PROJECT_ID", "DEPLOYMENT_LOCATION"]
+                    # WARNING: Vertex AI will reject payloads holding empty string values, so we filter out those cases here.
+                    if value and (key not in ["GOOGLE_CLOUD_PROJECT", "STAGING_BUCKET", "PROJECT_ID", "DEPLOYMENT_LOCATION"]
                         and not key.startswith("OTEL_")
                         and not key.startswith("GOOGLE_CLOUD_AGENT_ENGINE_")):
                         env_vars.append(key)
@@ -2484,8 +2566,8 @@ try:
         env_vars = list(set(env_vars))
         logger.info(f"Final deployment env_vars: {env_vars}")
         logger.info(f"Parsed {len(env_vars)} environment variables for deploymentSpec.")
-    except Exception as e:
-        logger.warning(f"Failed to parse .env file: {e}")
+except Exception as e:
+    logger.warning(f"Failed to parse .env file: {e}")
 
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 # OVERRIDE: The Vertex AI Agent Engine deployer requires the SDK to point to the region
@@ -2498,10 +2580,14 @@ staging_bucket = os.getenv("STAGING_BUCKET")
 logger.info(f"Initializing Vertex AI: project={project_id}, location={location}, staging_bucket={staging_bucket}")
 # WARNING: We must momentarily overwrite the environment so 'vertexai.init' connects to the correct regional registry pipeline.
 original_os_location = os.environ.get("GOOGLE_CLOUD_LOCATION")
-os.environ["GOOGLE_CLOUD_LOCATION"] = location
+if location is not None:
+    os.environ["GOOGLE_CLOUD_LOCATION"] = location
 vertexai.init(project=project_id, location=location, staging_bucket=staging_bucket)
-if original_os_location:
-    os.environ["GOOGLE_CLOUD_LOCATION"] = original_os_location # Restore for normal model usage debugging.
+
+if original_os_location is not None:
+    os.environ["GOOGLE_CLOUD_LOCATION"] = original_os_location
+elif "GOOGLE_CLOUD_LOCATION" in os.environ:
+    del os.environ["GOOGLE_CLOUD_LOCATION"]
 
 logger.info("Creating Agent Engine...")
 
@@ -2529,7 +2615,8 @@ try:
         if agent.display_name == agent_display_name:
             target_agent = agent
             break
-          if target_agent:
+            
+    if target_agent:
         logger.info(f"Found existing agent: {target_agent.name}. Updating...")
         remote_app = agent_engines.update(
             target_agent.name,
@@ -2587,9 +2674,6 @@ ${config.enableDiscoveryApi ? `
         payload = {
             "displayName": agent_display_name,
             "description": ${JSON.stringify(config.description || '')},
-            "icon": {
-                "uri": "https://www.svgrepo.com/show/533810/chef-man-cap.svg"
-            },
             "adkAgentDefinition": {
                 "toolSettings": {
                     "toolDescription": f"[Agent Metadata]\\nCreated By: Automated CI/CD\\nAgent Engine: {remote_app.resource_name}\\nAdditional Info: None"
@@ -2597,9 +2681,11 @@ ${config.enableDiscoveryApi ? `
                 "provisionedReasoningEngine": {
                     "reasoningEngine": remote_app.resource_name
                 }
-            },
-            "authorizationConfig": auth_config
+            }
         }
+        
+        if auth_config:
+            payload["authorizationConfig"] = auth_config
         
         headers = {
             "Authorization": f"Bearer {credentials.token}",
@@ -2607,17 +2693,47 @@ ${config.enableDiscoveryApi ? `
             "X-Goog-User-Project": disc_project
         }
         
-        # Create
-        if not target_agent:
-            logger.info("Sending registration POST request to Discovery Engine...")
-            res = requests.post(api_url, headers=headers, json=payload)
-            if res.status_code == 200:
+        # Check if Agent already exists in Discovery Engine
+        logger.info("Checking if Agent exists in Gemini Enterprise...")
+        list_res = requests.get(api_url, headers=headers)
+        if list_res.status_code == 200:
+            existing_disc_agents = list_res.json().get('agents', [])
+            auth_filter = auth_config.get("toolAuthorizations", [""])[0] if auth_config else None
+            
+            disc_agent = None
+            for a in existing_disc_agents:
+                # 1. Match by Display Name (Direct Match)
+                if a.get('displayName') == agent_display_name:
+                    disc_agent = a
+                    break
+                # 2. Match by Auth Binding (Implicit Update when renaming via GitHub)
+                if auth_filter and auth_filter in str(a.get('authorizationConfig', {})):
+                    disc_agent = a
+                    break
+            
+            if disc_agent:
+                logger.info(f"Agent found in Gemini Enterprise: {disc_agent['name']}. Updating...")
+                patch_url = f"https://discoveryengine.googleapis.com/v1alpha/{disc_agent['name']}?updateMask=description,adkAgentDefinition,authorizationConfig"
+                patch_res = requests.patch(patch_url, headers=headers, json=payload)
+                if patch_res.status_code == 200:
+                    logger.info("Successfully updated agent in Gemini Enterprise!")
+                else:
+                    logger.warning(f"Update failed ({patch_res.status_code}): {patch_res.text}")
+            else:
+                logger.info("Agent not found in Gemini Enterprise. Creating...")
+                post_res = requests.post(api_url, headers=headers, json=payload)
+                if post_res.status_code == 200:
+                    logger.info("Successfully registered in Gemini Enterprise!")
+                else:
+                    logger.warning(f"Registration failed ({post_res.status_code}): {post_res.text}")
+        else:
+            logger.warning(f"Failed to list agents in Discovery Engine ({list_res.status_code}): {list_res.text}")
+            logger.info("Attempting blind Registration POST request...")
+            post_res = requests.post(api_url, headers=headers, json=payload)
+            if post_res.status_code == 200:
                 logger.info("Successfully registered in Gemini Enterprise!")
             else:
-                logger.warning(f"Registration failed ({res.status_code}): {res.text}")
-        else:
-            logger.info("Agent is an update. Assuming it is already registered in Gemini Enterprise.")
-            # Advanced: We could issue a PATCH to update the description/auth here.
+                logger.warning(f"Registration failed ({post_res.status_code}): {post_res.text}")
 ` : ''}
 except Exception as e:
     logger.error(f"Deployment/Update Failed: {e}")
@@ -2674,7 +2790,7 @@ BQ_USER_PROJECT="${projectNumber}"`;
 
 const generateAdkRequirementsFile = (config: AdkAgentConfig): string => {
     const defaultDeps = [
-        "google-adk>=1.26.0",
+        "google-adk[eval]>=1.26.0",
         "google-cloud-aiplatform[adk,agent_engines]>=1.75.0",
         "python-dotenv",
         "nest_asyncio",
@@ -3078,6 +3194,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     const [isFixMode, setIsFixMode] = useState(false);
     const [isA2aDeployModalOpen, setIsA2aDeployModalOpen] = useState(false);
     const [isGithubModalOpen, setIsGithubModalOpen] = useState(false);
+    const [showWifInstructions, setShowWifInstructions] = useState(false);
 
     // --- ADK State ---
     const [adkConfig, setAdkConfig] = useState<AdkAgentConfig>({
@@ -3140,6 +3257,13 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         githubServiceAccount: '',
         customMcpEndpoints: []
     });
+    
+    // IAM & WIF State
+    const [serviceAccounts, setServiceAccounts] = useState<any[]>([]);
+    const [wifProviders, setWifProviders] = useState<any[]>([]);
+    const [validationStatus, setValidationStatus] = useState<'unchecked' | 'testing' | 'valid' | 'invalid'>('unchecked');
+    const [validationMessage, setValidationMessage] = useState('');
+
     const [vertexLocation, setVertexLocation] = useState('us-central1');
     const [adkGeneratedCode, setAdkGeneratedCode] = useState({ app: '', agent: '', env: '', requirements: '', readme: '', deploy_re: '', auth: '', tools: '', init: '' });
     const [adkActiveTab, setAdkActiveTab] = useState<'app' | 'agent' | 'env' | 'requirements' | 'readme' | 'deploy_re' | 'auth' | 'tools' | 'init'>('app');
@@ -3223,6 +3347,67 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     const [buildId, setBuildId] = useState<string | null>(null);
     const [isBuildVisible, setIsBuildVisible] = useState(false);
 
+    // CI/CD IAM Data
+    useEffect(() => {
+        const fetchIamData = async () => {
+            if (!projectNumber || !adkConfig.enableCiCd) return;
+            try {
+                const accounts = await api.listServiceAccounts(projectNumber);
+                setServiceAccounts(accounts);
+
+                const pools = await api.listWorkloadIdentityPools(projectNumber);
+                let allProviders: any[] = [];
+                for (const pool of pools) {
+                    const providers = await api.listWorkloadIdentityProviders(pool.name, projectNumber);
+                    allProviders = allProviders.concat(providers);
+                }
+                setWifProviders(allProviders);
+            } catch (e) {
+                console.error("Failed to fetch IAM data:", e);
+            }
+        };
+        fetchIamData();
+    }, [projectNumber, adkConfig.enableCiCd]);
+
+    useEffect(() => {
+        const validateWif = async () => {
+            if (!adkConfig.githubServiceAccount || !adkConfig.githubWifProvider || !projectNumber) {
+                setValidationStatus('unchecked');
+                return;
+            }
+            setValidationStatus('testing');
+            try {
+                const policy = await api.getServiceAccountIamPolicy(adkConfig.githubServiceAccount, projectNumber);
+                const bindings = policy.bindings || [];
+                let hasBinding = false;
+                for (const binding of bindings) {
+                    if (binding.role === 'roles/iam.workloadIdentityUser') {
+                        const poolName = adkConfig.githubWifProvider.split('/providers/')[0];
+                        if (binding.members && binding.members.some((m: string) => m.includes(poolName))) {
+                            hasBinding = true;
+                            break;
+                        }
+                    }
+                }
+                if (hasBinding) {
+                    setValidationStatus('valid');
+                    setValidationMessage('Service Account is correctly bound to the related WIF Pool.');
+                } else {
+                    setValidationStatus('invalid');
+                    setValidationMessage('Service Account is missing roles/iam.workloadIdentityUser binding for this WIF Provider / Pool.');
+                }
+            } catch (e: any) {
+                setValidationStatus('invalid');
+                if (e.message && e.message.includes('permission')) {
+                    setValidationMessage('Permission denied to read Service Account IAM policy.');
+                } else {
+                    setValidationMessage('Failed to validate IAM policy.');
+                }
+            }
+        };
+        const timeoutId = setTimeout(validateWif, 300);
+        return () => clearTimeout(timeoutId);
+    }, [adkConfig.githubServiceAccount, adkConfig.githubWifProvider, projectNumber]);
 
 
     // --- Common Logic ---
@@ -3281,15 +3466,15 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
 
     // ADK Code Generation
     useEffect(() => {
-        const agentCode = generateAdkPythonCode(adkConfig);
+        const agentCode = generateAdkPythonCode(adkConfig, true);
         const envCode = generateAdkEnvFile(adkConfig, projectNumber, vertexLocation, stagingBucket);
         const reqsCode = generateAdkRequirementsFile(adkConfig);
         const readmeCode = generateAdkReadmeFile(adkConfig);
         const deployCode = generateAdkDeployScript(adkConfig);
         const authCode = generateAuthPy();
-        const toolsCode = generateToolsPy(adkConfig);
+        const toolsCode = generateToolsPy(adkConfig, true);
         const initCode = generateInitPy();
-        setAdkGeneratedCode({ app: generateAppPy(), agent: agentCode, env: envCode, requirements: reqsCode, readme: readmeCode, deploy_re: deployCode, auth: authCode, tools: toolsCode, init: initCode });
+        setAdkGeneratedCode({ app: generateAppPy(true), agent: agentCode, env: envCode, requirements: reqsCode, readme: readmeCode, deploy_re: deployCode, auth: authCode, tools: toolsCode, init: initCode });
     }, [adkConfig, projectNumber, vertexLocation, stagingBucket]);
 
     // ADK Data Store & Buckets Fetching
@@ -3724,8 +3909,11 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
         { path: 'app/.env', content: adkGeneratedCode.env },
         { path: 'app/requirements.txt', content: adkGeneratedCode.requirements },
         { path: 'app/__init__.py', content: adkGeneratedCode.init },
+        { path: 'app/deploy_re.py', content: adkGeneratedCode.deploy_re },
         { path: 'Makefile', content: generateMakefile(adkConfig) },
-        { path: 'README.md', content: adkGeneratedCode.readme }
+        { path: 'README.md', content: adkGeneratedCode.readme },
+        { path: 'tests/eval/test_config.json', content: generateTestConfig() },
+        { path: 'tests/eval/evalsets/basic.evalset.json', content: generateEvalSet() }
     ];
 
     if (adkConfig.enableOAuth) {
@@ -3770,6 +3958,9 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                 projectId={deployProjectId}
                 agentName={adkConfig.name}
                 files={githubDeploymentFiles}
+                adkConfig={adkConfig}
+                setAdkConfig={setAdkConfig}
+                generateCallerGithubWorkflow={generateCallerGithubWorkflow}
             />
 
             {isFixMode && builderTab === 'a2a' && (
@@ -4194,20 +4385,71 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                             {adkConfig.ciCdRunner === 'github_actions' && (
                                                 <div className="pt-2 space-y-2 border-t border-gray-600 mt-2">
                                                     <div>
-                                                        <label className="block text-xs font-medium text-gray-400 mb-1">WIF Provider</label>
-                                                        <input type="text" name="githubWifProvider" value={adkConfig.githubWifProvider || ''} onChange={handleAdkConfigChange} placeholder="projects/123.../providers/my-provider" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" />
+                                                        <div className="flex items-center justify-between mb-1">
+                                                            <label className="block text-xs font-medium text-gray-400">WIF Provider</label>
+                                                            <button 
+                                                                onClick={(e) => { e.preventDefault(); setShowWifInstructions(!showWifInstructions); }}
+                                                                className="text-xs text-blue-400 hover:text-blue-300 hover:underline"
+                                                            >
+                                                                {showWifInstructions ? 'Hide setup instructions' : 'How to set up WIF'}
+                                                            </button>
+                                                        </div>
+                                                        {wifProviders.length > 0 ? (
+                                                            <select name="githubWifProvider" value={adkConfig.githubWifProvider || ''} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full">
+                                                                <option value="">Select a WIF Provider...</option>
+                                                                {wifProviders.map(p => (
+                                                                    <option key={p.name} value={p.name}>{p.displayName || p.name.split('/').pop()}</option>
+                                                                ))}
+                                                            </select>
+                                                        ) : (
+                                                            <input type="text" name="githubWifProvider" value={adkConfig.githubWifProvider || ''} onChange={handleAdkConfigChange} placeholder="projects/123.../providers/my-provider" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" />
+                                                        )}
                                                     </div>
                                                     <div>
                                                         <label className="block text-xs font-medium text-gray-400 mb-1">Service Account Email</label>
-                                                        <input type="email" name="githubServiceAccount" value={adkConfig.githubServiceAccount || ''} onChange={handleAdkConfigChange} placeholder="sa@my-project.iam.gserviceaccount.com" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" />
+                                                        {serviceAccounts.length > 0 ? (
+                                                            <select name="githubServiceAccount" value={adkConfig.githubServiceAccount || ''} onChange={handleAdkConfigChange} className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full">
+                                                                <option value="">Select a Service Account...</option>
+                                                                {serviceAccounts.map(sa => (
+                                                                    <option key={sa.email} value={sa.email}>{sa.email}</option>
+                                                                ))}
+                                                            </select>
+                                                        ) : (
+                                                            <input type="email" name="githubServiceAccount" value={adkConfig.githubServiceAccount || ''} onChange={handleAdkConfigChange} placeholder="sa@my-project.iam.gserviceaccount.com" className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-xs text-gray-200 w-full" />
+                                                        )}
                                                     </div>
+                                                    {validationStatus !== 'unchecked' && (
+                                                        <div className={`text-xs mt-1 ${validationStatus === 'valid' ? 'text-green-400' : validationStatus === 'testing' ? 'text-yellow-400' : 'text-red-400'}`}>
+                                                            {validationStatus === 'testing' ? 'Validating connection...' : validationMessage}
+                                                        </div>
+                                                    )}
+                                                    
+                                                    {showWifInstructions && (
+                                                        <div className="p-3 bg-gray-800 rounded border border-gray-600 mt-2 text-xs text-gray-300 font-mono overflow-x-auto whitespace-pre">
+                                                            <div># 1. Create a Workload Identity Pool</div>
+                                                            <div className="text-gray-400">gcloud iam workload-identity-pools create "github-actions" \<br/>  --project="YOUR_PROJECT_ID" \<br/>  --location="global" \<br/>  --display-name="GitHub Actions Pool"</div>
+                                                            <br/>
+                                                            <div># 2. Create a WIF Provider in that pool</div>
+                                                            <div className="text-gray-400">gcloud iam workload-identity-pools providers create-oidc "my-repo" \<br/>  --project="YOUR_PROJECT_ID" \<br/>  --location="global" \<br/>  --workload-identity-pool="github-actions" \<br/>  --display-name="My GitHub repo Provider" \<br/>  --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository_owner=assertion.repository_owner" \<br/>  --attribute-condition="attribute.repository_owner == 'YOUR_ORG'" \<br/>  --issuer-uri="https://token.actions.githubusercontent.com"</div>
+                                                            <br/>
+                                                            <div># 3. Create a Service Account</div>
+                                                            <div className="text-gray-400">gcloud iam service-accounts create "github-actions-sa" \<br/>  --project="YOUR_PROJECT_ID" \<br/>  --display-name="GitHub Actions Service Account"</div>
+                                                            <br/>
+                                                            <div># 4. Bind the Service Account to the WIF Provider</div>
+                                                            <div className="text-gray-400">gcloud iam service-accounts add-iam-policy-binding "github-actions-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \<br/>
+  --project="YOUR_PROJECT_ID" \<br/>
+  --role="roles/iam.workloadIdentityUser" \<br/>
+  --member="principalSet://iam.googleapis.com/projects/YOUR_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-actions/attribute.repository_owner/YOUR_ORG"</div>
+                                                        </div>
+                                                    )}
+                                                    
                                                     <div className="pt-2 flex justify-end">
                                                         <button 
                                                             onClick={() => setIsGithubModalOpen(true)}
                                                             className="text-xs bg-gray-600 hover:bg-gray-500 text-white py-1.5 px-3 rounded flex items-center gap-1 transition-colors border border-gray-500"
                                                         >
                                                             <svg viewBox="0 0 16 16" className="w-3 h-3 fill-current"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
-                                                            Automate GitHub & CI/CD Setup
+                                                            Automated CI/CD Workflow Setup
                                                         </button>
                                                     </div>
                                                 </div>

@@ -1,5 +1,5 @@
 // --- GitHub Rest API Extensions ---
-export const createGithubRepo = async (token: string, name: string, description: string = ''): Promise<any> => {
+export const createGithubRepo = async (token: string, name: string, description: string = '', isPrivate: boolean = true): Promise<any> => {
     const response = await fetch('https://api.github.com/user/repos', {
         method: 'POST',
         headers: {
@@ -10,13 +10,29 @@ export const createGithubRepo = async (token: string, name: string, description:
         body: JSON.stringify({
             name,
             description,
-            private: true, // Default to private for safety
+            private: isPrivate,
             auto_init: true // Create an initial commit
         })
     });
-    
     if (!response.ok) {
-        throw new Error(`Failed to create repository: ${response.statusText}`);
+        let errorMsg = response.statusText;
+        try {
+            const errorBody = await response.json();
+            if (errorBody && errorBody.message) {
+                errorMsg = errorBody.message;
+                if (errorBody.errors && errorBody.errors.length > 0 && errorBody.errors[0].message) {
+                    errorMsg += `: ${errorBody.errors[0].message}`;
+                    // Special case: if it already exists, don't crash
+                    if (errorBody.errors[0].message.toLowerCase().includes('name already exists')) {
+                        console.warn(`Repository ${name} already exists. Continuing with deployment.`);
+                        return { exists: true };
+                    }
+                }
+            }
+        } catch (e) {
+            // ignore
+        }
+        throw new Error(`Failed to create repository: ${errorMsg}`);
     }
     
     return await response.json();
@@ -104,4 +120,56 @@ export const pushToGithub = async (token: string, owner: string, repo: string, f
     });
     
     return await updateRefResponse.json();
+};
+
+export const searchReusableWorkflows = async (token: string, owner: string): Promise<any> => {
+    // Search for Repositories containing "template" in their name, bypassing Code Search indexing delays
+    const query = encodeURIComponent(`template in:name user:${owner}`);
+    const response = await fetch(`https://api.github.com/search/repositories?q=${query}`, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github.v3+json'
+        }
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to search workflows: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    
+    // Map the repository results to mimic the structure returned by the Code Search API
+    // so the frontend doesn't need to change its data extraction paths.
+    if (data && data.items) {
+        data.items = data.items.map((repo: any) => ({
+            name: '.github/workflows/deploy.yaml',
+            path: '.github/workflows/deploy.yaml',
+            html_url: repo.html_url,
+            default_branch: repo.default_branch || 'main',
+            repository: {
+                full_name: repo.full_name
+            }
+        }));
+    }
+
+    return data;
+};
+
+export const getUserRepositories = async (token: string, owner: string): Promise<any> => {
+    // Search for all repositories owned by the user/organization
+    const query = encodeURIComponent(`user:${owner}`);
+    const response = await fetch(`https://api.github.com/search/repositories?q=${query}&sort=updated&per_page=100`, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github.v3+json'
+        }
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to fetch repositories: ${response.statusText}`);
+    }
+
+    return await response.json();
 };

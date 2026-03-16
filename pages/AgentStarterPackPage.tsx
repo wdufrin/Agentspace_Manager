@@ -387,7 +387,7 @@ jobs:
         setIsDeploying(true);
         try {
             // Construct Cloud Build Config
-            const buildConfig = {
+            const buildConfig: any = {
                 steps: [
                     {
                         name: 'python:3.10',

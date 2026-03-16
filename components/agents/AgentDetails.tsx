@@ -137,7 +137,7 @@ const AgentDetails: React.FC<AgentDetailsProps> = ({ agent, config, onBack, onEd
         setDataStoresError(null);
         setAccessibleDataStores(null);
         try {
-            const viewData = await api.getAgentView(agent.name, config);
+            const viewData = await api.getAgentView(agent.name, config).catch(() => null);
 
             const findDataStoreIds = (obj: any): string[] => {
                 let ids: string[] = [];

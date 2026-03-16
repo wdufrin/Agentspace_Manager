@@ -182,7 +182,8 @@ echo "========== CLOUD DNS PROVISIONING COMPLETE =========="
 
             const buildConfig: any = {
                 steps: steps,
-                timeout: "1800s" // Give more time for LB creation
+                timeout: "1800s", // Give more time for LB creation
+                
             };
 
             addLog("Triggering Cloud Build...");

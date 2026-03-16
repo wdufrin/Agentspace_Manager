@@ -214,6 +214,57 @@ export const checkServiceAccountPermissions = async (projectId: string, saEmail:
     return { hasAll: missing.length === 0, missing };
 };
 
+export const listServiceAccounts = async (projectId: string): Promise<any[]> => {
+    let allAccounts: any[] = [];
+    let pageToken = '';
+    do {
+        let url = `https://iam.googleapis.com/v1/projects/${projectId}/serviceAccounts?pageSize=100`;
+        if (pageToken) url += `&pageToken=${pageToken}`;
+        const response = await gapiRequest<any>(url, 'GET', projectId);
+        if (response.accounts) {
+            allAccounts = allAccounts.concat(response.accounts);
+        }
+        pageToken = response.nextPageToken || '';
+    } while (pageToken);
+    return allAccounts;
+};
+
+export const listWorkloadIdentityPools = async (projectId: string): Promise<any[]> => {
+    let allPools: any[] = [];
+    let pageToken = '';
+    do {
+        let url = `https://iam.googleapis.com/v1/projects/${projectId}/locations/global/workloadIdentityPools?pageSize=50`;
+        if (pageToken) url += `&pageToken=${pageToken}`;
+        const response = await gapiRequest<any>(url, 'GET', projectId);
+        if (response.workloadIdentityPools) {
+            allPools = allPools.concat(response.workloadIdentityPools.filter((p: any) => p.state !== 'DELETED'));
+        }
+        pageToken = response.nextPageToken || '';
+    } while (pageToken);
+    return allPools;
+};
+
+export const listWorkloadIdentityProviders = async (poolName: string, projectId: string): Promise<any[]> => {
+    let allProviders: any[] = [];
+    let pageToken = '';
+    do {
+        let url = `https://iam.googleapis.com/v1/${poolName}/providers?pageSize=50`;
+        if (pageToken) url += `&pageToken=${pageToken}`;
+        const response = await gapiRequest<any>(url, 'GET', projectId);
+        if (response.workloadIdentityPoolProviders) {
+            allProviders = allProviders.concat(response.workloadIdentityPoolProviders.filter((p: any) => p.state !== 'DELETED'));
+        }
+        pageToken = response.nextPageToken || '';
+    } while (pageToken);
+    return allProviders;
+};
+
+export const getServiceAccountIamPolicy = async (saEmail: string, projectId: string): Promise<any> => {
+    const url = `https://iam.googleapis.com/v1/projects/-/serviceAccounts/${saEmail}:getIamPolicy`;
+    return gapiRequest<any>(url, 'POST', projectId, undefined, {});
+};
+
+
 // --- Discovery Engine Resources ---
 
 export const listResources = async (resourceType: 'agents' | 'engines' | 'dataStores' | 'collections' | 'assistants', config: Config, pageToken?: string, pageSize: number = 200): Promise<any> => {
@@ -1277,8 +1328,8 @@ export const getCloudBuild = async (projectId: string, buildId: string) => {
 export const fetchBuildLogs = async (projectId: string, buildId: string): Promise<string[]> => {
     try {
         const build = await getCloudBuild(projectId, buildId);
-        const logUri = build.logUrl; // This is a web console URL, not the direct log access
-        // Direct log access is via Cloud Logging for newer builds
+        
+        // Strategy 1: Attempt direct log access via Cloud Logging (works if Cloud Logging is enabled)
         const filter = `resource.type="build" AND resource.labels.build_id="${buildId}"`;
         const res = await gapiRequest<any>(`https://logging.googleapis.com/v2/entries:list`, 'POST', projectId, undefined, {
             resourceNames: [`projects/${projectId}`],
@@ -1286,10 +1337,52 @@ export const fetchBuildLogs = async (projectId: string, buildId: string): Promis
             orderBy: "timestamp asc",
             pageSize: 1000
         });
-        return (res.entries || []).map((e: any) => e.textPayload || JSON.stringify(e.jsonPayload || e.protoPayload));
+        
+        let logs = (res.entries || []).map((e: any) => e.textPayload || JSON.stringify(e.jsonPayload || e.protoPayload));
+        
+        if (logs.length > 0) {
+            return logs;
+        }
+
+        // Strategy 2: If Cloud Logging returns nothing, fallback to the Legacy GCS bucket
+        if (build.logsBucket) {
+            const bucketName = build.logsBucket.replace('gs://', '');
+            const objectName = `log-${buildId}.txt`;
+            
+            // Fetch media alt directly without JSON parsing wrapper
+            const { getGapiClient } = await import('./gapiService');
+            const client = await getGapiClient();
+            const token = client.getToken()?.access_token;
+            const url = `https://storage.googleapis.com/storage/v1/b/${bucketName}/o/${encodeURIComponent(objectName)}?alt=media`;
+            
+            const gcsRes = await fetch(url, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (gcsRes.ok) {
+                const text = await gcsRes.text();
+                logs = text.split('\\n');
+                
+                // Remove trailing empty line if it exists
+                if (logs.length > 0 && logs[logs.length - 1] === '') {
+                    logs.pop();
+                }
+                
+                // Return fallback message if completely empty file
+                return logs.length > 0 ? logs : ["Fetching logs from GCS... (Build is starting)"];
+            } else if (gcsRes.status === 404) {
+                 return ["Fetching logs from GCS... (Build is starting)"];
+            } else {
+                 return [`Failed to fetch from GCS: HTTP ${gcsRes.status}`];
+            }
+        }
+
+        return ["Waiting for logs to stream..."];
     } catch (e) {
         console.warn("Failed to fetch build logs", e);
-        return ["Logging not available yet or permission denied."];
+        return [`Error fetching logs: ${e}`];
     }
 };
 

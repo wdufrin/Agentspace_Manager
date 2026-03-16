@@ -443,7 +443,7 @@ echo "Deployment Complete."`;
             reqsUpdated = true; 
         }
         if (!reqsContent.includes('google-adk')) {
-            reqsContent += '\ngoogle-adk>=0.1.0';
+            reqsContent += '\ngoogle-adk[eval]>=0.1.0';
             reqsUpdated = true;
         }
         
@@ -779,7 +779,7 @@ print(f"Resource Name: {remote_app.resource_name}")
                 buildConfig.steps.push({
                     name: 'python:3.10',
                     entrypoint: 'bash',
-                    args: ['-c', 'pip install --upgrade pip && pip install -r requirements.txt && pip install "google-cloud-aiplatform[adk,agent_engines]>=1.75.0" && python deploy_re.py'],
+                    args: ['-c', 'pip install --upgrade pip && pip install --root-user-action=ignore -r requirements.txt && pip install --root-user-action=ignore "google-cloud-aiplatform[adk,agent_engines]>=1.75.0" && python deploy_re.py'],
                     env: envStrings
                 });
             }
