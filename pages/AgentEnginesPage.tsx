@@ -391,7 +391,6 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
                 <h2 className="text-xl font-bold text-white">Available Agents</h2>
                 <div className="flex items-center gap-4">
-                     <CloudConsoleButton url={`https://console.cloud.google.com/vertex-ai/agents/agent-engines?project=${projectNumber}`} />
                      {selectedIds.size > 0 && (
                         <div className="flex items-center gap-4 border-l border-gray-700 pl-4">
                             <span className="text-sm text-gray-300">{selectedIds.size} selected</span>
@@ -526,7 +525,10 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
   return (
     <div>
       <div className="bg-gray-800 p-4 rounded-lg mb-6 shadow-md">
-        <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
+        <div className="flex justify-between items-center mb-3">
+            <h2 className="text-lg font-semibold text-white">Configuration</h2>
+            <CloudConsoleButton url={`https://console.cloud.google.com/vertex-ai/agents/agent-engines?project=${projectNumber}`} />
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>

@@ -670,7 +670,10 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
       {/* Configuration Header */}
       {!selectedRow && (
           <div className="bg-gray-800 p-4 rounded-lg shadow-md border border-gray-700">
-            <h2 className="text-lg font-semibold text-white mb-3">Project Configuration</h2>
+            <div className="flex justify-between items-center mb-3">
+                <h2 className="text-lg font-semibold text-white">Project Configuration</h2>
+                <CloudConsoleButton url={`https://console.cloud.google.com/gemini-enterprise/apps?project=${projectNumber}`} />
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
               <div>
                 <label className="block text-sm font-medium text-gray-400 mb-1">Project ID / Number</label>

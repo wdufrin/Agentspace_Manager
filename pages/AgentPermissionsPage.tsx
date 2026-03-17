@@ -34,6 +34,7 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
 
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
 
     const [filters, setFilters] = useState({
         location: '',
@@ -251,8 +252,8 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
     }, [apiConfig]);
 
     return (
-        <div className="space-y-6">
-            <div className="bg-gray-800 p-4 rounded-lg shadow-md">
+        <div className="flex flex-col h-full gap-6 w-full min-w-0 max-w-full">
+            <div className="bg-gray-800 p-4 rounded-lg shadow-md shrink-0">
                 <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div>
@@ -263,7 +264,7 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                         <button
                             onClick={fetchPermissions}
                             disabled={isLoading}
-                            className="w-full px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 h-[42px]"
+                            className="w-full lg:w-auto px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 h-[42px]"
                         >
                             {isLoading ? 'Loading...' : 'Refetch All Locations'}
                         </button>
@@ -277,15 +278,23 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                 </div>
             )}
 
-            <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden shadow-sm">
+            <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden shadow-sm w-full min-w-0 flex-1 flex flex-col min-h-0">
                 {!isLoading && permissionsData.length > 0 && (
                     <div className="bg-gray-800/30 border-b border-gray-800 px-6 py-3 flex justify-between items-center">
                         <span className="text-sm text-gray-400">
                             Showing {filteredData.length} of {permissionsData.length} records
                         </span>
-                        <button onClick={exportToCsv} disabled={filteredData.length === 0} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 text-gray-300 text-sm font-medium rounded transition-colors disabled:opacity-50">
-                            Export to CSV
-                        </button>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => setIsScriptModalOpen(true)}
+                                className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 text-gray-300 text-sm font-medium rounded transition-colors"
+                            >
+                                View Python Script
+                            </button>
+                            <button onClick={exportToCsv} disabled={filteredData.length === 0} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 text-gray-300 text-sm font-medium rounded transition-colors disabled:opacity-50">
+                                Export to CSV
+                            </button>
+                        </div>
                     </div>
                 )}
                 {isLoading ? (
@@ -294,10 +303,10 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                         <p>Fetching IAM policies...</p>
                     </div>
                 ) : permissionsData.length > 0 ? (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="bg-gray-800/50 text-gray-400 text-xs uppercase tracking-wider">
+                    <div className="w-full overflow-auto flex-1">
+                        <table className="w-full text-left border-collapse min-w-max relative">
+                            <thead className="sticky top-0 z-10 bg-gray-900 shadow-sm">
+                                <tr className="bg-gray-800/80 backdrop-blur-sm text-gray-400 text-xs uppercase tracking-wider">
                                     <th className="px-6 py-4 font-medium border-b border-gray-800">
                                         <div>Location</div>
                                         <input type="text" name="location" value={filters.location} onChange={handleFilterChange} placeholder="Filter" className="mt-2 text-xs bg-gray-700/50 border border-gray-600 rounded px-2 py-1 outline-none text-white w-full max-w-[150px]" />
@@ -367,6 +376,48 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                     </div>
                 )}
             </div>
+
+            {/* Python Script Modal */}
+            {isScriptModalOpen && (
+                <div className="fixed inset-0 z-50 overflow-y-auto">
+                    <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                        <div className="fixed inset-0 transition-opacity" aria-hidden="true" onClick={() => setIsScriptModalOpen(false)}>
+                            <div className="absolute inset-0 bg-gray-900 opacity-75"></div>
+                        </div>
+
+                        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+                        <div className="inline-block align-bottom bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full border border-gray-700">
+                            <div className="bg-gray-800 px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                                <div className="sm:flex sm:items-start">
+                                    <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+                                        <h3 className="text-lg leading-6 font-medium text-white mb-4" id="modal-title">
+                                            Python Script: Export Agent Permissions
+                                        </h3>
+                                        <div className="mt-2 bg-gray-900 p-4 rounded-md overflow-x-auto border border-gray-700">
+                                            <p className="text-sm text-gray-400 mb-4">
+                                                This script replicates the console's scanning logic. It iterates through all locations, extracts all apps, assistants, and agents, and finally lists the active IAM policies for each. It saves the output to a CSV file.
+                                            </p>
+                                            <pre className="text-sm font-mono text-blue-300 whitespace-pre-wrap select-all">
+                                                {`import os\nimport csv\nimport requests\nimport google.auth\nfrom google.auth.transport.requests import Request\n\nPROJECT_ID = "YOUR_PROJECT_ID"\nLOCATIONS = ["global", "us", "eu"]\n\ndef get_access_token():\n    credentials, project = google.auth.default()\n    credentials.refresh(Request())\n    return credentials.token\n\ndef list_agent_permissions():\n    token = get_access_token()\n    headers = {\n        "Authorization": f"Bearer {token}",\n        "X-Goog-User-Project": PROJECT_ID\n    }\n    \n    rows = []\n    print(f"Scanning project: {PROJECT_ID}")\n    \n    for loc in LOCATIONS:\n        print(f"\\nScanning location: {loc}...")\n        url = f"https://{loc}-discoveryengine.googleapis.com/v1alpha/projects/{PROJECT_ID}/locations/{loc}/collections/default_collection/engines"\n        engines_res = requests.get(url, headers=headers).json()\n        \n        for engine in engines_res.get("engines", []):\n            engine_id = engine["name"].split("/")[-1]\n            engine_name = engine.get("displayName", engine_id)\n            \n            ast_url = f"{url}/{engine_id}/assistants"\n            ast_res = requests.get(ast_url, headers=headers).json()\n            \n            for ast in ast_res.get("assistants", []):\n                ast_id = ast["name"].split("/")[-1]\n                \n                agt_url = f"{ast_url}/{ast_id}/agents"\n                agt_res = requests.get(agt_url, headers=headers).json()\n                \n                for agent in agt_res.get("agents", []):\n                    agent_name = agent.get("displayName", agent["name"].split("/")[-1])\n                    \n                    iam_url = f"https://{loc}-discoveryengine.googleapis.com/v1alpha/{agent['name']}:getIamPolicy"\n                    iam_res = requests.get(iam_url, headers=headers).json()\n                    \n                    bindings = iam_res.get("bindings", [])\n                    if not bindings:\n                        rows.append([loc, engine_name, agent_name, "No Members", "None"])\n                        \n                    for binding in bindings:\n                        role = binding.get("role", "")\n                        for member in binding.get("members", []):\n                            rows.append([loc, engine_name, agent_name, member, role])\n                            print(f"Found: {agent_name} -> {member} ({role})")\n\n    # Write to CSV\n    with open("agent_permissions.csv", "w", newline="") as f:\n        writer = csv.writer(f)\n        writer.writerow(["Location", "App Name", "Agent Name", "Member", "Role"])\n        writer.writerows(rows)\n        print("\\nExport complete: agent_permissions.csv")\n\nif __name__ == "__main__":\n    list_agent_permissions()`}
+                                            </pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="bg-gray-800 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse rounded-b-lg">
+                                <button
+                                    type="button"
+                                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-gray-600 text-base font-medium text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 sm:ml-3 sm:w-auto sm:text-sm"
+                                    onClick={() => setIsScriptModalOpen(false)}
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
