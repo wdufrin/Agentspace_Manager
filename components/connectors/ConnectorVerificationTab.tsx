@@ -31,12 +31,18 @@ import NotionVerification from './verification/NotionVerification';
 import ZendeskVerification from './verification/ZendeskVerification';
 import GenericVerification from './verification/GenericVerification';
 import OneDriveVerification from './verification/OneDriveVerification';
+import BoxVerification from './verification/BoxVerification';
+import GitHubVerification from './verification/GitHubVerification';
+import HubSpotVerification from './verification/HubSpotVerification';
+import LinearVerification from './verification/LinearVerification';
+import MondayVerification from './verification/MondayVerification';
+import ShopifyVerification from './verification/ShopifyVerification';
 
 interface ConnectorVerificationTabProps {
     connector: any;
 }
 
-export type VerificationType = 'JIRA' | 'JIRA_DC' | 'CONFLUENCE' | 'CONFLUENCE_DC' | 'SALESFORCE' | 'SERVICENOW' | 'ENTRA_ID' | 'SHAREPOINT' | 'OUTLOOK' | 'TEAMS' | 'ONEDRIVE' | 'SLACK' | 'DROPBOX' | 'NOTION' | 'ZENDESK' | 'GENERIC';
+export type VerificationType = 'JIRA' | 'JIRA_DC' | 'CONFLUENCE' | 'CONFLUENCE_DC' | 'SALESFORCE' | 'SERVICENOW' | 'ENTRA_ID' | 'SHAREPOINT' | 'OUTLOOK' | 'TEAMS' | 'ONEDRIVE' | 'SLACK' | 'DROPBOX' | 'NOTION' | 'ZENDESK' | 'BOX' | 'GITHUB' | 'HUBSPOT' | 'LINEAR' | 'MONDAY' | 'SHOPIFY' | 'GENERIC';
 export type DataMode = 'INGESTION' | 'FEDERATED';
 
 const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({ connector }) => {
@@ -61,6 +67,12 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({ con
         if (stateString.includes('dropbox') || nameString.includes('dropbox')) return 'DROPBOX';
         if (stateString.includes('notion') || nameString.includes('notion')) return 'NOTION';
         if (stateString.includes('zendesk') || nameString.includes('zendesk')) return 'ZENDESK';
+        if (stateString.includes('box') || nameString.includes('box')) return 'BOX';
+        if (stateString.includes('github') || nameString.includes('github')) return 'GITHUB';
+        if (stateString.includes('hubspot') || nameString.includes('hubspot')) return 'HUBSPOT';
+        if (stateString.includes('linear') || nameString.includes('linear')) return 'LINEAR';
+        if (stateString.includes('monday') || nameString.includes('monday')) return 'MONDAY';
+        if (stateString.includes('shopify') || nameString.includes('shopify')) return 'SHOPIFY';
         return 'GENERIC';
     };
 
@@ -68,7 +80,7 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({ con
     const [dataMode, setDataMode] = useState<DataMode>('INGESTION');
 
     const supportsDataMode = (type: VerificationType) => {
-        return ['JIRA', 'JIRA_DC', 'CONFLUENCE', 'CONFLUENCE_DC', 'SALESFORCE', 'SERVICENOW', 'SHAREPOINT', 'OUTLOOK', 'TEAMS', 'ONEDRIVE', 'SLACK'].includes(type);
+        return ['JIRA', 'JIRA_DC', 'CONFLUENCE', 'CONFLUENCE_DC', 'SALESFORCE', 'SERVICENOW', 'SHAREPOINT', 'OUTLOOK', 'TEAMS', 'ONEDRIVE', 'SLACK', 'BOX'].includes(type);
     };
 
     const renderContent = () => {
@@ -90,6 +102,12 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({ con
             case 'DROPBOX': return <DropboxVerification />;
             case 'NOTION': return <NotionVerification />;
             case 'ZENDESK': return <ZendeskVerification />;
+            case 'BOX': return <BoxVerification {...props} />;
+            case 'GITHUB': return <GitHubVerification />;
+            case 'HUBSPOT': return <HubSpotVerification />;
+            case 'LINEAR': return <LinearVerification />;
+            case 'MONDAY': return <MondayVerification />;
+            case 'SHOPIFY': return <ShopifyVerification />;
             default: return <GenericVerification {...props} />;
         }
     };
@@ -149,6 +167,12 @@ const ConnectorVerificationTab: React.FC<ConnectorVerificationTabProps> = ({ con
                         <option value="DROPBOX">Dropbox</option>
                         <option value="NOTION">Notion</option>
                         <option value="ZENDESK">Zendesk</option>
+                        <option value="BOX">Box</option>
+                        <option value="GITHUB">GitHub</option>
+                        <option value="HUBSPOT">HubSpot</option>
+                        <option value="LINEAR">Linear</option>
+                        <option value="MONDAY">Monday</option>
+                        <option value="SHOPIFY">Shopify</option>
                     </select>
                 </div>
             </div>
