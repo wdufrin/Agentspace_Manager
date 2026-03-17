@@ -303,7 +303,7 @@ const AgentPermissionsPage: React.FC<AgentPermissionsPageProps> = ({ projectNumb
                         <p>Fetching IAM policies...</p>
                     </div>
                 ) : permissionsData.length > 0 ? (
-                    <div className="w-full overflow-auto flex-1">
+                    <div className="w-full overflow-auto flex-1 [&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-gray-900 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-600 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-500 [scrollbar-width:thin] [scrollbar-color:#4b5563_#111827]">
                         <table className="w-full text-left border-collapse min-w-max relative">
                             <thead className="sticky top-0 z-10 bg-gray-900 shadow-sm">
                                 <tr className="bg-gray-800/80 backdrop-blur-sm text-gray-400 text-xs uppercase tracking-wider">
