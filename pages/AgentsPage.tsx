@@ -41,7 +41,10 @@ const getInitialConfig = () => {
       delete parsed.projectNumber; // Ensure project number isn't part of this state
       delete parsed.collectionId; // Remove deprecated keys
       delete parsed.assistantId;  // Remove deprecated keys
-      return parsed;
+      return {
+        ...parsed,
+        appLocation: parsed.appLocation || 'global'
+      };
     }
   } catch (e) {
     console.error("Failed to parse config from sessionStorage", e);
@@ -68,6 +71,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
 
   // Configuration state
   const [config, setConfig] = useState(() => ({
+    appLocation: 'global', // fallback if getInitialConfig doesn't have it
     ...getInitialConfig(),
     collectionId: 'default_collection',
     assistantId: 'default_assistant',

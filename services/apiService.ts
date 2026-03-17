@@ -264,6 +264,13 @@ export const getServiceAccountIamPolicy = async (saEmail: string, projectId: str
     return gapiRequest<any>(url, 'POST', projectId, undefined, {});
 };
 
+export const getProjectIamPolicy = async (projectId: string): Promise<any> => {
+    const url = `https://cloudresourcemanager.googleapis.com/v1/projects/${projectId}:getIamPolicy`;
+    return gapiRequest<any>(url, 'POST', projectId, undefined, {
+        options: { requestedPolicyVersion: 3 }
+    });
+};
+
 
 // --- Discovery Engine Resources ---
 

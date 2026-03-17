@@ -109,6 +109,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
       title: "Security & Access",
       items: [
         { page: Page.AUTHORIZATIONS, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a4 4 0 100 8 4 4 0 000-8z" clipRule="evenodd" /></svg> },
+        { page: Page.AGENT_PERMISSIONS, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" /></svg> },
         { page: Page.MODEL_ARMOR, icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2L3 5v6c0 3.55 3.14 6.84 7 7.93 3.86-1.09 7-4.38 7-7.93V5l-7-3z" /></svg> },
       ]
     },
@@ -131,7 +132,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage, onShowIn
         </svg>
         <div className="flex flex-col ml-3 justify-center">
             <span className="text-lg font-bold text-gray-100 tracking-tight leading-none">Gemini Enterprise</span>
-            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.0316.228</span>
+            <span className="text-[10px] text-gray-500 font-mono mt-1">v0.0317.229</span>
         </div>
       </div>
       

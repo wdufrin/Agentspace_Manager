@@ -44,6 +44,7 @@ import AssistantPage from './pages/AssistantPage';
 import LicensePage from './pages/LicensePage';
 import GEQuotaUsagePage from './pages/GEQuotaUsagePage';
 import VanityUrlsPage from './pages/VanityUrlsPage';
+import AgentPermissionsPage from './pages/AgentPermissionsPage';
 import CloudBuildProgress from './components/agent-builder/CloudBuildProgress';
 import Breadcrumbs from './components/Breadcrumbs';
 import HeaderProjectInput from './components/HeaderProjectInput';
@@ -720,6 +721,8 @@ const InnerApp: React.FC = () => {
                 hasLoaded={hasAuthLoaded}
                 setHasLoaded={setHasAuthLoaded}
             />;
+      case Page.AGENT_PERMISSIONS:
+        return <AgentPermissionsPage {...projectProps} />;
       case Page.AGENT_ENGINES:
         return <AgentEnginesPage {...commonProps} accessToken={accessToken} onDirectQuery={handleDirectQuery} />;
       case Page.A2A_TESTER:

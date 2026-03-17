@@ -20,6 +20,7 @@ export enum Page {
   AGENTS = 'GE Agent Manager',
   ASSISTANT = 'Assistant',
   AUTHORIZATIONS = 'Authorizations',
+  AGENT_PERMISSIONS = 'Agent Permissions',
   AGENT_ENGINES = 'Available Agents',
   A2A_TESTER = 'A2A Tester',
   AGENT_BUILDER = 'Agent Builder',
@@ -101,6 +102,7 @@ export interface Agent {
   a2aAgentDefinition?: {
     jsonAgentCard: string;
   };
+  lowCodeAgentDefinition?: any;
   managedAgentDefinition?: any;
   authorizations?: string[]; // Deprecated
   authorizationConfig?: AuthorizationConfig;
