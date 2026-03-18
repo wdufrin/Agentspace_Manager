@@ -23,6 +23,7 @@ interface EngineDetailsFormProps {
     engine: AppEngine;
     config: Config;
     onUpdateSuccess: (updatedEngine: AppEngine) => void;
+    onLaunchWizard?: () => void;
 }
 
 const CollapsibleSection: React.FC<React.PropsWithChildren<{ title: string }>> = ({ title, children }) => {
@@ -40,7 +41,7 @@ const CollapsibleSection: React.FC<React.PropsWithChildren<{ title: string }>> =
     );
 };
 
-const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, onUpdateSuccess }) => {
+const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, onUpdateSuccess, onLaunchWizard }) => {
     const [formData, setFormData] = useState({
         displayName: '',
         disableAnalytics: false,
@@ -341,6 +342,21 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
 
                 <CollapsibleSection title="Usage Audit Logging (Observability)">
                     <div className="space-y-4 p-4 bg-gray-900/30 rounded-md">
+                        {onLaunchWizard && (
+                            <div className="flex justify-between items-center border-b border-gray-700 pb-2 mb-2">
+                                <span className="text-xs text-gray-400">Configure project-level audit logs and links.</span>
+                                <button 
+                                    type="button" 
+                                    onClick={onLaunchWizard}
+                                    className="flex items-center gap-1 text-xs bg-blue-900/50 hover:bg-blue-800/60 text-blue-300 border border-blue-700 px-2 py-1 rounded transition-colors"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                    </svg>
+                                    Launch Wizard
+                                </button>
+                            </div>
+                        )}
                         <div className="flex items-center space-x-3 cursor-pointer">
                             <input
                                 type="checkbox"

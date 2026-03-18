@@ -24,6 +24,7 @@ import AssistantDetailsForm from '../components/assistants/AssistantDetailsForm'
 import EngineDetailsForm from '../components/assistants/EngineDetailsForm';
 import AgentListForAssistant from '../components/assistants/AgentListForAssistant';
 import ExportMetricsModal from '../components/assistants/ExportMetricsModal';
+import AuditLoggingModal from '../components/assistants/AuditLoggingModal';
 import ChatWindow from '../components/agents/ChatWindow';
 import ChatHistoryViewer from '../components/assistants/ChatHistoryViewer';
 import NotebookListViewer from '../components/assistants/NotebookListViewer';
@@ -133,6 +134,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
     const [agents, setAgents] = useState<Agent[]>([]);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'notebooks' | 'history' | 'customize'>('overview');
 
   // Chat State
@@ -577,12 +579,23 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                         <p className="text-sm text-gray-400 font-mono">{currentConfig.appId}</p>
                     </div>
                 </div>
-                <button
-                    onClick={() => setIsExportModalOpen(true)}
-                    className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 shadow-md"
-                >
-                    Backup Metrics
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => setIsAuditModalOpen(true)}
+                        className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 shadow-md flex items-center gap-1"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                        </svg>
+                        Audit Logging
+                    </button>
+                    <button
+                        onClick={() => setIsExportModalOpen(true)}
+                        className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 shadow-md"
+                    >
+                        Backup Metrics
+                    </button>
+                </div>
             </div>
 
             {isDetailLoading ? (
@@ -615,6 +628,7 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                                           engine={selectedRow.engine}
                                           config={currentConfig}
                                           onUpdateSuccess={handleEngineUpdateSuccess}
+                                          onLaunchWizard={() => setIsAuditModalOpen(true)}
                                       />
                                       <div className="mt-6">
                                           <AssistantDetailsForm
@@ -657,6 +671,17 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                         onClose={() => setIsExportModalOpen(false)}
                         config={currentConfig}
                         onBuildTriggered={onBuildTriggered}
+                        projectNumber={projectNumber}
+                    />
+
+                    <AuditLoggingModal
+                        isOpen={isAuditModalOpen}
+                        onClose={() => setIsAuditModalOpen(false)}
+                        config={currentConfig}
+                        engine={selectedRow.engine}
+                        onUpdateSuccess={(updatedEngine) => {
+                            setSelectedRow({ ...selectedRow, engine: updatedEngine });
+                        }}
                         projectNumber={projectNumber}
                     />
                       </div>

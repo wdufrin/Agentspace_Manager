@@ -426,6 +426,38 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                     </div>
                 </CollapsibleSection>
 
+                <CollapsibleSection title="Usage Audit Logging">
+                    <div className="space-y-3 p-4 bg-gray-900/30 rounded-md">
+                        <p className="text-xs text-gray-400 mb-2">
+                            Usage audit logging (capturing prompts and grounding) is managed at the Engine level. 
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                            <a 
+                                href={`https://console.cloud.google.com/logs/query;query=logName%3D%22projects%2F${config.projectId}%2Flogs%2Fdiscoveryengine.googleapis.com%252Fgemini_enterprise_user_activity%22%20OR%20logName%3D~%22projects%2F${config.projectId}%2Flogs%2Fdiscoveryengine.googleapis.com%252Fgen_ai.*%22?project=${config.projectId}`}
+                                target="_blank" 
+                                rel="noreferrer" 
+                                className="inline-flex items-center px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded border border-gray-600 gap-1 transition-colors"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5l5 5v11a2 2 0 01-2 2z" />
+                                </svg>
+                                View Logs
+                            </a>
+                            <a 
+                                href={`https://console.cloud.google.com/iam-admin/audit?project=${config.projectId}`}
+                                target="_blank" 
+                                rel="noreferrer" 
+                                className="inline-flex items-center px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded border border-gray-600 gap-1 transition-colors"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                </svg>
+                                Configure IAM
+                            </a>
+                        </div>
+                    </div>
+                </CollapsibleSection>
+
                 {/* Editable Vertex AI Agent Configs */}
                 <div className="border-t border-gray-700 pt-4">
                     <h3 className="text-md font-semibold text-white mb-2">Vertex AI Agent Configs</h3>
