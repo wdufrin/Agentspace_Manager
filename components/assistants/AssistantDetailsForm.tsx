@@ -59,6 +59,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         disableLocationContext: false,
         defaultWebGroundingToggleOff: false,
         vertexAiSearchToolConfig: '{}',
+        chatHistoryRetentionDays: '', // Added for Chat History Retention
     });
     const [agentConfigs, setAgentConfigs] = useState<VertexAiAgentConfig[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -70,22 +71,46 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
     const [isLoadingEngines, setIsLoadingEngines] = useState(false);
     const [engineError, setEngineError] = useState<string | null>(null);
 
+    // State for current engine details (for sessionConfig)
+    const [currentEngine, setCurrentEngine] = useState<any>(null);
+
     useEffect(() => {
+        const policyObj = assistant.customerPolicy ? { ...(assistant.customerPolicy as any) } : {};
+        
+        // Use sessionTtl from currentEngine if available, otherwise default to empty
+        const retention = currentEngine?.sessionConfig?.sessionTtl?.days !== undefined 
+            ? String(currentEngine.sessionConfig.sessionTtl.days) 
+            : '';
+
         setFormData({
             displayName: assistant.displayName || '',
             styleAndFormattingInstructions: assistant.styleAndFormattingInstructions || '',
             additionalSystemInstruction: assistant.generationConfig?.systemInstruction?.additionalSystemInstruction || '',
             webGroundingType: assistant.webGroundingType || 'WEB_GROUNDING_TYPE_DISABLED',
-            customerPolicy: assistant.customerPolicy ? JSON.stringify(assistant.customerPolicy, null, 2) : '{}',
+            customerPolicy: Object.keys(policyObj).length > 0 ? JSON.stringify(policyObj, null, 2) : '{}',
             enableEndUserAgentCreation: assistant.enableEndUserAgentCreation || false,
             disableLocationContext: assistant.disableLocationContext || false,
             defaultWebGroundingToggleOff: assistant.defaultWebGroundingToggleOff || false,
             vertexAiSearchToolConfig: assistant.vertexAiSearchToolConfig ? JSON.stringify(assistant.vertexAiSearchToolConfig, null, 2) : '{}',
+            chatHistoryRetentionDays: retention,
         });
         setAgentConfigs(assistant.vertexAiAgentConfigs ? JSON.parse(JSON.stringify(assistant.vertexAiAgentConfigs)) : []);
-    }, [assistant]);
+    }, [assistant, currentEngine]);
 
-    // Fetch available agent engines
+    useEffect(() => {
+        const fetchCurrentEngine = async () => {
+            if (!config.appId) return;
+            try {
+                 // name is full resource name or just ID depending on apiService
+                 const engine = await api.getEngine(config.appId, config);
+                 setCurrentEngine(engine);
+            } catch (e) {
+                 console.warn("Failed to fetch current engine", e);
+            }
+        };
+        fetchCurrentEngine();
+    }, [config.appId]);
+
     useEffect(() => {
         const fetchEngines = async () => {
             if (!config.projectId) return;
@@ -170,7 +195,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                 updateMask.push('webGroundingType');
             }
 
-            let policyObj;
+            let policyObj: any;
             try {
                 policyObj = JSON.parse(formData.customerPolicy);
             } catch (e) {
@@ -185,6 +210,27 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
             if (currentPolicyString !== originalPolicyString) {
                 payload.customerPolicy = policyObj;
                 updateMask.push('customerPolicy');
+            }
+
+            // Engine Update check for sessionTtl
+            let engineUpdatePayload: any = null;
+            const currentDays = currentEngine?.sessionConfig?.sessionTtl?.days;
+            const newDays = formData.chatHistoryRetentionDays ? parseInt(formData.chatHistoryRetentionDays, 10) : undefined;
+
+            if (newDays !== undefined && !isNaN(newDays)) {
+                 if (newDays !== currentDays) {
+                      engineUpdatePayload = {
+                           sessionConfig: {
+                                sessionTtl: {
+                                     days: newDays
+                                }
+                           }
+                      };
+                 }
+            } else if (currentDays !== undefined && formData.chatHistoryRetentionDays === "") {
+                 // User cleared it? Maybe we want to clear or default it.
+                 // Usually omitting it might keep current value, or we might pass something else.
+                 // For now, assume update only if we have a number.
             }
 
             if (formData.enableEndUserAgentCreation !== (assistant.enableEndUserAgentCreation || false)) {
@@ -230,16 +276,31 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                 updateMask.push('vertexAiAgentConfigs');
             }
 
-            if (updateMask.length === 0) {
-                setSuccess("No changes detected.");
-                setTimeout(() => setSuccess(null), 3000);
-                setIsSubmitting(false);
-                return;
+            let assistantUpdated = false;
+            let engineUpdated = false;
+
+            if (updateMask.length > 0) {
+                const updatedAssistant = await api.updateAssistant(assistant.name, payload, updateMask, config);
+                onUpdateSuccess(updatedAssistant);
+                assistantUpdated = true;
             }
 
-            const updatedAssistant = await api.updateAssistant(assistant.name, payload, updateMask, config);
-            onUpdateSuccess(updatedAssistant);
-            setSuccess("Assistant updated successfully!");
+            if (engineUpdatePayload) {
+                await api.updateEngine(config.appId, engineUpdatePayload, ['sessionConfig.sessionTtl'], config);
+                engineUpdated = true;
+                try {
+                    const updatedEngine = await api.getEngine(config.appId, config);
+                    setCurrentEngine(updatedEngine);
+                } catch (e) {
+                    console.warn("Failed to reload engine after update", e);
+                }
+            }
+
+            if (assistantUpdated || engineUpdated) {
+                setSuccess("Updates applied successfully!");
+            } else {
+                setSuccess("No changes detected.");
+            }
             setTimeout(() => setSuccess(null), 3000);
 
         } catch (err: any) {
@@ -277,11 +338,21 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
             updateMask.push('webGroundingType');
         }
 
-        let policyObj;
+        let policyObj: any;
         try {
             policyObj = JSON.parse(formData.customerPolicy);
         } catch (e) {
             // Ignore parse errors for preview
+        }
+
+        if (policyObj) {
+            // Inject dedicated Chat History Retention field into the policy object for preview
+            if (formData.chatHistoryRetentionDays) {
+                const days = parseInt(formData.chatHistoryRetentionDays, 10);
+                if (!isNaN(days)) {
+                    policyObj.chatHistoryRetentionDays = days;
+                }
+            }
         }
 
         const originalPolicyString = assistant.customerPolicy ? JSON.stringify(assistant.customerPolicy) : '{}';
@@ -290,6 +361,21 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         if (policyObj && currentPolicyString !== originalPolicyString) {
             payload.customerPolicy = policyObj;
             updateMask.push('customerPolicy');
+        }
+
+        // Engine Update check for preview
+        let enginePayload: any = null;
+        const currentDays = currentEngine?.sessionConfig?.sessionTtl?.days;
+        const newDays = formData.chatHistoryRetentionDays ? parseInt(formData.chatHistoryRetentionDays, 10) : undefined;
+
+        if (newDays !== undefined && !isNaN(newDays) && newDays !== currentDays) {
+            enginePayload = {
+                sessionConfig: {
+                    sessionTtl: {
+                        days: newDays
+                    }
+                }
+            };
         }
 
         if (formData.enableEndUserAgentCreation !== (assistant.enableEndUserAgentCreation || false)) {
@@ -323,26 +409,30 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         const currentConfigsString = JSON.stringify(agentConfigs);
 
         if (originalConfigsString !== currentConfigsString) {
-            // We won't validate everything hard here, just include if changed
             payload.vertexAiAgentConfigs = agentConfigs;
             updateMask.push('vertexAiAgentConfigs');
         }
 
-        if (updateMask.length === 0) return null;
+        if (updateMask.length === 0 && !enginePayload) return null;
 
         const baseUrl = config.appLocation === 'global'
             ? 'https://discoveryengine.googleapis.com'
             : `https://${config.appLocation}-discoveryengine.googleapis.com`;
 
-        const url = `${baseUrl}/v1alpha/${assistant.name}?updateMask=${updateMask.join(',')}`;
+        let result = "";
+        if (updateMask.length > 0) {
+             const assistantUrl = `${baseUrl}/v1alpha/${assistant.name}?updateMask=${updateMask.join(',')}`;
+             result += `# Update Assistant\ncurl -X PATCH \\\n  "${assistantUrl}" \\\n  -H "Authorization: Bearer \\\$(gcloud auth print-access-token)" \\\n  -H "Content-Type: application/json" \\\n  -H "X-Goog-User-Project: ${config.projectId}" \\\n  -d '${JSON.stringify(payload, null, 2)}'\n`;
+        }
 
-        return `curl -X PATCH \\
-  "${url}" \\
-  -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
-  -H "Content-Type: application/json" \\
-  -H "X-Goog-User-Project: ${config.projectId}" \\
-  -d '${JSON.stringify(payload, null, 2)}'`;
-    }, [formData, agentConfigs, assistant, config]);
+        if (enginePayload) {
+             const engineUrl = `${baseUrl}/v1alpha/projects/${config.projectId}/locations/global/collections/default_collection/engines/${config.appId}?updateMask=sessionConfig.sessionTtl`;
+             if (result) result += "\n";
+             result += `# Update Engine (Chat Retention)\ncurl -X PATCH \\\n  "${engineUrl}" \\\n  -H "Authorization: Bearer \\\$(gcloud auth print-access-token)" \\\n  -H "Content-Type: application/json" \\\n  -H "X-Goog-User-Project: ${config.projectId}" \\\n  -d '${JSON.stringify(enginePayload, null, 2)}'`;
+        }
+
+        return result;
+    }, [formData, agentConfigs, assistant, currentEngine, config]);
 
     return (
         <div className="bg-gray-800 shadow-xl rounded-lg p-6">
@@ -381,8 +471,23 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                     <textarea name="additionalSystemInstruction" value={formData.additionalSystemInstruction} onChange={handleChange} rows={6} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" />
                 </div>
                 <div>
+                    <label htmlFor="chatHistoryRetentionDays" className="flex items-center text-sm font-medium text-gray-300">
+                        Chat History Retention (Days)
+                        <InfoTooltip text="Number of days to retain chat history. stored in Customer Policy." />
+                    </label>
+                    <input 
+                        type="number" 
+                        name="chatHistoryRetentionDays" 
+                        value={formData.chatHistoryRetentionDays} 
+                        onChange={handleChange} 
+                        min="1"
+                        placeholder="e.g. 30"
+                        className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" 
+                    />
+                </div>
+                <div>
                     <label htmlFor="customerPolicy" className="flex items-center text-sm font-medium text-gray-300">
-                        Customer Policy (JSON)
+                        Customer Policy (JSON Edit)
                         <InfoTooltip text="JSON configuration for defining customer-specific policies." />
                     </label>
                     <textarea name="customerPolicy" value={formData.customerPolicy} onChange={handleChange} rows={5} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm font-mono text-xs" />

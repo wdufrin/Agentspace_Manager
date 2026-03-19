@@ -398,24 +398,36 @@ export const getVertexAiOperation = async (name: string, config: Config) => {
 };
 
 // Engines
+// Engines
 export const getEngine = async (name: string, config: Config) => {
-    const baseUrl = getDiscoveryEngineUrl(config.appLocation);
-    const engine = await gapiRequest<AppEngine>(`${baseUrl}/${DISCOVERY_API_BETA}/${name}`, 'GET', config.projectId);
+    const { projectId, appLocation, collectionId = 'default_collection' } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    
+    const resourcePath = name.startsWith('projects/') 
+        ? name 
+        : `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${name}`;
+
+    const engine = await gapiRequest<AppEngine>(`${baseUrl}/${DISCOVERY_API_BETA}/${resourcePath}`, 'GET', projectId);
     console.log('[DEBUG] getEngine:', engine);
     return engine;
 };
 
 export const createEngine = async (engineId: string, payload: any, config: Config) => {
-    const { projectId, appLocation, collectionId } = config;
+    const { projectId, appLocation, collectionId = 'default_collection' } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
     const url = `${baseUrl}/${DISCOVERY_API_BETA}/projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines?engineId=${engineId}`;
     return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
 };
 
 export const updateEngine = async (name: string, payload: any, updateMask: string[], config: Config) => {
-    const { projectId, appLocation } = config;
+    const { projectId, appLocation, collectionId = 'default_collection' } = config;
     const baseUrl = getDiscoveryEngineUrl(appLocation);
-    const url = `${baseUrl}/${DISCOVERY_API_BETA}/${name}?updateMask=${updateMask.join(',')}`;
+
+    const resourcePath = name.startsWith('projects/') 
+        ? name 
+        : `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${name}`;
+
+    const url = `${baseUrl}/${DISCOVERY_API_BETA}/${resourcePath}?updateMask=${updateMask.join(',')}`;
     return gapiRequest<AppEngine>(url, 'PATCH', projectId, undefined, payload);
 };
 
