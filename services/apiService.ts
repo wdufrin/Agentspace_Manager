@@ -480,6 +480,18 @@ export const getWorkforcePoolProviders = async (poolName: string, config: Config
     }
 };
 
+export const getWorkforcePoolProviderScimTenants = async (providerName: string, config: Config) => {
+    // providerName is typically formatted as: "locations/global/workforcePools/{poolId}/providers/{providerId}"
+    const url = `https://iam.googleapis.com/v1/${providerName}/scimTenants?showDeleted=False`;
+    try {
+        const response = await gapiRequest<any>(url, 'GET', config.projectId);
+        return response;
+    } catch (err) {
+        console.error("Failed to fetch workforce pool provider SCIM tenants:", err);
+        return { workforcePoolProviderScimTenants: [] };
+    }
+};
+
 // Assistants
 export const getAssistant = async (name: string, config: Config) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);

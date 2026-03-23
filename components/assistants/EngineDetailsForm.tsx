@@ -41,6 +41,71 @@ const CollapsibleSection: React.FC<React.PropsWithChildren<{ title: string }>> =
     );
 };
 
+const ScimTenantsList: React.FC<{ providerName: string, config: Config }> = ({ providerName, config }) => {
+    const [tenants, setTenants] = useState<any[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [expanded, setExpanded] = useState(false);
+
+    const toggleExpand = async () => {
+        if (!expanded && tenants.length === 0) {
+            setLoading(true);
+            try {
+                const res = await api.getWorkforcePoolProviderScimTenants(providerName, config);
+                setTenants(res.workforcePoolProviderScimTenants || []);
+            } catch (e) {
+                console.error("Failed to fetch scim tenants", e);
+            }
+            setLoading(false);
+        }
+        setExpanded(!expanded);
+    }
+
+    return (
+        <div className="mt-4 pt-3 border-t border-gray-700">
+            <button type="button" onClick={toggleExpand} className="flex items-center text-sm font-semibold text-gray-300 hover:text-white group">
+                <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 mr-1 text-gray-400 group-hover:text-blue-400 transition-transform ${expanded ? 'rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                </svg>
+                SCIM Tenants
+            </button>
+            {expanded && (
+                <div className="mt-2 bg-gray-900 rounded p-3 text-xs">
+                    {loading ? (
+                        <div className="text-gray-500">Loading SCIM tenants...</div>
+                    ) : tenants.length === 0 ? (
+                        <div className="text-gray-500 italic">No SCIM tenants found for this provider.</div>
+                    ) : (
+                        <ul className="space-y-3">
+                            {tenants.map(t => (
+                                <li key={t.name} className="border border-gray-700 rounded p-2 bg-gray-800">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <strong className="text-blue-400 text-sm">{t.displayName || 'No Name'}</strong>
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${t.state === 'ACTIVE' ? 'bg-green-900/50 text-green-400 border border-green-700' : 'bg-red-900/50 text-red-400 border border-red-700'}`}>{t.state}</span>
+                                    </div>
+                                    <div className="text-gray-400 mb-1"><strong className="text-gray-500">ID:</strong> <span className="text-gray-300 font-mono text-[10px]">{t.name.split('/').pop()}</span></div>
+                                    <div className="text-gray-400 break-all mb-1"><strong className="text-gray-500">Service Agent:</strong> <br/><span className="text-gray-300 font-mono text-[10px]">{t.serviceAgent}</span></div>
+                                    <div className="text-gray-400 break-all"><strong className="text-gray-500">Base URI:</strong> <br/><span className="text-gray-300 font-mono text-[10px]"><a href={t.baseUri} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">{t.baseUri}</a></span></div>
+                                    
+                                    {t.claimMapping && (
+                                        <div className="mt-2">
+                                            <strong className="text-gray-500 block mb-1">Claim Mappings:</strong>
+                                            <ul className="pl-2 space-y-1 border-l-2 border-gray-700">
+                                                {Object.entries(t.claimMapping).map(([key, val]) => (
+                                                    <li key={key} className="flex justify-between text-[11px] font-mono"><span className="text-gray-300 truncate pr-2">{key}</span><span className="text-yellow-500 text-right truncate">{String(val)}</span></li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, onUpdateSuccess, onLaunchWizard }) => {
     const [formData, setFormData] = useState({
         displayName: '',
@@ -523,6 +588,8 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                                                     </div>
                                                 </div>
                                             )}
+
+                                            <ScimTenantsList providerName={provider.name} config={config} />
 
                                         </div>
                                     )})}
