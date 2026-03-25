@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Agent, SortableAgentKey, SortConfig } from '../../types';
 
 interface AgentListProps {
@@ -28,6 +28,7 @@ interface AgentListProps {
   deletingAgentId?: string | null;
   onSort: (key: SortableAgentKey) => void;
   sortConfig: SortConfig;
+  onUpdateAgentName?: (agent: Agent, newName: string) => Promise<void>;
 }
 
 const SortIcon: React.FC<{ direction: 'asc' | 'desc' }> = ({ direction }) => {
@@ -41,7 +42,35 @@ const SortIcon: React.FC<{ direction: 'asc' | 'desc' }> = ({ direction }) => {
   );
 };
 
-const AgentList: React.FC<AgentListProps> = ({ agents, onSelectAgent, onEditAgent, onDeleteAgent, onRegisterNew, onToggleAgentStatus, togglingAgentId, deletingAgentId, onSort, sortConfig }) => {
+const AgentList: React.FC<AgentListProps> = ({ agents, onSelectAgent, onEditAgent, onDeleteAgent, onRegisterNew, onToggleAgentStatus, togglingAgentId, deletingAgentId, onSort, sortConfig, onUpdateAgentName }) => {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleEditClick = (agent: Agent) => {
+    setEditingId(agent.name);
+    setEditName(agent.displayName);
+  };
+
+  const handleSaveName = async (agent: Agent) => {
+    if (!onUpdateAgentName) {
+      setEditingId(null);
+      return;
+    }
+    if (editName === agent.displayName || !editName.trim()) {
+      setEditingId(null);
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await onUpdateAgentName(agent, editName);
+    } catch (e) {
+      // Error handled by parent
+    } finally {
+      setIsSaving(false);
+      setEditingId(null);
+    }
+  };
 
   const SortableHeader: React.FC<{ sortKey: SortableAgentKey; children: React.ReactNode; className?: string }> = ({ sortKey, children, className = '' }) => {
     const isSorted = sortConfig?.key === sortKey;
@@ -123,7 +152,39 @@ const AgentList: React.FC<AgentListProps> = ({ agents, onSelectAgent, onEditAgen
                             <tr key={agent.name} className="hover:bg-gray-700/50 transition-colors">
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white flex items-center">
                                     <span className={`h-2.5 w-2.5 rounded-full mr-3 shrink-0 ${statusColorClass}`}></span>
-                                    {agent.displayName}
+                                    {editingId === agent.name ? (
+                                        <form 
+                                            onSubmit={(e) => { e.preventDefault(); handleSaveName(agent); }}
+                                            className="flex items-center gap-2"
+                                        >
+                                            <input 
+                                                autoFocus
+                                                type="text" 
+                                                value={editName} 
+                                                onChange={(e) => setEditName(e.target.value)} 
+                                                className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                                            />
+                                            <button type="submit" disabled={isSaving} className="text-blue-400 hover:text-blue-300 font-semibold text-xs disabled:opacity-50">
+                                                {isSaving ? '...' : 'Save'}
+                                            </button>
+                                            <button type="button" onClick={() => setEditingId(null)} className="text-gray-400 hover:text-gray-300 font-semibold text-xs">
+                                                Cancel
+                                            </button>
+                                        </form>
+                                    ) : (
+                                        <div className="flex items-center gap-2 group">
+                                            {agent.displayName}
+                                            {onUpdateAgentName && (
+                                                <button 
+                                                    onClick={() => handleEditClick(agent)}
+                                                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-400 transition-opacity"
+                                                    title="Edit Name"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                                     {statusButton}

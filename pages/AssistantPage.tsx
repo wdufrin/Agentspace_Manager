@@ -645,7 +645,11 @@ const AssistantPage: React.FC<AssistantPageProps> = ({ projectNumber, projectId,
                               )}
 
                               {activeTab === 'agents' && (
-                                  <AgentListForAssistant agents={agents} />
+                                  <AgentListForAssistant 
+                                      agents={agents} 
+                                      config={currentConfig}
+                                      onRefreshAgents={() => fetchAgentsForAssistant(selectedRow.engine.name.split('/').pop()!)}
+                                  />
                               )}
 
                               {activeTab === 'notebooks' && (

@@ -303,6 +303,16 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
     }));
   };
 
+  const handleUpdateAgentName = async (agent: Agent, newName: string) => {
+    try {
+      await api.updateAgent(agent, { displayName: newName }, apiConfig);
+      fetchAgents();
+    } catch (e) {
+      console.error("Failed to update agent name", e);
+      throw e;
+    }
+  };
+
   const sortedAgents = useMemo(() => {
     if (!agents) return [];
     return [...agents].sort((a, b) => {
@@ -351,6 +361,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ projectNumber, setProjectNumber
               deletingAgentId={deletingAgentId}
               onSort={handleSort}
               sortConfig={sortConfig}
+              onUpdateAgentName={handleUpdateAgentName}
             />
           </>
         );

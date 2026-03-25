@@ -14,14 +14,44 @@
  * limitations under the License.
  */
 
-import React from 'react';
-import { Agent } from '../../types';
+import React, { useState } from 'react';
+import { Agent, Config } from '../../types';
+import * as api from '../../services/apiService';
 
 interface AgentListForAssistantProps {
   agents: Agent[];
+  config: Config;
+  onRefreshAgents: () => void;
 }
 
-const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({ agents }) => {
+const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({ agents, config, onRefreshAgents }) => {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleEditClick = (agent: Agent) => {
+    setEditingId(agent.name);
+    setEditName(agent.displayName);
+  };
+
+  const handleSaveName = async (agent: Agent) => {
+    if (editName === agent.displayName || !editName.trim()) {
+      setEditingId(null);
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await api.updateAgent(agent, { displayName: editName }, config);
+      onRefreshAgents();
+    } catch (e) {
+      console.error("Failed to update agent name", e);
+      alert("Failed to update agent name.");
+    } finally {
+      setIsSaving(false);
+      setEditingId(null);
+    }
+  };
+
   return (
     <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden flex flex-col">
       <div className="p-4 border-b border-gray-700">
@@ -50,7 +80,37 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({ agents })
                   <tr key={agent.name} className="hover:bg-gray-700/50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white flex items-center">
                         <span className={`h-2.5 w-2.5 rounded-full mr-3 shrink-0 ${statusColorClass}`}></span>
-                        {agent.displayName}
+                        {editingId === agent.name ? (
+                            <form 
+                                onSubmit={(e) => { e.preventDefault(); handleSaveName(agent); }}
+                                className="flex items-center gap-2"
+                            >
+                                <input 
+                                    autoFocus
+                                    type="text" 
+                                    value={editName} 
+                                    onChange={(e) => setEditName(e.target.value)} 
+                                    className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                                />
+                                <button type="submit" disabled={isSaving} className="text-blue-400 hover:text-blue-300 font-semibold text-xs disabled:opacity-50">
+                                    {isSaving ? '...' : 'Save'}
+                                </button>
+                                <button type="button" onClick={() => setEditingId(null)} className="text-gray-400 hover:text-gray-300 font-semibold text-xs">
+                                    Cancel
+                                </button>
+                            </form>
+                        ) : (
+                            <div className="flex items-center gap-2 group">
+                                {agent.displayName}
+                                <button 
+                                    onClick={() => handleEditClick(agent)}
+                                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-400 transition-opacity"
+                                    title="Edit Name"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                </button>
+                            </div>
+                        )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <span className={`px-2 py-1 text-xs font-semibold rounded-full ${statusColorClass} ${statusText === 'Private' ? 'text-black' : 'text-white'}`}>
