@@ -431,6 +431,26 @@ export const updateEngine = async (name: string, payload: any, updateMask: strin
     return gapiRequest<AppEngine>(url, 'PATCH', projectId, undefined, payload);
 };
 
+export const getEngineIamPolicy = async (name: string, config: Config) => {
+    const { projectId, appLocation, collectionId = 'default_collection' } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const resourcePath = name.startsWith('projects/') 
+        ? name 
+        : `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${name}`;
+    const url = `${baseUrl}/v1/${resourcePath}:getIamPolicy`;
+    return gapiRequest<any>(url, 'GET', projectId);
+};
+
+export const setEngineIamPolicy = async (name: string, policy: any, config: Config) => {
+    const { projectId, appLocation, collectionId = 'default_collection' } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const resourcePath = name.startsWith('projects/') 
+        ? name 
+        : `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${name}`;
+    const url = `${baseUrl}/v1/${resourcePath}:setIamPolicy`;
+    return gapiRequest<any>(url, 'POST', projectId, undefined, { policy });
+};
+
 export const getWidgetConfig = async (name: string, config: Config) => {
     // name is the engine name
     const { projectId, appLocation } = config;

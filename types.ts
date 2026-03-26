@@ -47,6 +47,7 @@ export interface UserProfile {
     name: string;
     email: string;
     picture: string;
+    oid?: string;
 }
 
 export interface SortConfig {

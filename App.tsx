@@ -1011,6 +1011,7 @@ const InnerApp: React.FC = () => {
       {directQueryEngine && (
         <DirectQueryChatWindow
           engine={directQueryEngine}
+          userProfile={userProfile}
           config={{
             projectId: projectNumber,
             reasoningEngineLocation: directQueryEngine.name.split('/')[3],

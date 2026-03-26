@@ -73,6 +73,12 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
 
     // State for current engine details (for sessionConfig)
     const [currentEngine, setCurrentEngine] = useState<any>(null);
+    const [iamPolicy, setIamPolicyLocal] = useState<any>(null);
+    const [newMember, setNewMember] = useState('');
+    const [memberType, setMemberType] = useState('user:');
+    const [isLoadingIam, setIsLoadingIam] = useState(false);
+    const [iamError, setIamError] = useState<string | null>(null);
+    const [isIamDirty, setIsIamDirty] = useState(false);
 
     useEffect(() => {
         const policyObj = assistant.customerPolicy ? { ...(assistant.customerPolicy as any) } : {};
@@ -110,6 +116,23 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         };
         fetchCurrentEngine();
     }, [config.appId]);
+
+    useEffect(() => {
+        const fetchIamPolicy = async () => {
+            if (!config.appId) return;
+            setIsLoadingIam(true);
+            setIamError(null);
+            try {
+                const policy = await api.getEngineIamPolicy(config.appId, config);
+                setIamPolicyLocal(policy);
+            } catch (e: any) {
+                setIamError(e.message || 'Failed to fetch IAM policy.');
+            } finally {
+                setIsLoadingIam(false);
+            }
+        };
+        fetchIamPolicy();
+    }, [config.appId, config]);
 
     useEffect(() => {
         const fetchEngines = async () => {
@@ -167,6 +190,47 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
 
     const handleRemoveAgentConfig = (index: number) => {
         setAgentConfigs(agentConfigs.filter((_, i) => i !== index));
+    };
+
+    const handleAddIamMember = () => {
+        if (!newMember) return;
+        let memberString = newMember;
+        
+        if (!memberString.includes(':') && !memberString.startsWith('principal://') && !memberString.startsWith('principalSet://')) {
+            memberString = `${memberType}${memberString}`;
+        }
+        
+        const updatedPolicy = { ...iamPolicy };
+        if (!updatedPolicy.bindings) updatedPolicy.bindings = [];
+        
+        let binding = updatedPolicy.bindings.find((b: any) => b.role === 'roles/discoveryengine.user');
+        if (!binding) {
+            binding = { role: 'roles/discoveryengine.user', members: [] };
+            updatedPolicy.bindings.push(binding);
+        }
+        
+        if (!binding.members) binding.members = [];
+        
+        if (!binding.members.includes(memberString)) {
+            binding.members.push(memberString);
+        }
+        
+        setIamPolicyLocal({ ...updatedPolicy }); // Force new object for re-render
+        setIsIamDirty(true);
+        setNewMember('');
+    };
+
+    const handleRemoveIamMember = (member: string) => {
+        const updatedPolicy = { ...iamPolicy };
+        if (!updatedPolicy.bindings) return;
+        
+        const binding = updatedPolicy.bindings.find((b: any) => b.role === 'roles/discoveryengine.user');
+        if (binding && binding.members) {
+            binding.members = binding.members.filter((m: string) => m !== member);
+        }
+        
+        setIamPolicyLocal({ ...updatedPolicy }); // Force new object for re-render
+        setIsIamDirty(true);
     };
 
     const performUpdate = async () => {
@@ -278,6 +342,19 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
 
             let assistantUpdated = false;
             let engineUpdated = false;
+            let iamUpdated = false;
+
+            if (isIamDirty && iamPolicy) {
+                await api.setEngineIamPolicy(config.appId, iamPolicy, config);
+                iamUpdated = true;
+                setIsIamDirty(false);
+                try {
+                    const freshPolicy = await api.getEngineIamPolicy(config.appId, config);
+                    setIamPolicyLocal(freshPolicy);
+                } catch (e) {
+                    console.warn("Failed to refresh IAM policy after update", e);
+                }
+            }
 
             if (updateMask.length > 0) {
                 const updatedAssistant = await api.updateAssistant(assistant.name, payload, updateMask, config);
@@ -296,7 +373,7 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                 }
             }
 
-            if (assistantUpdated || engineUpdated) {
+            if (assistantUpdated || engineUpdated || iamUpdated) {
                 setSuccess("Updates applied successfully!");
             } else {
                 setSuccess("No changes detected.");
@@ -560,6 +637,78 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                                 Configure IAM
                             </a>
                         </div>
+                    </div>
+                </CollapsibleSection>
+
+                <CollapsibleSection title="App-level IAM Permissions">
+                    <div className="space-y-3 p-4 bg-gray-900/30 rounded-md">
+                        <p className="text-xs text-gray-400 mb-2">
+                            Manage users with direct access to this app. Inherited project-level permissions take precedence and are not shown here. To restrict users, remove them from the project-level permissions and add them here.
+                        </p>
+                        
+                        {isLoadingIam ? (
+                            <div className="flex justify-center py-4">
+                                <div className="w-5 h-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
+                            </div>
+                        ) : iamError ? (
+                            <p className="text-xs text-red-400">{iamError}</p>
+                        ) : (
+                            <div className="space-y-2">
+                                {iamPolicy?.bindings?.find((b: any) => b.role === 'roles/discoveryengine.user')?.members?.length > 0 ? (
+                                    iamPolicy.bindings.find((b: any) => b.role === 'roles/discoveryengine.user').members.map((member: string) => (
+                                        <div key={member} className="flex justify-between items-center bg-gray-700/50 p-2 rounded-md">
+                                            <span className="text-xs text-gray-300 font-mono">{member.replace('user:', '').replace('group:', '')}</span>
+                                            <button 
+                                                type="button" 
+                                                onClick={() => handleRemoveIamMember(member)}
+                                                className="text-xs text-red-400 hover:text-red-300"
+                                            >
+                                                Remove
+                                            </button>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <p className="text-xs text-gray-500">No explicit app-level users found.</p>
+                                )}
+                                
+                                <div className="flex flex-col sm:flex-row gap-2 mt-3">
+                                    <select 
+                                        value={memberType} 
+                                        onChange={(e) => setMemberType(e.target.value)}
+                                        className="bg-gray-700 border-gray-600 rounded-md shadow-sm text-xs text-white"
+                                    >
+                                        <option value="user:">Standard User (user:)</option>
+                                        <option value="group:">Standard Group (group:)</option>
+                                        <option value="serviceAccount:">Service Account (serviceAccount:)</option>
+                                        <option value="principal://">WiF Principal (principal://)</option>
+                                        <option value="principalSet://">WiF Group (principalSet://)</option>
+                                    </select>
+                                    
+                                    <input 
+                                        type="text" 
+                                        value={newMember} 
+                                        onChange={(e) => setNewMember(e.target.value)}
+                                        placeholder="email or ID"
+                                        className="block flex-1 bg-gray-700 border-gray-600 rounded-md shadow-sm text-xs placeholder-gray-500"
+                                    />
+                                    <button 
+                                        type="button" 
+                                        onClick={handleAddIamMember}
+                                        className="px-3 py-1 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 flex-shrink-0"
+                                    >
+                                        Add
+                                    </button>
+                                </div>
+                                <div className="text-xs text-gray-400 mt-2 space-y-1 bg-gray-900/50 p-3 rounded-md border border-gray-800">
+                                    <p className="font-semibold text-gray-300">Supported Formats:</p>
+                                    <p><span className="text-blue-400">Standard User</span>: <code>user:email@example.com</code></p>
+                                    <p><span className="text-blue-400">Standard Group</span>: <code>group:email@example.com</code></p>
+                                    <p><span className="text-purple-400">IAM Service Account</span>: <code>serviceAccount:email@example.com</code></p>
+                                    <p><span className="text-purple-400">WiF Principal</span>: <code>principal://iam.googleapis.com/locations/global/workforcePools/&lt;pool-id&gt;/subject/&lt;subject-id&gt;</code></p>
+                                    <p><span className="text-purple-400">WiF Group</span>: <code>principalSet://iam.googleapis.com/locations/global/workforcePools/&lt;pool-id&gt;/group/&lt;group-id&gt;</code></p>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </CollapsibleSection>
 

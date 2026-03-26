@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { ReasoningEngine, ChatMessage, Config } from '../../types';
+import { ReasoningEngine, ChatMessage, Config, UserProfile } from '../../types';
 import * as api from '../../services/apiService';
 import ResponseDetailsModal from '../agents/ResponseDetailsModal';
 import CurlCommandsModal from './CurlCommandsModal';
@@ -25,9 +25,10 @@ interface DirectQueryChatWindowProps {
     config: Config;
     accessToken: string;
     onClose: () => void;
+    userProfile?: UserProfile | null;
 }
 
-const DirectQueryChatWindow: React.FC<DirectQueryChatWindowProps> = ({ engine, config, accessToken, onClose }) => {
+const DirectQueryChatWindow: React.FC<DirectQueryChatWindowProps> = ({ engine, config, accessToken, onClose, userProfile }) => {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -66,10 +67,13 @@ const DirectQueryChatWindow: React.FC<DirectQueryChatWindowProps> = ({ engine, c
         let lastMetadata: any = null;
 
         try {
+            // Priority OID Propagation with prefix
+            const effectiveUserId = userProfile?.oid ? `oid:${userProfile.oid}` : sessionId;
+
             await api.streamQueryReasoningEngine(
                 engine.name,
                 currentQuery,
-                sessionId,
+                effectiveUserId,
                 config,
                 accessToken,
                 (parsedChunk) => {
