@@ -25,7 +25,12 @@ interface ChatCurlModalProps {
   sessionId: string | null;
   messages: ChatMessage[];
   selectedDataStores: string[];
+  authMode?: 'default' | 'wif';
+  wifPoolId?: string;
+  wifProviderId?: string;
+  wifSubjectTokenType?: string;
 }
+
 
 const CodeBlock: React.FC<{ content: string }> = ({ content }) => {
   const [copyText, setCopyText] = useState('Copy');
@@ -52,7 +57,8 @@ const CodeBlock: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
-const ChatCurlModal: React.FC<ChatCurlModalProps> = ({ isOpen, onClose, config, sessionId, messages, selectedDataStores }) => {
+const ChatCurlModal: React.FC<ChatCurlModalProps> = ({ isOpen, onClose, config, sessionId, messages, selectedDataStores, authMode = 'default', wifPoolId, wifProviderId, wifSubjectTokenType }) => {
+
   if (!isOpen) return null;
 
   const { projectId, appLocation, collectionId, appId, assistantId } = config;
@@ -81,13 +87,13 @@ const ChatCurlModal: React.FC<ChatCurlModalProps> = ({ isOpen, onClose, config, 
       };
     }
 
-    return `curl -X POST \\
-  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
-  -H "Content-Type: application/json" \\
-  -H "X-Goog-User-Project: ${projectId}" \\
-  -d '${JSON.stringify(payload, null, 2)}' \\
-  "${endpoint}"`;
+    if (authMode === 'wif') {
+      return `# Step 1: Exchange external IdP token via Google STS (Workforce Identity Federation)\nSTS_RESPONSE=$(curl -s -X POST \\\n  -H "Content-Type: application/x-www-form-urlencoded" \\\n  -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \\\n  -d "audience=//iam.googleapis.com/locations/global/workforcePools/${wifPoolId || '<pool-id>'}/providers/${wifProviderId || '<provider-id>'}" \\\n  -d "scope=https://www.googleapis.com/auth/cloud-platform" \\\n  -d "requested_token_type=urn:ietf:params:oauth:token-type:access_token" \\\n  -d "subject_token_type=${wifSubjectTokenType || 'urn:ietf:params:oauth:token-type:id_token'}" \\\n  -d "subject_token=<YOUR_EXTERNAL_IDP_TOKEN>" \\\n  --data-urlencode "options={\\"userProject\\":\\"${projectId}\\"}" \\\n  "https://sts.googleapis.com/v1/token")\n\nACCESS_TOKEN=$(echo "$STS_RESPONSE" | jq -r '.access_token')\necho "STS exchange successful."\n\n# Step 2: Query the Assistant\ncurl -X POST \\\n  -H "Authorization: Bearer $ACCESS_TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -H "X-Goog-User-Project: ${projectId}" \\\n  -d '${JSON.stringify(payload, null, 2).replace(/'/g, "'\\''")}' \\\n  "${endpoint}"`;
+    }
+
+    return `curl -X POST \\\n  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\\n  -H "Content-Type: application/json" \\\n  -H "X-Goog-User-Project: ${projectId}" \\\n  -d '${JSON.stringify(payload, null, 2).replace(/'/g, "'\\''")}' \\\n  "${endpoint}"`;
   };
+
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-[60] p-4" aria-modal="true" role="dialog">

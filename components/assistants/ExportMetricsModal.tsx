@@ -50,6 +50,7 @@ const ExportMetricsModal: React.FC<ExportMetricsModalProps> = ({ isOpen, onClose
     // Auto-Backup State
     const [isAutoBackupMode, setIsAutoBackupMode] = useState(false);
     const [baseTableId, setBaseTableId] = useState('metrics_backup');
+    const [backupDay, setBackupDay] = useState<number>(1);
     const [deployMethod, setDeployMethod] = useState<'gcloud' | 'cloud-build'>('gcloud');
     const [isPermissionsExpanded, setIsPermissionsExpanded] = useState(false);
 
@@ -300,7 +301,7 @@ if gcloud scheduler jobs describe trigger-auto-backup --location \${REGION} --pr
   gcloud scheduler jobs update http trigger-auto-backup \\
     --location \${REGION} \\
     --project \${PROJECT_ID} \\
-    --schedule="0 0 1 * *" \\
+    --schedule="0 0 ${backupDay} * *" \\
     --uri="https://\${REGION}-\${PROJECT_ID}.cloudfunctions.net/auto-backup-metrics" \\
     --http-method=POST \\
     --oidc-service-account-email=\${COMPUTE_SA}
@@ -308,7 +309,7 @@ else
   gcloud scheduler jobs create http trigger-auto-backup \\
     --location \${REGION} \\
     --project \${PROJECT_ID} \\
-    --schedule="0 0 1 * *" \\
+    --schedule="0 0 ${backupDay} * *" \\
     --uri="https://\${REGION}-\${PROJECT_ID}.cloudfunctions.net/auto-backup-metrics" \\
     --http-method=POST \\
     --oidc-service-account-email=\${COMPUTE_SA}
@@ -461,7 +462,7 @@ requests==2.*`;
       - create
       - http
       - trigger-auto-backup
-      - --schedule=0 0 1 * *
+      - --schedule=0 0 ${backupDay} * *
       - --uri=https://${cfLocation}-${config.projectId}.cloudfunctions.net/auto-backup-metrics
       - --http-method=POST
       - --location=${cfLocation}
@@ -479,7 +480,7 @@ options:
   --project ${config.projectId}
 
 gcloud scheduler jobs create http trigger-auto-backup \\
-  --schedule "0 0 1 * *" \\
+  --schedule "0 0 ${backupDay} * *" \\
   --uri "https://${cfLocation}-${config.projectId}.cloudfunctions.net/auto-backup-metrics" \\
   --http-method POST \\
   --location ${cfLocation} \\
@@ -499,7 +500,7 @@ gcloud scheduler jobs create http trigger-auto-backup \\
                 
                 {isAutoBackupMode ? (
                     <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-3 gap-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-300">Target BigQuery Dataset</label>
                                 <select 
@@ -526,6 +527,19 @@ gcloud scheduler jobs create http trigger-auto-backup \\
                                     placeholder="metrics_backup"
                                 />
                                 <p className="text-xs text-gray-400 mt-1">Will become e.g. <span className="text-yellow-400">{baseTableId}_YYYY_MM</span></p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300">Day of Month to Run</label>
+                                <select 
+                                    value={backupDay} 
+                                    onChange={(e) => setBackupDay(Number(e.target.value))} 
+                                    className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 mt-1 text-white text-sm"
+                                >
+                                    {Array.from({ length: 28 }, (_, i) => i + 1).map(day => (
+                                        <option key={day} value={day}>{day}{day === 1 ? 'st' : day === 2 ? 'nd' : day === 3 ? 'rd' : 'th'}</option>
+                                    ))}
+                                </select>
+                                <p className="text-xs text-gray-400 mt-1">Runs at midnight on the selected day.</p>
                             </div>
                         </div>
 

@@ -44,8 +44,24 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
     const [selectedDsNames, setSelectedDsNames] = useState<Set<string>>(new Set());
     const [isFetchingTools, setIsFetchingTools] = useState(false);
     const [showFilters, setShowFilters] = useState(false);
-    
+
+    // WIF Auth State
+    const [authMode, setAuthMode] = useState<'default' | 'wif'>('default');
+    const [showWifConfig, setShowWifConfig] = useState(false);
+    const [wifPoolId, setWifPoolId] = useState('');
+    const [wifProviderId, setWifProviderId] = useState('');
+    const [isExchangingToken, setIsExchangingToken] = useState(false);
+    const [wifTokenError, setWifTokenError] = useState<string | null>(null);
+    const [isSigningIn, setIsSigningIn] = useState(false);
+    const [wifSubjectToken, setWifSubjectToken] = useState('');
+    const [wifSubjectTokenType, setWifSubjectTokenType] = useState('urn:ietf:params:oauth:token-type:id_token');
+    const [wifSignedInEmail, setWifSignedInEmail] = useState<string | null>(null);
+    const [wifProviderDisplayName, setWifProviderDisplayName] = useState<string | null>(null);
+    const [wifAccessToken, setWifAccessToken] = useState<string | null>(null);
+    const [showManualToken, setShowManualToken] = useState(false);
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
     const filterRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -110,7 +126,49 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
         fetchLinkedTools();
     }, [targetDisplayName, fetchLinkedTools]);
 
+    const handleSignIn = async () => {
+        if (!wifPoolId.trim() || !wifProviderId.trim()) return;
+
+        setIsSigningIn(true);
+        setWifTokenError(null);
+        setWifSubjectToken('');
+        setWifSignedInEmail(null);
+        setWifAccessToken(null);
+
+        try {
+            const providerConfig = await api.fetchWorkforceProviderConfig(
+                wifPoolId.trim(),
+                wifProviderId.trim(),
+            );
+
+            if (!providerConfig.oidc) {
+                throw new Error('This provider is not configured for OIDC. Only OIDC providers support automatic sign-in.');
+            }
+
+            setWifProviderDisplayName(providerConfig.displayName || null);
+            const { issuerUri, clientId } = providerConfig.oidc;
+
+            const discovery = await api.fetchOidcDiscovery(issuerUri);
+
+            const redirectUri = window.location.origin + window.location.pathname;
+            const result = await api.signInWithOidcPopup(
+                discovery.authorization_endpoint,
+                clientId,
+                redirectUri,
+            );
+
+            setWifSubjectToken(result.idToken);
+            setWifSubjectTokenType('urn:ietf:params:oauth:token-type:id_token');
+            setWifSignedInEmail(result.email || null);
+        } catch (err: any) {
+            setWifTokenError(err.message || 'Sign-in failed.');
+        } finally {
+            setIsSigningIn(false);
+        }
+    };
+
     const handleSend = async () => {
+
         if (!input.trim()) return;
 
         const userMessage: ChatMessage = { role: 'user', content: input };
@@ -152,6 +210,30 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
                 } catch (sessionErr) {
                     console.warn("Failed to create user-attributed session, falling back to anonymous auto-creation.", sessionErr);
                 }
+            } // Close if (!currentSessionId && userProfile?.email)
+
+            let chatAccessToken = accessToken;
+
+
+            if (authMode === 'wif') {
+                setIsExchangingToken(true);
+                setWifTokenError(null);
+                try {
+                    const stsResult = await api.exchangeStsToken({
+                        userProject: config.projectId,
+                        poolId: wifPoolId.trim(),
+                        providerId: wifProviderId.trim(),
+                        subjectToken: wifSubjectToken.trim(),
+                        subjectTokenType: wifSubjectTokenType,
+                    });
+                    chatAccessToken = stsResult.access_token;
+                    setWifAccessToken(chatAccessToken);
+                } catch (stsErr: any) {
+                    setWifTokenError(stsErr.message || 'Token exchange failed.');
+                    throw stsErr;
+                } finally {
+                    setIsExchangingToken(false);
+                }
             }
 
             await api.streamChat(
@@ -159,8 +241,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
                 currentQuery,
                 currentSessionId,
                 config,
-                accessToken,
+                chatAccessToken,
                 (parsedChunk) => {
+
                     const newSessionId = parsedChunk.sessionInfo?.session;
                     // Only update if we didn't already have one
                     if (newSessionId && !currentSessionId) {
@@ -277,7 +360,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
                 sessionId={sessionId} 
                 messages={messages} 
                 selectedDataStores={Array.from(selectedDsNames)}
+                authMode={authMode}
+                wifPoolId={wifPoolId}
+                wifProviderId={wifProviderId}
+                wifSubjectTokenType={wifSubjectTokenType}
             />
+
 
             <div className="p-4 flex justify-between items-center border-b border-gray-700 bg-gray-900/20">
                 <div className="flex items-center overflow-hidden gap-3">
@@ -285,7 +373,24 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
                     {isFetchingTools && <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-blue-400"></div>}
                 </div>
                 <div className="flex items-center gap-2">
+                    {/* Auth Toggle */}
+                    <div className="flex rounded-md overflow-hidden border border-gray-600 h-8">
+                        <button
+                            onClick={() => { setAuthMode('default'); setShowWifConfig(false); }}
+                            className={`px-3 py-1 text-xs font-medium transition-colors ${authMode === 'default' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'}`}
+                        >
+                            Default
+                        </button>
+                        <button
+                            onClick={() => { setAuthMode('wif'); setShowWifConfig(true); }}
+                            className={`px-3 py-1 text-xs font-medium transition-colors ${authMode === 'wif' ? 'bg-amber-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'}`}
+                        >
+                            WIF
+                        </button>
+                    </div>
+
                     {/* Filters Toggle */}
+
                     <div className="relative" ref={filterRef}>
                         <button
                             onClick={() => setShowFilters(!showFilters)}
@@ -354,7 +459,85 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
                 </div>
             </div>
             
+            {/* WIF Configuration Panel Overlay */}
+            {authMode === 'wif' && showWifConfig && (
+                <div className="absolute top-[64px] left-0 right-0 bottom-0 bg-gray-800 z-50 p-4 flex flex-col space-y-4 animate-fade-in-up border-b border-gray-700">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-md font-bold text-amber-400 flex items-center gap-2">
+                             Workforce Identity Federation (WIF)
+                        </h3>
+                        <button onClick={() => setShowWifConfig(false)} className="text-gray-400 hover:text-white">&times;</button>
+                    </div>
+
+                    <div className="space-y-3 flex-1 overflow-y-auto pr-2">
+                        <div>
+                            <label className="text-xs font-medium text-gray-400 block mb-1">Workforce Pool ID *</label>
+                            <input
+                                type="text"
+                                value={wifPoolId}
+                                onChange={(e) => setWifPoolId(e.target.value)}
+                                placeholder="my-workforce-pool"
+                                className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-200 focus:ring-amber-500 focus:border-amber-500"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-medium text-gray-400 block mb-1">Provider ID *</label>
+                            <input
+                                type="text"
+                                value={wifProviderId}
+                                onChange={(e) => setWifProviderId(e.target.value)}
+                                placeholder="my-oidc-provider"
+                                className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-200 focus:ring-amber-500 focus:border-amber-500"
+                            />
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-wrap pt-2">
+                            <button
+                                onClick={handleSignIn}
+                                disabled={!wifPoolId.trim() || !wifProviderId.trim() || isSigningIn}
+                                className="px-4 py-2 bg-amber-600 text-white text-xs font-semibold rounded-md hover:bg-amber-700 disabled:bg-gray-600 flex items-center gap-1.5"
+                            >
+                                {isSigningIn ? 'Signing in...' : wifSignedInEmail ? 'Re-authenticate' : 'Sign In with Identity Provider'}
+                            </button>
+                            {wifSignedInEmail && (
+                                <span className="text-xs text-green-400 font-mono truncate max-w-[200px]" title={wifSignedInEmail}>
+                                    {wifSignedInEmail}
+                                </span>
+                            )}
+                        </div>
+
+                        {/* Manual token fallback */}
+                        <details className="text-xs mt-2" open={showManualToken} onToggle={(e) => setShowManualToken((e.target as HTMLDetailsElement).open)}>
+                            <summary className="text-gray-500 cursor-pointer hover:text-gray-400 select-none">
+                                Advanced: paste token manually
+                            </summary>
+                            <div className="mt-2 space-y-2 p-2 bg-gray-900/50 rounded-md border border-gray-700">
+                                <label className="text-[10px] text-gray-400 block">External Token (OIDC ID Token, etc.)</label>
+                                <textarea
+                                    value={wifSubjectToken}
+                                    onChange={(e) => setWifSubjectToken(e.target.value)}
+                                    placeholder="eyJhbGci..."
+                                    rows={4}
+                                    className="w-full bg-gray-800 border-gray-700 rounded-md text-xs font-mono text-gray-300 p-1.5"
+                                />
+                            </div>
+                        </details>
+
+                        {wifTokenError && (
+                            <p className="text-xs text-red-400 bg-red-900/20 p-2 rounded border border-red-700/50">{wifTokenError}</p>
+                        )}
+                    </div>
+
+                    <div className="pt-2 border-t border-gray-700 flex justify-end">
+                        <button onClick={() => setShowWifConfig(false)} className="px-3 py-1.5 bg-gray-600 text-white text-xs font-semibold rounded-md hover:bg-gray-700">
+                            Apply & Close
+                        </button>
+                    </div>
+                </div>
+            )}
+
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
+
                 {messages.map((msg, index) => (
                     <div key={index} className={`flex items-end gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         {msg.role === 'assistant' && msg.content && (

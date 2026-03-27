@@ -642,9 +642,14 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
 
                 <CollapsibleSection title="App-level IAM Permissions">
                     <div className="space-y-3 p-4 bg-gray-900/30 rounded-md">
-                        <p className="text-xs text-gray-400 mb-2">
-                            Manage users with direct access to this app. Inherited project-level permissions take precedence and are not shown here. To restrict users, remove them from the project-level permissions and add them here.
-                        </p>
+                        <div className="bg-amber-900/30 border border-amber-800 rounded-md p-3 mb-3 text-xs text-amber-200 flex gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-amber-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <div>
+                                <strong>Precedence Warning:</strong> Project-level IAM permissions take precedence over app-level policies. If a user is granted a role (like <code>roles/discoveryengine.user</code>) at the project level, they can access all apps in that project, regardless of any app-level permissions. To restrict a user to specific apps, ensure they do not have broad Discovery Engine roles at the project level. Use this panel to grant app-specific access once project-level access is removed.
+                            </div>
+                        </div>
                         
                         {isLoadingIam ? (
                             <div className="flex justify-center py-4">
