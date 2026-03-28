@@ -1,0 +1,9 @@
+node_modules
+dist
+.env
+.git
+.vscode
+.venv
+venv
+screenshots
+docs
