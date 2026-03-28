@@ -1401,7 +1401,6 @@ export const fetchBuildLogs = async (projectId: string, buildId: string): Promis
             const objectName = `log-${buildId}.txt`;
             
             // Fetch media alt directly without JSON parsing wrapper
-            const { getGapiClient } = await import('./gapiService');
             const client = await getGapiClient();
             const token = client.getToken()?.access_token;
             const url = `https://storage.googleapis.com/storage/v1/b/${bucketName}/o/${encodeURIComponent(objectName)}?alt=media`;
