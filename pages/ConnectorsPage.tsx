@@ -49,6 +49,9 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({ projectNumber, setProje
     const [error, setError] = useState<string | null>(null);
     const [validationResults, setValidationResults] = useState<Record<string, ValidationResult>>({});
     const [selectedResult, setSelectedResult] = useState<{ result: ValidationResult, title: string } | null>(null);
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [editName, setEditName] = useState('');
+    const [isSavingName, setIsSavingName] = useState(false);
 
     useEffect(() => {
         setConfig(prev => ({ ...prev, projectId: projectNumber }));
@@ -85,6 +88,24 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({ projectNumber, setProje
     const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setConfig(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleSaveName = async (collection: Collection) => {
+        if (editName === collection.displayName || !editName.trim()) {
+            setEditingId(null);
+            return;
+        }
+        setIsSavingName(true);
+        try {
+            await api.updateCollection(collection.name, { displayName: editName }, ['display_name'], config);
+            fetchCollections();
+        } catch (err: any) {
+            console.error("Failed to update collection name:", err);
+            setError(err.message || "Failed to update collection name.");
+        } finally {
+            setIsSavingName(false);
+            setEditingId(null);
+        }
     };
 
     const [isBulkScanning, setIsBulkScanning] = useState(false);
@@ -337,7 +358,37 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({ projectNumber, setProje
                                     return (
                                         <tr key={collection.name} className="hover:bg-gray-700/50 transition-colors">
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
-                                                {collection.displayName || collectionId}
+                                                {editingId === collection.name ? (
+                                                    <form 
+                                                        onSubmit={(e) => { e.preventDefault(); handleSaveName(collection); }}
+                                                        className="flex items-center gap-2"
+                                                    >
+                                                        <input 
+                                                            autoFocus
+                                                            type="text" 
+                                                            value={editName} 
+                                                            onChange={(e) => setEditName(e.target.value)} 
+                                                            className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs" 
+                                                        />
+                                                        <button type="submit" disabled={isSavingName} className="text-blue-400 hover:text-blue-300 font-semibold text-xs disabled:opacity-50">
+                                                            {isSavingName ? '...' : 'Save'}
+                                                        </button>
+                                                        <button type="button" onClick={() => setEditingId(null)} className="text-gray-400 hover:text-gray-300 font-semibold text-xs">
+                                                            Cancel
+                                                        </button>
+                                                    </form>
+                                                ) : (
+                                                    <div className="flex items-center gap-2 group">
+                                                        {collection.displayName || collectionId}
+                                                        <button 
+                                                            onClick={() => { setEditingId(collection.name); setEditName(collection.displayName || collectionId); }}
+                                                            className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-400 transition-opacity"
+                                                            title="Edit Name"
+                                                        >
+                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400 font-mono">
                                                 {collectionId}

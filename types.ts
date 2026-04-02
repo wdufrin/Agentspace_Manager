@@ -220,6 +220,7 @@ export interface VertexAiAgentConfig {
     displayName: string;
     name: string;
     toolDescription: string;
+    starterPrompts?: StarterPrompt[];
 }
 
 export interface EnabledAction {

@@ -57,11 +57,24 @@ const DistributeLicenseModal: React.FC<DistributeLicenseModalProps> = ({
                 collectionId: '', appId: '', assistantId: ''
             } as any;
 
+            let existingLicenseConfigId: string | undefined = undefined;
+
+            try {
+                const probeRes = await api.probeProjectLicense(billingAccountId, billingAccountLicenseConfigId, targetProject, config);
+                if (probeRes && probeRes.name) {
+                    const nameParts = probeRes.name.split('/');
+                    existingLicenseConfigId = nameParts[nameParts.length - 1];
+                }
+            } catch (probeErr) {
+                // Ignore probe errors, assuming matching resource does not exist
+                console.warn("Probe skipped or no existing license found", probeErr);
+            }
+
             await api.distributeLicense(billingAccountId, billingAccountLicenseConfigId, {
                 projectNumber: targetProject,
                 location: location,
                 licenseCount: count,
-                // licenseConfigId: optional, if we knew it we could pass it, but API allows omitted for creation
+                licenseConfigId: existingLicenseConfigId,
             }, config);
 
             onSuccess();

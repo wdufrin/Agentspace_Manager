@@ -192,6 +192,34 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
         setAgentConfigs(agentConfigs.filter((_, i) => i !== index));
     };
 
+    const handlePromptChange = (agentIndex: number, promptIndex: number, value: string) => {
+        const newConfigs = [...agentConfigs];
+        const cfg = { ...newConfigs[agentIndex] };
+        const prompts = [...(cfg.starterPrompts || [])];
+        prompts[promptIndex] = { text: value };
+        cfg.starterPrompts = prompts;
+        newConfigs[agentIndex] = cfg;
+        setAgentConfigs(newConfigs);
+    };
+
+    const handleAddPrompt = (agentIndex: number) => {
+        const newConfigs = [...agentConfigs];
+        const cfg = { ...newConfigs[agentIndex] };
+        const prompts = [...(cfg.starterPrompts || []), { text: '' }];
+        cfg.starterPrompts = prompts;
+        newConfigs[agentIndex] = cfg;
+        setAgentConfigs(newConfigs);
+    };
+
+    const handleRemovePrompt = (agentIndex: number, promptIndex: number) => {
+        const newConfigs = [...agentConfigs];
+        const cfg = { ...newConfigs[agentIndex] };
+        const prompts = (cfg.starterPrompts || []).filter((_, i) => i !== promptIndex);
+        cfg.starterPrompts = prompts;
+        newConfigs[agentIndex] = cfg;
+        setAgentConfigs(newConfigs);
+    };
+
     const handleAddIamMember = () => {
         if (!newMember) return;
         let memberString = newMember;
@@ -760,6 +788,42 @@ const AssistantDetailsForm: React.FC<AssistantDetailsFormProps> = ({ assistant, 
                                         <InfoTooltip text="Description of what this agent tool does, used by the model to decide when to call it." />
                                     </label>
                                     <textarea value={cfg.toolDescription} onChange={(e) => handleAgentConfigChange(index, 'toolDescription', e.target.value)} rows={2} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" required />
+                                </div>
+                                <div>
+                                    <label className="flex items-center text-xs font-medium text-gray-400">
+                                        Starter Prompts
+                                        <InfoTooltip text="Suggestions to show the user on the agent's landing page." />
+                                    </label>
+                                    <div className="mt-1 space-y-2">
+                                        {(cfg.starterPrompts || []).map((prompt, pIndex) => (
+                                            <div key={pIndex} className="flex items-center space-x-2">
+                                                <input
+                                                    type="text"
+                                                    value={prompt.text}
+                                                    onChange={(e) => handlePromptChange(index, pIndex, e.target.value)}
+                                                    placeholder={`Prompt #${pIndex + 1}`}
+                                                    className="block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-sm"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemovePrompt(index, pIndex)}
+                                                    className="p-1.5 text-gray-400 hover:text-red-400 bg-gray-800 rounded-md border border-gray-600 hover:border-red-500"
+                                                    title="Remove prompt"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAddPrompt(index)}
+                                        className="mt-2 text-xs font-semibold text-blue-400 hover:text-blue-300"
+                                    >
+                                        + Add Prompt
+                                    </button>
                                 </div>
                             </div>
                         ))}

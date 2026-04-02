@@ -311,6 +311,14 @@ export const createCollection = async (collectionId: string, payload: any, confi
     return gapiRequest<any>(url, 'POST', projectId, undefined, payload);
 };
 
+export const updateCollection = async (name: string, payload: any, updateMask: string[], config: Config) => {
+    const { projectId } = config;
+    const baseUrl = getDiscoveryEngineUrl(config.appLocation);
+    const url = `${baseUrl}/${DISCOVERY_API_VERSION}/${name}?updateMask=${updateMask.join(',')}`;
+    return gapiRequest<any>(url, 'PATCH', projectId, undefined, payload);
+};
+
+
 export const getDiscoveryOperation = async (name: string, config: Config, apiVersion: string = DISCOVERY_API_VERSION) => {
     const baseUrl = getDiscoveryEngineUrl(config.appLocation);
     return gapiRequest<any>(`${baseUrl}/${apiVersion}/${name}`, 'GET', config.projectId);
