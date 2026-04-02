@@ -15,7 +15,7 @@
  */
 
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import * as api from '../../services/apiService';
 import { Config } from '../../types';
 import Spinner from '../Spinner';
@@ -43,6 +43,46 @@ const DistributeLicenseModal: React.FC<DistributeLicenseModalProps> = ({
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const [existingConfigs, setExistingConfigs] = useState<any[]>([]);
+    const [selectedConfigId, setSelectedConfigId] = useState<string>('');
+    const [isLoadingConfigs, setIsLoadingConfigs] = useState(false);
+
+    useEffect(() => {
+        const fetchConfigs = async () => {
+            if (!targetProject || targetProject.length < 5) {
+                setExistingConfigs([]);
+                setSelectedConfigId('');
+                return;
+            }
+            setIsLoadingConfigs(true);
+            try {
+                const config: Config = {
+                    projectId: currentProjectNumber,
+                    appLocation: location,
+                    collectionId: '', appId: '', assistantId: ''
+                } as any;
+                const res = await api.listLicenseConfigs({ ...config, projectId: targetProject });
+                const configs = res.licenseConfigs || [];
+                setExistingConfigs(configs);
+                
+                if (configs.length > 0) {
+                    const firstId = configs[0].name.split('/').pop() || '';
+                    setSelectedConfigId(firstId);
+                } else {
+                    setSelectedConfigId('');
+                }
+            } catch (err) {
+                console.warn("Failed to fetch license configs for target project", err);
+                setExistingConfigs([]);
+                setSelectedConfigId('');
+            } finally {
+                setIsLoadingConfigs(false);
+            }
+        };
+
+        fetchConfigs();
+    }, [targetProject, location, currentProjectNumber]);
+
     if (!isOpen) return null;
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -57,24 +97,11 @@ const DistributeLicenseModal: React.FC<DistributeLicenseModalProps> = ({
                 collectionId: '', appId: '', assistantId: ''
             } as any;
 
-            let existingLicenseConfigId: string | undefined = undefined;
-
-            try {
-                const probeRes = await api.probeProjectLicense(billingAccountId, billingAccountLicenseConfigId, targetProject, config);
-                if (probeRes && probeRes.name) {
-                    const nameParts = probeRes.name.split('/');
-                    existingLicenseConfigId = nameParts[nameParts.length - 1];
-                }
-            } catch (probeErr) {
-                // Ignore probe errors, assuming matching resource does not exist
-                console.warn("Probe skipped or no existing license found", probeErr);
-            }
-
             await api.distributeLicense(billingAccountId, billingAccountLicenseConfigId, {
                 projectNumber: targetProject,
                 location: location,
                 licenseCount: count,
-                licenseConfigId: existingLicenseConfigId,
+                licenseConfigId: selectedConfigId || undefined,
             }, config);
 
             onSuccess();
@@ -115,6 +142,32 @@ const DistributeLicenseModal: React.FC<DistributeLicenseModalProps> = ({
                         />
                         <p className="text-xs text-gray-500 mt-1">The project that will receive the licenses.</p>
                     </div>
+
+                    {isLoadingConfigs && (
+                        <p className="text-xs text-cyan-400 animate-pulse">Scanning destination project for existing allocations...</p>
+                    )}
+
+                    {existingConfigs.length > 0 && (
+                        <div>
+                            <label className="block text-sm font-medium text-amber-400 mb-1">Target Allocation/Subscription</label>
+                            <select
+                                value={selectedConfigId}
+                                onChange={(e) => setSelectedConfigId(e.target.value)}
+                                className="w-full bg-gray-700 border border-amber-600/50 rounded px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                            >
+                                <option value="">[ Spawn New Subscription ID ]</option>
+                                {existingConfigs.map((cfg: any) => {
+                                    const id = cfg.name.split('/').pop();
+                                    return (
+                                        <option key={id} value={id}>
+                                            Append to Batch: {id} {cfg.subscriptionTier ? `(${cfg.subscriptionTier})` : ''}
+                                        </option>
+                                    );
+                                })}
+                            </select>
+                            <p className="text-xs text-gray-500 mt-1">Found existing allocations. Decide to append quota or spawn a fresh batch.</p>
+                        </div>
+                    )}
 
                     <div>
                         <label className="block text-sm font-medium text-gray-400 mb-1">Location</label>
