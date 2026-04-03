@@ -2095,3 +2095,62 @@ export const getCloudMonitoringMetrics = async (projectId: string, metricFilter:
 
     return gapiRequest<any>(`${url}?${params.toString()}`, 'GET', projectId);
 };
+
+// --- Prompt Chips (Canned Queries) ---
+
+export const listPromptChips = async (engineName: string) => {
+    const parts = engineName.split('/');
+    const location = parts[3];
+    const projectId = parts[1];
+    const baseUrl = getDiscoveryEngineUrl(location);
+    const url = `${baseUrl}/v1alpha/${engineName}/assistants/default_assistant/cannedQueries`;
+
+    try {
+        const response = await gapiRequest<{ cannedQueries?: any[] }>(url, 'GET', projectId, { pageSize: 1000 });
+        
+        // Map to UI format
+        return (response.cannedQueries || []).map((item: any) => ({
+            name: item.name.split('/').pop() || '',
+            status: item.enabled ? 'Enabled' : 'Disabled',
+            displayName: item.displayName || '-',
+            title: item.defaultTexts?.title || '-',
+            type: item.googleDefined ? 'Google-made' : 'Custom',
+            raw: item
+        }));
+    } catch (e) {
+        console.error(`[listPromptChips] Failed to fetch canned queries for ${engineName}:`, e);
+        // Fallback to empty list or throw depending on UI preference
+        return [];
+    }
+};
+
+export const updatePromptChip = async (engineName: string, chipName: string, payload: any, params: any = {}) => {
+    const parts = engineName.split('/');
+    const location = parts[3];
+    const projectId = parts[1];
+    const baseUrl = getDiscoveryEngineUrl(location);
+    const url = `${baseUrl}/v1alpha/${engineName}/assistants/default_assistant/cannedQueries/${chipName}`;
+
+    return gapiRequest<any>(url, 'PATCH', projectId, params, payload);
+};
+
+export const deletePromptChip = async (engineName: string, chipName: string) => {
+    const parts = engineName.split('/');
+    const location = parts[3];
+    const projectId = parts[1];
+    const baseUrl = getDiscoveryEngineUrl(location);
+    const url = `${baseUrl}/v1alpha/${engineName}/assistants/default_assistant/cannedQueries/${chipName}`;
+
+    return gapiRequest<any>(url, 'DELETE', projectId);
+};
+
+export const createPromptChip = async (engineName: string, payload: any) => {
+    const parts = engineName.split('/');
+    const location = parts[3];
+    const projectId = parts[1];
+    const baseUrl = getDiscoveryEngineUrl(location);
+    const chipName = payload.name || `custom_${Date.now()}`;
+    const url = `${baseUrl}/v1alpha/${engineName}/assistants/default_assistant/cannedQueries`;
+
+    return gapiRequest<any>(url, 'POST', projectId, { cannedQueryId: chipName }, payload);
+};

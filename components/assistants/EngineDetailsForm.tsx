@@ -18,6 +18,7 @@ import React, { useState, useEffect } from 'react';
 import { AppEngine, Config } from '../../types';
 import * as api from '../../services/apiService';
 import InfoTooltip from '../InfoTooltip';
+import PromptChipsTable from './PromptChipsTable';
 
 interface EngineDetailsFormProps {
     engine: AppEngine;
@@ -632,6 +633,12 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                                 <InfoTooltip text={`Enable or disable the ${model} model.`} />
                             </label>
                         ))}
+                    </div>
+                </CollapsibleSection>
+
+                <CollapsibleSection title="Prompt Chips Administration">
+                    <div className="p-4 bg-gray-900/30 rounded-md">
+                        <PromptChipsTable engineName={engine.name} />
                     </div>
                 </CollapsibleSection>
 
