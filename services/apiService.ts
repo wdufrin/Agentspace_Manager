@@ -236,8 +236,8 @@ export const listWorkloadIdentityPools = async (projectId: string): Promise<any[
         let url = `https://iam.googleapis.com/v1/projects/${projectId}/locations/global/workloadIdentityPools?pageSize=50`;
         if (pageToken) url += `&pageToken=${pageToken}`;
         const response = await gapiRequest<any>(url, 'GET', projectId);
-        if (response.workloadIdentityPools) {
-            allPools = allPools.concat(response.workloadIdentityPools.filter((p: any) => p.state !== 'DELETED'));
+        if (response.workforcePools) {
+            allPools = allPools.concat(response.workforcePools.filter((p: any) => p.state !== 'DELETED'));
         }
         pageToken = response.nextPageToken || '';
     } while (pageToken);
@@ -251,8 +251,8 @@ export const listWorkloadIdentityProviders = async (poolName: string, projectId:
         let url = `https://iam.googleapis.com/v1/${poolName}/providers?pageSize=50`;
         if (pageToken) url += `&pageToken=${pageToken}`;
         const response = await gapiRequest<any>(url, 'GET', projectId);
-        if (response.workloadIdentityPoolProviders) {
-            allProviders = allProviders.concat(response.workloadIdentityPoolProviders.filter((p: any) => p.state !== 'DELETED'));
+        if (response.workforcePoolProviders) {
+            allProviders = allProviders.concat(response.workforcePoolProviders.filter((p: any) => p.state !== 'DELETED'));
         }
         pageToken = response.nextPageToken || '';
     } while (pageToken);

@@ -96,6 +96,10 @@ const DataStoreQueryModal: React.FC<DataStoreQueryModalProps> = ({ isOpen, onClo
     const [isExchangingToken, setIsExchangingToken] = useState(false);
     const [wifAccessToken, setWifAccessToken] = useState<string | null>(null);
     const [wifTokenError, setWifTokenError] = useState<string | null>(null);
+    const [availablePools, setAvailablePools] = useState<any[]>([]);
+    const [availableProviders, setAvailableProviders] = useState<any[]>([]);
+    const [isLoadingPools, setIsLoadingPools] = useState(false);
+    const [isLoadingProviders, setIsLoadingProviders] = useState(false);
 
     // IdP sign-in state
     const [isSigningIn, setIsSigningIn] = useState(false);
@@ -134,6 +138,62 @@ const DataStoreQueryModal: React.FC<DataStoreQueryModalProps> = ({ isOpen, onClo
         setWifSubjectToken('');
         setWifProviderDisplayName(null);
     }, [wifPoolId, wifProviderId]);
+
+    useEffect(() => {
+        const discoverPool = async () => {
+            if (authMode === 'wif' && showWifConfig && projectId && location) {
+                try {
+                    const acl = await api.getAclConfig({ projectId, appLocation: location } as any);
+                    const poolName = acl.idpConfig?.externalIdpConfig?.workforcePoolName;
+                    if (poolName) {
+                        const poolId = poolName.split('/').pop();
+                        if (poolId && !wifPoolId) {
+                            setWifPoolId(poolId);
+                        }
+                    }
+                } catch (e) {
+                    console.error("Failed to fetch aclConfig for pool discovery", e);
+                }
+            }
+        };
+        discoverPool();
+    }, [authMode, showWifConfig, projectId, location]);
+
+    useEffect(() => {
+        const fetchPools = async () => {
+            if (authMode === 'wif' && showWifConfig && projectId) {
+                setIsLoadingPools(true);
+                try {
+                    const pools = await api.listWorkloadIdentityPools(projectId);
+                    setAvailablePools(pools);
+                } catch (e) {
+                    console.error("Failed to fetch workforce pools", e);
+                } finally {
+                    setIsLoadingPools(false);
+                }
+            }
+        };
+        fetchPools();
+    }, [authMode, showWifConfig, projectId]);
+
+    useEffect(() => {
+        const fetchProviders = async () => {
+            if (authMode === 'wif' && wifPoolId && projectId) {
+                setIsLoadingProviders(true);
+                try {
+                    const providerData = await api.listWorkloadIdentityProviders(`locations/global/workforcePools/${wifPoolId}`, projectId);
+                    setAvailableProviders(providerData);
+                } catch (e) {
+                    console.error("Failed to fetch workforce pool providers", e);
+                } finally {
+                    setIsLoadingProviders(false);
+                }
+            } else {
+                setAvailableProviders([]);
+            }
+        };
+        fetchProviders();
+    }, [authMode, wifPoolId, projectId]);
 
     const codeQuery = query.trim() || (history.length > 0 ? history[history.length - 1].query : 'your search query');
 
@@ -711,23 +771,74 @@ ${dataStore.name}`;
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs font-medium text-gray-400 block mb-1">Workforce Pool ID *</label>
-                                    <input
-                                        type="text"
-                                        value={wifPoolId}
-                                        onChange={(e) => setWifPoolId(e.target.value)}
-                                        placeholder="my-workforce-pool"
-                                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:ring-amber-500 focus:border-amber-500"
-                                    />
+                                    {isLoadingPools ? (
+                                        <div className="text-gray-500 text-xs">Loading pools...</div>
+                                    ) : (
+                                        <select
+                                            value={availablePools.some(p => p.name.split('/').pop() === wifPoolId) ? wifPoolId : 'CUSTOM'}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (val === 'CUSTOM') {
+                                                    setWifPoolId('');
+                                                } else {
+                                                    setWifPoolId(val);
+                                                }
+                                            }}
+                                            className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-200 focus:ring-amber-500 focus:border-amber-500"
+                                        >
+                                            <option value="">-- Select a Pool --</option>
+                                            {availablePools.map(pool => {
+                                                const poolId = pool.name.split('/').pop();
+                                                return (
+                                                    <option key={pool.name} value={poolId}>
+                                                        {pool.displayName || poolId}
+                                                    </option>
+                                                );
+                                            })}
+                                            <option value="CUSTOM">Custom / Not Listed</option>
+                                        </select>
+                                    )}
+                                    {(isLoadingPools || (!availablePools.some(p => p.name.split('/').pop() === wifPoolId) && wifPoolId !== '') || wifPoolId === '') && (
+                                        <input
+                                            type="text"
+                                            value={wifPoolId}
+                                            onChange={(e) => setWifPoolId(e.target.value)}
+                                            placeholder="Enter custom pool ID"
+                                            className="mt-1 w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:ring-amber-500 focus:border-amber-500"
+                                        />
+                                    )}
                                 </div>
                                 <div>
                                     <label className="text-xs font-medium text-gray-400 block mb-1">Provider ID *</label>
-                                    <input
-                                        type="text"
-                                        value={wifProviderId}
-                                        onChange={(e) => setWifProviderId(e.target.value)}
-                                        placeholder="my-oidc-provider"
-                                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:ring-amber-500 focus:border-amber-500"
-                                    />
+                                    {isLoadingProviders ? (
+                                        <div className="text-gray-500 text-xs">Loading providers...</div>
+                                    ) : (
+                                        <select
+                                            value={wifProviderId}
+                                            onChange={(e) => setWifProviderId(e.target.value)}
+                                            className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-200 focus:ring-amber-500 focus:border-amber-500"
+                                            disabled={!wifPoolId}
+                                        >
+                                            <option value="">-- Select a Provider --</option>
+                                            {availableProviders.map(provider => {
+                                                const providerId = provider.name.split('/').pop();
+                                                return (
+                                                    <option key={provider.name} value={providerId}>
+                                                        {provider.displayName || providerId}
+                                                    </option>
+                                                );
+                                            })}
+                                        </select>
+                                    )}
+                                    {!availableProviders.length && !isLoadingProviders && wifPoolId && (
+                                        <input
+                                            type="text"
+                                            value={wifProviderId}
+                                            onChange={(e) => setWifProviderId(e.target.value)}
+                                            placeholder="Enter provider ID"
+                                            className="mt-1 w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:ring-amber-500 focus:border-amber-500"
+                                        />
+                                    )}
                                 </div>
                             </div>
 

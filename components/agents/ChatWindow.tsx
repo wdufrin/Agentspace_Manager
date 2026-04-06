@@ -52,6 +52,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
     const [wifProviderId, setWifProviderId] = useState('');
     const [isExchangingToken, setIsExchangingToken] = useState(false);
     const [wifTokenError, setWifTokenError] = useState<string | null>(null);
+    const [availablePools, setAvailablePools] = useState<any[]>([]);
+    const [availableProviders, setAvailableProviders] = useState<any[]>([]);
+    const [isLoadingPools, setIsLoadingPools] = useState(false);
+    const [isLoadingProviders, setIsLoadingProviders] = useState(false);
     const [isSigningIn, setIsSigningIn] = useState(false);
     const [wifSubjectToken, setWifSubjectToken] = useState('');
     const [wifSubjectTokenType, setWifSubjectTokenType] = useState('urn:ietf:params:oauth:token-type:id_token');
@@ -125,6 +129,62 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
         setThinkingProcess(null);
         fetchLinkedTools();
     }, [targetDisplayName, fetchLinkedTools]);
+
+    useEffect(() => {
+        const discoverPool = async () => {
+            if (authMode === 'wif' && showWifConfig && config.projectId && config.appLocation) {
+                try {
+                    const acl = await api.getAclConfig(config);
+                    const poolName = acl.idpConfig?.externalIdpConfig?.workforcePoolName;
+                    if (poolName) {
+                        const poolId = poolName.split('/').pop();
+                        if (poolId && !wifPoolId) {
+                            setWifPoolId(poolId);
+                        }
+                    }
+                } catch (e) {
+                    console.error("Failed to fetch aclConfig for pool discovery", e);
+                }
+            }
+        };
+        discoverPool();
+    }, [authMode, showWifConfig, config]);
+
+    useEffect(() => {
+        const fetchPools = async () => {
+            if (authMode === 'wif' && showWifConfig && config.projectId) {
+                setIsLoadingPools(true);
+                try {
+                    const pools = await api.listWorkloadIdentityPools(config.projectId);
+                    setAvailablePools(pools);
+                } catch (e) {
+                    console.error("Failed to fetch workforce pools", e);
+                } finally {
+                    setIsLoadingPools(false);
+                }
+            }
+        };
+        fetchPools();
+    }, [authMode, showWifConfig, config.projectId]);
+
+    useEffect(() => {
+        const fetchProviders = async () => {
+            if (authMode === 'wif' && wifPoolId && config.projectId) {
+                setIsLoadingProviders(true);
+                try {
+                    const providerData = await api.listWorkloadIdentityProviders(`locations/global/workforcePools/${wifPoolId}`, config.projectId);
+                    setAvailableProviders(providerData);
+                } catch (e) {
+                    console.error("Failed to fetch workforce pool providers", e);
+                } finally {
+                    setIsLoadingProviders(false);
+                }
+            } else {
+                setAvailableProviders([]);
+            }
+        };
+        fetchProviders();
+    }, [authMode, wifPoolId, config.projectId]);
 
     const handleSignIn = async () => {
         if (!wifPoolId.trim() || !wifProviderId.trim()) return;
@@ -470,25 +530,78 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ targetDisplayName, config, acce
                     </div>
 
                     <div className="space-y-3 flex-1 overflow-y-auto pr-2">
-                        <div>
-                            <label className="text-xs font-medium text-gray-400 block mb-1">Workforce Pool ID *</label>
-                            <input
-                                type="text"
-                                value={wifPoolId}
-                                onChange={(e) => setWifPoolId(e.target.value)}
-                                placeholder="my-workforce-pool"
-                                className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-200 focus:ring-amber-500 focus:border-amber-500"
-                            />
-                        </div>
-                        <div>
-                            <label className="text-xs font-medium text-gray-400 block mb-1">Provider ID *</label>
-                            <input
-                                type="text"
-                                value={wifProviderId}
-                                onChange={(e) => setWifProviderId(e.target.value)}
-                                placeholder="my-oidc-provider"
-                                className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-200 focus:ring-amber-500 focus:border-amber-500"
-                            />
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-xs font-medium text-gray-400 block mb-1">Workforce Pool ID *</label>
+                                {isLoadingPools ? (
+                                    <div className="text-gray-500 text-xs">Loading pools...</div>
+                                ) : (
+                                    <select
+                                        value={availablePools.some(p => p.name.split('/').pop() === wifPoolId) ? wifPoolId : 'CUSTOM'}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val === 'CUSTOM') {
+                                                setWifPoolId('');
+                                            } else {
+                                                setWifPoolId(val);
+                                            }
+                                        }}
+                                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-200 focus:ring-amber-500 focus:border-amber-500"
+                                    >
+                                        <option value="">-- Select a Pool --</option>
+                                        {availablePools.map(pool => {
+                                            const poolId = pool.name.split('/').pop();
+                                            return (
+                                                <option key={pool.name} value={poolId}>
+                                                    {pool.displayName || poolId}
+                                                </option>
+                                            );
+                                        })}
+                                        <option value="CUSTOM">Custom / Not Listed</option>
+                                    </select>
+                                )}
+                                {(isLoadingPools || (!availablePools.some(p => p.name.split('/').pop() === wifPoolId) && wifPoolId !== '') || wifPoolId === '') && (
+                                    <input
+                                        type="text"
+                                        value={wifPoolId}
+                                        onChange={(e) => setWifPoolId(e.target.value)}
+                                        placeholder="Enter custom pool ID"
+                                        className="mt-1 w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:ring-amber-500 focus:border-amber-500"
+                                    />
+                                )}
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-400 block mb-1">Provider ID *</label>
+                                {isLoadingProviders ? (
+                                    <div className="text-gray-500 text-xs">Loading providers...</div>
+                                ) : (
+                                    <select
+                                        value={wifProviderId}
+                                        onChange={(e) => setWifProviderId(e.target.value)}
+                                        className="w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-200 focus:ring-amber-500 focus:border-amber-500"
+                                        disabled={!wifPoolId}
+                                    >
+                                        <option value="">-- Select a Provider --</option>
+                                        {availableProviders.map(provider => {
+                                            const providerId = provider.name.split('/').pop();
+                                            return (
+                                                <option key={provider.name} value={providerId}>
+                                                    {provider.displayName || providerId}
+                                                </option>
+                                            );
+                                        })}
+                                    </select>
+                                )}
+                                {!availableProviders.length && !isLoadingProviders && wifPoolId && (
+                                    <input
+                                        type="text"
+                                        value={wifProviderId}
+                                        onChange={(e) => setWifProviderId(e.target.value)}
+                                        placeholder="Enter provider ID"
+                                        className="mt-1 w-full bg-gray-700 border border-gray-600 rounded-md px-2 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:ring-amber-500 focus:border-amber-500"
+                                    />
+                                )}
+                            </div>
                         </div>
 
                         <div className="flex items-center gap-2 flex-wrap pt-2">

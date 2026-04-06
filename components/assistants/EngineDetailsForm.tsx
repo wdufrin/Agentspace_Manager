@@ -244,6 +244,9 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
         fetchConfigs();
     }, [config, engine.name]);
 
+
+
+
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
         setFormData({ ...formData, [e.target.name]: value });
@@ -505,6 +508,10 @@ const EngineDetailsForm: React.FC<EngineDetailsFormProps> = ({ engine, config, o
                                 <div className="mt-6 space-y-4 border-t border-gray-700 pt-4">
                                     <h4 className="text-md font-medium text-gray-200 mb-2">Attached Providers</h4>
                                     <p className="text-sm text-gray-400 mb-4">Select the default provider that the Gemini Web App should use for authentication.</p>
+                                    
+
+
+
                                     {idpProviders.map((provider: any, idx) => {
                                         const isSelected = widgetConfig?.accessSettings?.workforceIdentityPoolProvider === provider.name;
                                         return (

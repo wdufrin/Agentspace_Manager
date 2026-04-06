@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 /**
  * Copyright 2024 Google LLC
  *
