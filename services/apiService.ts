@@ -2022,15 +2022,37 @@ export const listMcpTools = async (projectId: string, mcpEndpointUrl: string): P
             method: "tools/list"
         };
 
-        // Use gapiRequest which bypasses CORS issues using gapi.client
-        const response = await gapiRequest<any>(
-            mcpEndpointUrl,
-            'POST',
-            projectId,
-            undefined, // params
-            payload,
-            { 'X-Goog-User-Project': projectId }
-        );
+        let response;
+        if (mcpEndpointUrl.startsWith('https://') && !mcpEndpointUrl.includes('.googleapis.com')) {
+            // Custom endpoint, use fetch to avoid gapi CORS/handling issues
+            const client = await getGapiClient();
+            const token = client.getToken()?.access_token;
+            
+            const res = await fetch(mcpEndpointUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                    'X-Goog-User-Project': projectId
+                },
+                body: JSON.stringify(payload)
+            });
+            
+            if (!res.ok) {
+                throw new Error(`HTTP Error ${res.status}: ${await res.text()}`);
+            }
+            response = await res.json();
+        } else {
+            // Google API or relative path, use gapiRequest
+            response = await gapiRequest<any>(
+                mcpEndpointUrl,
+                'POST',
+                projectId,
+                undefined, // params
+                payload,
+                { 'X-Goog-User-Project': projectId }
+            );
+        }
 
         // Detailed logging of the JSON-RPC response body
         console.log(`[listMcpTools] Raw response from ${mcpEndpointUrl}:`, {

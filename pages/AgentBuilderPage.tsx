@@ -2161,14 +2161,34 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
     });
 
     if (config.customMcpEndpoints && config.customMcpEndpoints.length > 0) {
-        toolImports.add('from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams');
         toolImports.add('from google.adk.tools.mcp_tool.mcp_toolset import McpToolset');
+        
+        let hasSse = false;
+        let hasRegular = false;
+        
+        config.customMcpEndpoints.forEach(endpoint => {
+            if (endpoint.name && endpoint.url) {
+                if (endpoint.url.endsWith('/sse')) {
+                    hasSse = true;
+                } else {
+                    hasRegular = true;
+                }
+            }
+        });
+        
+        if (hasSse) {
+            toolImports.add('from google.adk.tools.mcp_tool.mcp_session_manager import SseConnectionParams');
+        }
+        if (hasRegular || !hasSse) {
+            toolImports.add('from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams');
+        }
 
         config.customMcpEndpoints.forEach(endpoint => {
             if (endpoint.name && endpoint.url) {
                 // Ensure name is a valid python variable name
                 const safeName = endpoint.name.replace(/[^a-zA-Z0-9_]/g, '_');
-                toolInitializations.push(`${safeName} = McpToolset(\n    connection_params=StreamableHTTPConnectionParams(\n        url="${endpoint.url}",\n    ),\n)`);
+                const paramClass = endpoint.url.endsWith('/sse') ? 'SseConnectionParams' : 'StreamableHTTPConnectionParams';
+                toolInitializations.push(`${safeName} = McpToolset(\n    connection_params=${paramClass}(\n        url="${endpoint.url}",\n    ),\n)`);
                 toolListForAgent.push(safeName);
             }
         });
@@ -2250,6 +2270,12 @@ bq_logging_plugin = BigQueryAgentAnalyticsPlugin(
     };
 
     let finalInstruction = config.instruction;
+    if (toolListForAgent.length > 0) {
+        // Remove "no access to external tools" phrase if present, case-insensitive
+        finalInstruction = finalInstruction.replace(/no access to external tools\.?/gi, '');
+        // Clean up any double spaces or spaces before periods left over
+        finalInstruction = finalInstruction.replace(/ +/g, ' ').replace(/ \./g, '.').trim();
+    }
     if (config.enableCodeExecution || config.enableGraphvizRendering) {
         finalInstruction += `\\n\\nAdditionally, you have access to specialized tools and sub-agents:`;
         if (config.enableCodeExecution) {
@@ -3346,6 +3372,7 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
     // Deployment Progress State
     const [buildId, setBuildId] = useState<string | null>(null);
     const [isBuildVisible, setIsBuildVisible] = useState(false);
+    const [customMcpStatus, setCustomMcpStatus] = useState<{[key: number]: {loading: boolean, tools?: any[], error?: string}}>({});
 
     // CI/CD IAM Data
     useEffect(() => {
@@ -3660,6 +3687,18 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
             ...prev,
             customMcpEndpoints: prev.customMcpEndpoints.filter((_, i) => i !== index)
         }));
+    };
+
+    const handleVerifyCustomMcp = async (index: number, url: string) => {
+        if (!url) return;
+        setCustomMcpStatus(prev => ({ ...prev, [index]: { loading: true } }));
+        try {
+            const tools = await api.listMcpTools(deployProjectId || '', url);
+            setCustomMcpStatus(prev => ({ ...prev, [index]: { loading: false, tools } }));
+        } catch (e: any) {
+            console.error("Failed to verify custom MCP:", e);
+            setCustomMcpStatus(prev => ({ ...prev, [index]: { loading: false, error: e.message || String(e) } }));
+        }
     };
 
     const handleRewrite = async (field: 'instruction') => {
@@ -4252,6 +4291,21 @@ const AgentBuilderPage: React.FC<AgentBuilderPageProps> = ({ projectNumber, setP
                                                                     onChange={(e) => handleUpdateCustomMcp(index, 'url', e.target.value)}
                                                                     className="w-full bg-gray-900 text-white p-2 rounded border border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-xs font-mono"
                                                                 />
+                                                            </div>
+                                                            <div className="flex items-center justify-between mt-1">
+                                                                <button
+                                                                    onClick={() => handleVerifyCustomMcp(index, endpoint.url)}
+                                                                    className="px-2 py-1 bg-green-600 hover:bg-green-500 text-white rounded text-xs transition-colors"
+                                                                >
+                                                                    Verify
+                                                                </button>
+                                                                {customMcpStatus[index] && (
+                                                                    <span className={`text-xs ${customMcpStatus[index].error ? 'text-red-400' : 'text-green-400'}`}>
+                                                                        {customMcpStatus[index].loading ? 'Loading...' : 
+                                                                         customMcpStatus[index].error ? `Error: ${customMcpStatus[index].error}` : 
+                                                                         `Ready (${customMcpStatus[index].tools?.length || 0} tools)`}
+                                                                    </span>
+                                                                )}
                                                             </div>
                                                         </div>
                                                         <button
