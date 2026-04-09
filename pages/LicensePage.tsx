@@ -67,6 +67,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
   // Single Delete State
   const [licenseToDelete, setLicenseToDelete] = useState<any | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [actionType, setActionType] = useState<'revoke' | 'delete'>('revoke');
   
   const [isActionLoading, setIsActionLoading] = useState(false); // For delete/prune
 
@@ -404,8 +405,9 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
         }
     };
 
-  const requestDelete = (license: any) => {
+  const requestDelete = (license: any, type: 'revoke' | 'delete' = 'revoke') => {
       setLicenseToDelete(license);
+      setActionType(type);
       setIsDeleteModalOpen(true);
   };
 
@@ -415,7 +417,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
       const userPrincipal = licenseToDelete.userPrincipal;
 
       if (!userPrincipal) {
-          setLicensesError("Cannot delete: The license is missing the 'userPrincipal' (email) field required for revocation.");
+          setLicensesError(`Cannot ${actionType}: The license is missing the 'userPrincipal' (email) field required for revocation.`);
           setIsDeleteModalOpen(false);
           return;
       }
@@ -430,16 +432,24 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
               collectionId: '', appId: '', assistantId: ''
           } as any;
           
-          // Use the batch update endpoint to unassign the license
-          await api.revokeUserLicenses(config, apiConfig.userStoreId, [userPrincipal]);
-          
-          // Optimistic update: Remove from local state immediately
-          setUserLicenses(prev => prev.filter(l => l.userPrincipal !== userPrincipal));
+          if (actionType === 'delete') {
+              await api.deleteUserLicenses(config, apiConfig.userStoreId, [userPrincipal]);
+              // Optimistic update: Remove from local state immediately
+              setUserLicenses(prev => prev.filter(l => l.userPrincipal !== userPrincipal));
+          } else {
+              await api.revokeUserLicenses(config, apiConfig.userStoreId, [userPrincipal]);
+              // Optimistic update: Keep user but set as UNASSIGNED
+              setUserLicenses(prev => prev.map(l => 
+                  l.userPrincipal === userPrincipal 
+                      ? { ...l, licenseAssignmentState: 'UNASSIGNED', licenseConfig: '' } 
+                      : l
+              ));
+          }
           
           // Fetch in background to ensure sync
           fetchUserLicenses();
       } catch (err: any) {
-          setLicensesError(`Failed to delete license: ${err.message}`);
+          setLicensesError(`Failed to ${actionType} license: ${err.message}`);
           // Re-fetch if failed to ensure state is correct
           fetchUserLicenses();
       } finally {
@@ -536,6 +546,8 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
 
           if (bulkActionConfig === 'REVOKE') {
               await api.revokeUserLicenses(config, apiConfig.userStoreId, principals);
+          } else if (bulkActionConfig === 'DELETE') {
+              await api.deleteUserLicenses(config, apiConfig.userStoreId, principals);
           } else {
               // Extract just the config name if it's currently formatted as license_config="projects/..."
               const targetConfigName = bulkActionConfig.replace('license_config="', '').replace('"', '');
@@ -681,12 +693,12 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
             isOpen={isDeleteModalOpen}
             onClose={() => setIsDeleteModalOpen(false)}
             onConfirm={confirmSingleDelete}
-            title="Revoke License"
-            confirmText="Revoke"
+            title={actionType === 'delete' ? "Delete User" : "Revoke License"}
+            confirmText={actionType === 'delete' ? "Delete" : "Revoke"}
             isConfirming={isActionLoading}
         >
-            <p>Are you sure you want to revoke the license for <strong>{licenseToDelete.userPrincipal}</strong>?</p>
-            <p className="text-gray-400 text-xs mt-2">This will remove the license assignment immediately.</p>
+            <p>Are you sure you want to {actionType === 'delete' ? "delete the user record for" : "revoke the license for"} <strong>{licenseToDelete.userPrincipal}</strong>?</p>
+            <p className="text-gray-400 text-xs mt-2">{actionType === 'delete' ? "This will remove the user record entirely." : "This will remove the license assignment immediately."}</p>
         </ConfirmationModal>
       )}
 
@@ -804,7 +816,8 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                         className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-sm text-white flex-grow h-[38px] min-w-0"
                     >
                         <option value="" disabled>Select Target License...</option>
-                        <option value="REVOKE" className="text-red-400">Revoke License</option>
+                        <option value="REVOKE" className="text-yellow-400">Revoke License</option>
+                        <option value="DELETE" className="text-red-400">Delete Users</option>
                         {apiLicenseConfigs.map(cfg => (
                             <option key={cfg.name} value={`license_config="${cfg.name}"`}>
                                 Apply: {cfg.displayName || cfg.name.split('/').pop()}
@@ -1047,10 +1060,20 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                                                 </svg>
                                             </button>
                                             <button 
-                                                onClick={() => requestDelete(license)}
+                                                onClick={() => requestDelete(license, 'revoke')}
+                                                className="text-yellow-400 hover:text-yellow-300 flex items-center"
+                                                disabled={isActionLoading}
+                                                title="Revoke License"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                                                </svg>
+                                            </button>
+                                            <button 
+                                                onClick={() => requestDelete(license, 'delete')}
                                                 className="text-red-400 hover:text-red-300 flex items-center"
                                                 disabled={isActionLoading}
-                                                title="Delete License"
+                                                title="Delete User"
                                             >
                                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                                                     <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />

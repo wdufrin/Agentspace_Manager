@@ -1677,7 +1677,7 @@ export const revokeUserLicenses = async (config: Config, userStoreId: string, us
             userLicenses: userPrincipals.map(p => ({ userPrincipal: p })),
             updateMask: { paths: ["userPrincipal", "licenseConfig"] }
         },
-        deleteUnassignedUserLicenses: true
+        deleteUnassignedUserLicenses: false
     };
     return gapiRequest<any>(url, 'POST', projectId, undefined, body);
 };
@@ -1695,6 +1695,21 @@ export const assignUserLicenses = async (config: Config, userStoreId: string, us
                 licenseConfig: targetLicenseConfigName
             }))
         }
+    };
+    return gapiRequest<any>(url, 'POST', projectId, undefined, body);
+};
+
+export const deleteUserLicenses = async (config: Config, userStoreId: string, userPrincipals: string[]) => {
+    const { projectId, appLocation } = config;
+    const baseUrl = getDiscoveryEngineUrl(appLocation);
+    const url = `${baseUrl}/v1/projects/${projectId}/locations/${appLocation}/userStores/${userStoreId}:batchUpdateUserLicenses`;
+    
+    const body = {
+        inlineSource: {
+            userLicenses: userPrincipals.map(p => ({ userPrincipal: p })),
+            updateMask: { paths: ["userPrincipal", "licenseConfig"] }
+        },
+        deleteUnassignedUserLicenses: true
     };
     return gapiRequest<any>(url, 'POST', projectId, undefined, body);
 };
