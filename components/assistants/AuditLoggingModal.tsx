@@ -31,6 +31,14 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
     const [selectedBucket, setSelectedBucket] = useState<string>('');
     const [isLoadingBuckets, setIsLoadingBuckets] = useState(false);
 
+    // BigQuery Log Sync states
+    const [datasetId, setDatasetId] = useState('agentspace_audit_logs');
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [writerIdentity, setWriterIdentity] = useState<string | null>(null);
+    const [availableDatasets, setAvailableDatasets] = useState<any[]>([]);
+    const [isLoadingDatasets, setIsLoadingDatasets] = useState(false);
+    const [isCreatingNewDataset, setIsCreatingNewDataset] = useState(false);
+
     useEffect(() => {
         if (isOpen) {
             setObservabilityEnabled(engine.observabilityConfig?.observabilityEnabled || false);
@@ -62,6 +70,30 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
         }
     }, [isOpen, deployMethod, config.projectId]);
 
+    useEffect(() => {
+        if (isOpen && step === 4) {
+            const fetchDatasets = async () => {
+                setIsLoadingDatasets(true);
+                try {
+                    const res = await api.listBigQueryDatasets(config.projectId);
+                    const items = res.datasets || [];
+                    setAvailableDatasets(items);
+                    if (items.length > 0) {
+                        setDatasetId(items[0].datasetReference.datasetId);
+                        setIsCreatingNewDataset(false);
+                    } else {
+                        setIsCreatingNewDataset(true);
+                    }
+                } catch (e) {
+                    console.error("Failed to fetch BigQuery datasets", e);
+                } finally {
+                    setIsLoadingDatasets(false);
+                }
+            };
+            fetchDatasets();
+        }
+    }, [isOpen, step, config.projectId]);
+
     const handleSaveEngineConfig = async () => {
         setIsSaving(true);
         setError(null);
@@ -79,6 +111,86 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
             setError(err.message || "Failed to update engine configuration.");
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleSetupBigQuerySync = async () => {
+        setIsSyncing(true);
+        setError(null);
+        setStatus(null);
+        try {
+            // Parse location from engine.name
+            const locationMatch = engine.name.match(/locations\/([^/]+)/);
+            let location = 'US';
+            if (locationMatch && locationMatch[1]) {
+                const match = locationMatch[1].toLowerCase();
+                if (match.startsWith('us')) location = 'US';
+                else if (match.startsWith('eu')) location = 'EU';
+                else if (match === 'global') location = 'US'; // BigQuery doesn't support global datasets
+                else location = locationMatch[1]; 
+            }
+
+            // 1. Create BigQuery dataset
+            if (isCreatingNewDataset) {
+                setStatus("Creating BigQuery dataset...");
+                try {
+                    await api.createBigQueryDataset(config.projectId, datasetId, location);
+                } catch (datasetErr: any) {
+                    if (datasetErr.status !== 409 && !(datasetErr.body && datasetErr.body.includes("Already Exists"))) {
+                        throw datasetErr;
+                    }
+                    console.log("Dataset already exists, proceeding...");
+                }
+            }
+
+            // 2. Create Logging Sink
+            setStatus("Creating Logging Sink...");
+            const sinkName = `gemini_enterprise_user_audit_logs`;
+            const destination = `bigquery.googleapis.com/projects/${config.projectId}/datasets/${datasetId}`;
+            const filter = `logName="projects/${config.projectId}/logs/discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity" OR logName=~"projects/${config.projectId}/logs/discoveryengine.googleapis.com%2Fgen_ai.*"`;
+            
+            let writerIdentity = '';
+            try {
+                const sinkRes = await api.createLoggingSink(config.projectId, sinkName, destination, filter);
+                writerIdentity = sinkRes.writerIdentity;
+                setStatus("Log sink created successfully!");
+            } catch (sinkErr: any) {
+                if (sinkErr.status === 409 || (sinkErr.body && sinkErr.body.includes("already exists"))) {
+                    console.log("Sink already exists. Fetching existing sink identity...");
+                    const existingSink = await api.getLoggingSink(config.projectId, sinkName);
+                    writerIdentity = existingSink.writerIdentity;
+                    setStatus("Found existing Log Sink identity!");
+                } else {
+                    throw sinkErr;
+                }
+            }
+            setWriterIdentity(writerIdentity);
+
+            // 3. Attempt dataset access update automatically
+            try {
+                setStatus("Configuring dataset permissions...");
+                const dataset = await api.getDataset(config.projectId, datasetId);
+                const currentAccess = dataset.access || [];
+                
+                const hasAccess = currentAccess.some((a: any) => a.userByEmail === writerIdentity.replace('serviceAccount:', ''));
+                if (!hasAccess) {
+                    currentAccess.push({
+                        role: "WRITER",
+                        userByEmail: writerIdentity.replace('serviceAccount:', '')
+                    });
+                    await api.updateDatasetAccess(config.projectId, datasetId, currentAccess);
+                    setStatus("Log Sync setup fully automated successfully!");
+                } else {
+                    setStatus("Permissions already granted!");
+                }
+            } catch (iamErr: any) {
+                console.warn("Failed to update dataset permissions automatically:", iamErr);
+                setStatus("Log sink created, but automatic IAM permission configuration failed. Please grant permissions manually.");
+            }
+        } catch (err: any) {
+            setError(err.message || "Failed to setup BigQuery log sync.");
+        } finally {
+            setIsSyncing(false);
         }
     };
 
@@ -103,15 +215,15 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
 
                 {/* Steps Navigation */}
                 <div className="flex items-center justify-between mb-8 border-b border-gray-700 pb-4">
-                    {[1, 2, 3].map((s) => (
+                    {[1, 2, 3, 4].map((s) => (
                         <div key={s} className="flex items-center gap-2">
                             <div className={`rounded-full h-8 w-8 flex items-center justify-center font-bold border ${step === s ? 'bg-blue-600 text-white border-blue-600' : step > s ? 'bg-green-600 text-white border-green-600' : 'bg-gray-700 text-gray-400 border-gray-600'}`}>
                                 {step > s ? '✓' : s}
                             </div>
                             <span className={`text-sm ${step === s ? 'text-white font-semibold' : 'text-gray-400'}`}>
-                                {s === 1 ? 'Prerequisites' : s === 2 ? 'Configure Observability' : 'View Logs'}
+                                {s === 1 ? 'Prerequisites' : s === 2 ? 'Configure Observability' : s === 3 ? 'View Logs' : 'Sync to BQ'}
                             </span>
-                            {s < 3 && <div className="h-[2px] w-16 bg-gray-700"></div>}
+                            {s < 4 && <div className="h-[2px] w-12 bg-gray-700"></div>}
                         </div>
                     ))}
                 </div>
@@ -239,12 +351,107 @@ const AuditLoggingModal: React.FC<AuditLoggingModalProps> = ({ isOpen, onClose, 
                             Access Usage Logs
                         </a>
 
-                        <div className="flex justify-center pt-6 border-t border-gray-700 mt-8">
-                            <button onClick={onClose} className="px-6 py-2 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700">Finish</button>
+                        <div className="flex justify-between pt-6 border-t border-gray-700 mt-8">
+                            <button onClick={onClose} className="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600">Finish</button>
+                            <button onClick={() => setStep(4)} className="px-4 py-2 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700">Setup Log Sync (Optional)</button>
                         </div>
                     </div>
                 )}
+                {/* Step 4: BigQuery Log Sync */}
+                {step === 4 && (
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-white">4. BigQuery Log Sync (Optional)</h3>
+                        <p className="text-sm text-gray-300">
+                            Setup a Logging Sink to automatically stream audit logs to a BigQuery dataset for long-term storage and analytics.
+                        </p>
 
+                        <div className="space-y-4 p-4 bg-gray-900/30 rounded-md border border-gray-700">
+                            <div>
+                                <label htmlFor="datasetId" className="block text-xs font-medium text-gray-400 mb-1">
+                                    BigQuery Dataset
+                                </label>
+                                <div className="flex items-center gap-2">
+                                    {!isCreatingNewDataset ? (
+                                        <>
+                                            <select
+                                                id="datasetIdSelect"
+                                                value={datasetId}
+                                                onChange={(e) => setDatasetId(e.target.value)}
+                                                className="flex-1 bg-gray-700 border-gray-600 rounded text-white text-sm px-3 py-2 focus:outline-none focus:border-blue-500"
+                                                disabled={isSyncing || isLoadingDatasets}
+                                            >
+                                                {isLoadingDatasets ? (
+                                                    <option>Loading datasets...</option>
+                                                ) : availableDatasets.length === 0 ? (
+                                                    <option>No datasets found</option>
+                                                ) : (
+                                                    availableDatasets.map((ds) => (
+                                                        <option key={ds.id} value={ds.datasetReference.datasetId}>
+                                                            {ds.datasetReference.datasetId}
+                                                        </option>
+                                                    ))
+                                                )}
+                                            </select>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setIsCreatingNewDataset(true);
+                                                    setDatasetId('agentspace_audit_logs'); 
+                                                }}
+                                                className="px-3 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 text-sm font-bold"
+                                                title="Create New Dataset"
+                                                disabled={isSyncing}
+                                            >
+                                                +
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <input
+                                                type="text"
+                                                id="datasetId"
+                                                value={datasetId}
+                                                onChange={(e) => setDatasetId(e.target.value)}
+                                                className="flex-1 bg-gray-700 border-gray-600 rounded text-white text-sm px-3 py-2 focus:outline-none focus:border-blue-500"
+                                                placeholder="agentspace_audit_logs"
+                                                disabled={isSyncing}
+                                            />
+                                            {availableDatasets.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setIsCreatingNewDataset(false);
+                                                        setDatasetId(availableDatasets[0].datasetReference.datasetId);
+                                                    }}
+                                                    className="px-3 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 text-sm font-bold"
+                                                    title="Select Existing Dataset"
+                                                    disabled={isSyncing}
+                                                >
+                                                    ✕
+                                                </button>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        <button 
+                            onClick={handleSetupBigQuerySync} 
+                            disabled={isSyncing} 
+                            className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                        >
+                            {isSyncing && <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>}
+                            Setup BigQuery Log Sync
+                        </button>
+
+
+                        <div className="flex justify-between pt-4 border-t border-gray-700 mt-6">
+                            <button onClick={() => setStep(3)} className="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600" disabled={isSyncing}>Back</button>
+                            <button onClick={onClose} className="px-4 py-2 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700" disabled={isSyncing}>Finish</button>
+                        </div>
+                    </div>
+                )}
                 {error && <div className="p-3 bg-red-900/30 text-red-300 text-xs rounded-md border border-red-800 mt-4 whitespace-pre-wrap">{error}</div>}
                 {status && <div className="p-3 bg-blue-900/30 text-blue-300 text-xs rounded-md border border-blue-800 mt-4">{status}</div>}
             </div>

@@ -271,6 +271,35 @@ export const getProjectIamPolicy = async (projectId: string): Promise<any> => {
     });
 };
 
+// --- BigQuery & Logging Sinks ---
+
+export const getDataset = async (projectId: string, datasetId: string): Promise<any> => {
+    const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/${datasetId}`;
+    return gapiRequest<any>(url, 'GET', projectId);
+};
+
+export const updateDatasetAccess = async (projectId: string, datasetId: string, access: any[]): Promise<any> => {
+    const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/${datasetId}`;
+    const body = { access };
+    return gapiRequest<any>(url, 'PATCH', projectId, undefined, body);
+};
+
+export const createLoggingSink = async (projectId: string, sinkName: string, destination: string, filter: string): Promise<any> => {
+    const url = `https://logging.googleapis.com/v2/projects/${projectId}/sinks`;
+    const body = {
+        name: sinkName,
+        destination: destination,
+        filter: filter
+    };
+    const params = { uniqueWriterIdentity: true };
+    return gapiRequest<any>(url, 'POST', projectId, params, body);
+};
+
+export const getLoggingSink = async (projectId: string, sinkName: string): Promise<any> => {
+    const url = `https://logging.googleapis.com/v2/projects/${projectId}/sinks/${sinkName}`;
+    return gapiRequest<any>(url, 'GET', projectId);
+};
+
 
 // --- Discovery Engine Resources ---
 
