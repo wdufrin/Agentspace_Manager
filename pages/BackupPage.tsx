@@ -510,6 +510,17 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       agents.push(...(agentsResponse.agents || []));
       pageToken = agentsResponse.nextPageToken;
     } while (pageToken);
+
+    for (const agent of agents) {
+      try {
+        const policy = await api.getAgentIamPolicy(agent.name, apiConfig);
+        if (policy) {
+          (agent as any).iamPolicy = policy;
+        }
+      } catch (e) {
+        addLog(`  - Warning: Failed to backup IAM policy for agent ${agent.name}: ${(e as any).message}`);
+      }
+    }
     assistant.agents = agents;
     
     const backupData = { type: 'Assistant', createdAt: new Date().toISOString(), sourceConfig: apiConfig, assistant };
@@ -530,6 +541,17 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
       agents.push(...(agentsResponse.agents || []));
       pageToken = agentsResponse.nextPageToken;
     } while (pageToken);
+
+    for (const agent of agents) {
+      try {
+        const policy = await api.getAgentIamPolicy(agent.name, apiConfig);
+        if (policy) {
+          (agent as any).iamPolicy = policy;
+        }
+      } catch (e) {
+        addLog(`  - Warning: Failed to backup IAM policy for agent ${agent.name}: ${(e as any).message}`);
+      }
+    }
     
     const backupData = { type: 'Agents', createdAt: new Date().toISOString(), sourceConfig: apiConfig, agents };
     await uploadBackupToGcs(backupData, `agentspace-agents-${apiConfig.assistantId}-backup`);
@@ -947,6 +969,17 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
         const newAgent = await api.createAgent(createPayload, restoreConfig);
         const newAgentId = newAgent.name.split('/').pop()!;
         addLog(`      - CREATED: Agent '${agent.displayName}' created successfully with new ID '${newAgentId}'.`);
+        
+        if ((agent as any).iamPolicy && (agent as any).iamPolicy.bindings) {
+          try {
+            addLog(`      - Restoring IAM policy bindings for new agent: ${newAgentId}...`);
+            const payloadPolicy = { bindings: (agent as any).iamPolicy.bindings };
+            await api.setAgentIamPolicy(newAgent.name, payloadPolicy, restoreConfig);
+            addLog(`      - IAM policy successfully restored for agent: ${newAgentId}`);
+          } catch (iamErr: any) {
+            addLog(`      - WARNING: Failed to apply IAM policy snapshot for agent ${newAgentId}: ${iamErr.message}`);
+          }
+        }
       } catch (err: any) {
         if (err.message && err.message.includes("is used by another agent")) {
           addLog(`      - WARNING: Authorization is in use. Attempting to create a new one.`);
@@ -994,6 +1027,17 @@ const BackupPage: React.FC<BackupPageProps> = ({ accessToken, projectNumber, set
             const newAgent = await api.createAgent(createPayload, restoreConfig);
             const newAgentId = newAgent.name.split('/').pop()!;
             addLog(`      - CREATED: Agent '${agent.displayName}' created successfully with new ID '${newAgentId}' and new authorization.`);
+            
+            if ((agent as any).iamPolicy && (agent as any).iamPolicy.bindings) {
+              try {
+                addLog(`      - Restoring IAM policy bindings for new agent: ${newAgentId}...`);
+                const payloadPolicy = { bindings: (agent as any).iamPolicy.bindings };
+                await api.setAgentIamPolicy(newAgent.name, payloadPolicy, restoreConfig);
+                addLog(`      - IAM policy successfully restored for agent: ${newAgentId}`);
+              } catch (iamErr: any) {
+                addLog(`      - WARNING: Failed to apply IAM policy snapshot for agent ${newAgentId}: ${iamErr.message}`);
+              }
+            }
 
           } catch (recoveryErr: any) {
             addLog(`      - ERROR: Failed during authorization recovery process: ${recoveryErr.message}. Skipping agent.`);
