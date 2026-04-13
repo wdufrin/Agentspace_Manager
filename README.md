@@ -146,7 +146,11 @@ The application communicates with several Google Cloud APIs. Below is a referenc
 *   **Buckets**: `GET /storage/v1/b?project={project}` (Used for backup/restore and deployments)
 *   **Objects**: `GET /storage/v1/b/{bucket}/o` 
 
-### Dialogflow API (`dialogflow.googleapis.com`)
+### Compute Engine API (\`compute.googleapis.com\`)
+*   **Global Forwarding Rules**: \`GET /compute/v1/projects/{project}/global/forwardingRules\` (Redirect URLs)
+*   **Global Managed SSL Certificates**: \`GET /compute/v1/projects/{project}/global/sslCertificates\` (Redirect URLs)
+
+### Dialogflow API (\`dialogflow.googleapis.com\`)
 *   **Agents**: `GET /v3/projects/{project}/locations/{location}/agents`
 
 ### BigQuery API (`bigquery.googleapis.com`)
@@ -161,9 +165,12 @@ The application communicates with several Google Cloud APIs. Below is a referenc
 *   **Services**: `GET /v1/projects/{project}/services` (Used to validate enabled APIs on startup)
 
 ### IAM API (`iam.googleapis.com`)
-*   **Permissions**: `POST /v1/projects/{project}:testIamPermissions` (Used to check service account permissions)
+*   **Permissions**: \`POST /v1/projects/{project}:testIamPermissions\` (Used to check service account permissions)
 
-### Cloud Logging API (`logging.googleapis.com`)
+### Cloud Monitoring API (\`monitoring.googleapis.com\`)
+*   **Usage Metrics (TimeSeries)**: \`GET /v3/projects/{project}/timeSeries\` (Quota Usage)
+
+### Cloud Logging API (\`logging.googleapis.com\`)
 *   **Logs**: `POST /v2/entries:list` (Used to query Model Armor violations and Connector logs)
 
 ### Model Armor API (`modelarmor.googleapis.com`)
