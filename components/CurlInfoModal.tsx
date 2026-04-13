@@ -414,6 +414,80 @@ const ALL_INFO: { [key: string]: { description: string; commands: { title: strin
       }
     ]
   },
+  [Page.VANITY_URLS]: {
+    description: "These are the underlying REST API calls for managing Redirect URLs (Global Forwarding Rules and Managed SSL Certificates).",
+    commands: [
+      {
+        title: 'List Global Forwarding Rules',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://compute.googleapis.com/compute/v1/projects/[YOUR_PROJECT_ID]/global/forwardingRules"`
+      },
+      {
+        title: 'List Managed SSL Certificates',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://compute.googleapis.com/compute/v1/projects/[YOUR_PROJECT_ID]/global/sslCertificates"`
+      },
+      {
+        title: 'Dismantle Redirect URL Infrastructure (Cloud Build)',
+        command: `curl -X POST \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  -d '{
+        "steps": [
+          {
+            "name": "gcr.io/google.com/cloudsdktool/cloud-sdk",
+            "entrypoint": "bash",
+            "args": [
+              "-c",
+              "echo Dismantling... && gcloud compute forwarding-rules delete [SERVICE_NAME]-fwd-rule --global --quiet"
+            ]
+          }
+        ]
+      }' \\
+  "https://cloudbuild.googleapis.com/v1/projects/[YOUR_PROJECT_ID]/builds"`
+      }
+    ]
+  },
+  [Page.GE_QUOTA_USAGE]: {
+    description: "These are the underlying REST API calls for fetching Gemini Enterprise pooled quota configurations, localized project licenses, and live usage metrics via Google Cloud Monitoring.",
+    commands: [
+      {
+        title: 'List Billing Accounts',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  "https://cloudbilling.googleapis.com/v1/billingAccounts"`
+      },
+      {
+        title: 'List Billing Account Subscription Profiles',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/billingAccounts/[BILLING_ACCOUNT_ID]/billingAccountLicenseConfigs"`
+      },
+      {
+        title: 'List Project Local License Usage Stats',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/licenseConfigUsageStats"`
+      },
+      {
+        title: 'Get Local License Configuration Details',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/global/licenseConfigs/[LICENSE_CONFIG_ID]"`
+      },
+      {
+        title: 'Fetch Live Usage Metrics (Cloud Monitoring)',
+        command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  "https://monitoring.googleapis.com/v3/projects/[YOUR_PROJECT_ID]/timeSeries?filter=metric.type%3D%22discoveryengine.googleapis.com%2Fquota%2F[METRIC_SUFFIX]%2Fusage%22%20AND%20resource.type%3D%22discoveryengine.googleapis.com%2FLocation%22&interval.startTime=[START_TIME]&interval.endTime=[END_TIME]"`
+      }
+    ]
+  },
 
     [Page.CHAT]: {
       description: "This encompasses the REST API calls for interacting with a Gemini Enterprise assistant, including managing sessions and streaming responses.",
@@ -732,13 +806,104 @@ curl -X GET \\
   "https://[LOCATION]-aiplatform.googleapis.com/v1beta1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/reasoningEngines"`
             },
             {
+                title: 'List Cloud Run Services (Per-Region)',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-run.googleapis.com/v2/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/services"`
+            },
+            {
                 title: 'List Discovery Engines (Per-Location)',
                 command: `# The scan iterates over discovery locations like global, us, eu.
-# Then it recursively lists assistants and agents found within each engine.
 curl -X GET \\
   -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
   -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
   "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[DISCOVERY_LOCATION]/collections/default_collection/engines"`
+            },
+            {
+                title: 'List Data Stores (Per-Collection)',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[DISCOVERY_LOCATION]/collections/default_collection/dataStores"`
+            },
+            {
+                title: 'List Assistants (Per-Engine)',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[DISCOVERY_LOCATION]/collections/default_collection/engines/[ENGINE_ID]/assistants"`
+            },
+            {
+                title: 'List Agents (Per-Assistant)',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[DISCOVERY_LOCATION]/collections/default_collection/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents"`
+            },
+            {
+                title: 'Get Agent View (For Dependencies)',
+                command: `# After finding an agent, its 'view' is fetched to find linked Data Stores.
+curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/[FULL_AGENT_RESOURCE_NAME]:getAgentView"`
+            },
+        ]
+    },
+    [Page.ARCHITECTURE]: {
+      description: "The architecture scan performs a series of 'list' operations across multiple regions and resource types to discover all connected components. It starts by listing global resources like Authorizations, then scans all regions for Agent Engines, and finally explores Discovery Engine locations to find Engines, Assistants, and Agents recursively.",
+        commands: [
+            {
+                title: 'List Authorizations (Global)',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/global/authorizations"`
+            },
+            {
+              title: 'List Agent Engines (Per-Region)',
+                command: `# The scan iterates over locations like us-central1, europe-west1, etc.
+curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-aiplatform.googleapis.com/v1beta1/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/reasoningEngines"`
+            },
+            {
+                title: 'List Cloud Run Services (Per-Region)',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[LOCATION]-run.googleapis.com/v2/projects/[YOUR_PROJECT_ID]/locations/[LOCATION]/services"`
+            },
+            {
+                title: 'List Discovery Engines (Per-Location)',
+                command: `# The scan iterates over discovery locations like global, us, eu.
+curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[DISCOVERY_LOCATION]/collections/default_collection/engines"`
+            },
+            {
+                title: 'List Data Stores (Per-Collection)',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[DISCOVERY_LOCATION]/collections/default_collection/dataStores"`
+            },
+            {
+                title: 'List Assistants (Per-Engine)',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[DISCOVERY_LOCATION]/collections/default_collection/engines/[ENGINE_ID]/assistants"`
+            },
+            {
+                title: 'List Agents (Per-Assistant)',
+                command: `curl -X GET \\
+  -H "Authorization: Bearer [YOUR_ACCESS_TOKEN]" \\
+  -H "X-Goog-User-Project: [YOUR_PROJECT_ID]" \\
+  "https://[DISCOVERY_LOCATION]-discoveryengine.googleapis.com/v1alpha/projects/[YOUR_PROJECT_ID]/locations/[DISCOVERY_LOCATION]/collections/default_collection/engines/[ENGINE_ID]/assistants/[ASSISTANT_ID]/agents"`
             },
             {
                 title: 'Get Agent View (For Dependencies)',
