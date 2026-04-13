@@ -52,6 +52,22 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({ agents, c
     }
   };
 
+  const handleDownloadAgentConfig = async (agent: Agent) => {
+    try {
+      const fullAgent = await api.getAgent(agent.name, config);
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(fullAgent, null, 2));
+      const downloadAnchorNode = document.createElement('a');
+      downloadAnchorNode.setAttribute("href",     dataStr);
+      downloadAnchorNode.setAttribute("download", `${fullAgent.displayName.toLowerCase().replace(/\\s+/g, '_')}_config.json`);
+      document.body.appendChild(downloadAnchorNode);
+      downloadAnchorNode.click();
+      downloadAnchorNode.remove();
+    } catch (e) {
+      console.error("Failed to download agent config", e);
+      alert("Failed to download agent configuration.");
+    }
+  };
+
   return (
     <div className="bg-gray-800 shadow-xl rounded-lg overflow-hidden flex flex-col">
       <div className="p-4 border-b border-gray-700">
@@ -68,6 +84,7 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({ agents, c
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Status</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Agent Type</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Agent ID</th>
+                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-gray-800 divide-y divide-gray-700">
@@ -119,6 +136,15 @@ const AgentListForAssistant: React.FC<AgentListForAssistantProps> = ({ agents, c
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{agent.agentType || 'N/A'}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">{agentId}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <button 
+                        onClick={() => handleDownloadAgentConfig(agent)} 
+                        className="text-blue-400 hover:text-blue-300 font-semibold"
+                        title="Download JSON Configuration"
+                      >
+                        Download
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
