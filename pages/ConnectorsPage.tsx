@@ -264,6 +264,41 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({ projectNumber, setProje
         }
     };
 
+    const handleOpenDetails = async (collection: Collection) => {
+        const collectionId = collection.name.split('/').pop() || 'default_collection';
+        const result = validationResults[collection.name];
+
+        if (result && result.dataConnector) {
+            setSelectedResult({
+                result,
+                title: `Connector Details: ${collectionId}`
+            });
+            return;
+        }
+
+        const collectionConfig = { ...config, collectionId: collectionId };
+        try {
+            const connector = await api.getDataConnector(collectionConfig);
+            const mockResult: ValidationResult = {
+                status: 'success',
+                message: 'Configuration Loaded',
+                dataConnector: connector,
+                details: {
+                    summary: 'Configuration Loaded',
+                    connectorState: connector,
+                    diagnostics: { steps: [] }
+                }
+            };
+            setSelectedResult({
+                result: mockResult,
+                title: `Connector Details: ${collectionId}`
+            });
+        } catch (err: any) {
+            console.error("Failed to fetch connector config:", err);
+            setError(err.message || "Failed to fetch connector configuration.");
+        }
+    };
+
     const handleBulkDiagnostics = async () => {
         setIsBulkScanning(true);
         // We use Promise.all to run them concurrently. 
@@ -426,6 +461,12 @@ const ConnectorsPage: React.FC<ConnectorsPageProps> = ({ projectNumber, setProje
                                                     className="text-blue-400 hover:text-blue-300 font-semibold text-xs border border-blue-500/30 px-3 py-1.5 rounded hover:bg-blue-500/10 transition-colors"
                                                 >
                                                     Run Diagnostics
+                                                </button>
+                                                <button
+                                                    onClick={() => handleOpenDetails(collection)}
+                                                    className="text-gray-300 hover:text-white font-semibold text-xs border border-gray-600 px-3 py-1.5 rounded hover:bg-gray-700 transition-colors ml-2"
+                                                >
+                                                    Details
                                                 </button>
                                             </td>
                                         </tr>
