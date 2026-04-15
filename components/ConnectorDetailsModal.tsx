@@ -272,79 +272,81 @@ const ConnectorDetailsModal: React.FC<ConnectorDetailsModalProps> = ({
               <div className="bg-gray-900/50 p-4 rounded border border-gray-700">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider">Configuration JSON</h3>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        alert(`To get a refresh token for Jira:
+                  {connectorState?.dataSource && ['jira', 'confluence', 'sharepoint', 'onedrive', 'ms-onedrive', 'outlook', 'ms-outlook', 'entraid', 'entra'].includes(connectorState.dataSource) && (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          alert(`To get a refresh token for Jira:
 1. Enable 'offline_access' scope in Atlassian Developer Console.
 2. Visit the authorization URL to get a code.
 3. Exchange the code for tokens via curl.
 
 See docs/Connectors_Auth_Guide.md in your workspace for full instructions.`);
-                      }}
-                      className="px-3 py-1.5 bg-gray-600 text-white text-xs font-semibold rounded hover:bg-gray-700 transition-colors flex items-center gap-1"
-                    >
-                      Token Help
-                    </button>
-                    <button
-                      onClick={() => {
-                        const collectionId = title.split(': ').pop() || 'default_collection';
-                        const location = connectorState?.name?.split('/')[3] || 'global';
-                        const host = location === 'global' ? 'discoveryengine.googleapis.com' : `${location}-discoveryengine.googleapis.com`;
-                        
-                        const cleanEntities = connectorState.entities?.map((e: any) => {
-                          const { dataStore, ...rest } = e;
-                          return rest;
-                        }) || [];
+                        }}
+                        className="px-3 py-1.5 bg-gray-600 text-white text-xs font-semibold rounded hover:bg-gray-700 transition-colors flex items-center gap-1"
+                      >
+                        Token Help
+                      </button>
+                      <button
+                        onClick={() => {
+                          const collectionId = title.split(': ').pop() || 'default_collection';
+                          const location = connectorState?.name?.split('/')[3] || 'global';
+                          const host = location === 'global' ? 'discoveryengine.googleapis.com' : `${location}-discoveryengine.googleapis.com`;
+                          
+                          const cleanEntities = connectorState.entities?.map((e: any) => {
+                            const { dataStore, ...rest } = e;
+                            return rest;
+                          }) || [];
 
-                        const dataConnectorTemplate = {
-                          dataSource: connectorState.dataSource,
-                          params: {
-                            ...connectorState.params,
-                            client_id: "[YOUR_CLIENT_ID]",
-                            client_secret: "[YOUR_CLIENT_SECRET]",
-                            refresh_token: (connectorState.dataSource === 'sharepoint' || connectorState.dataSource === 'jira') ? "[YOUR_REFRESH_TOKEN]" : undefined
-                          },
-                          entities: cleanEntities,
-                          refreshInterval: connectorState.refreshInterval,
-                          connectorType: connectorState.connectorType,
-                          connectorModes: connectorState.connectorModes,
-                          actionConfig: connectorState.actionConfig ? {
-                            ...connectorState.actionConfig,
-                            actionParams: {
-                              ...connectorState.actionConfig.actionParams,
+                          const dataConnectorTemplate = {
+                            dataSource: connectorState.dataSource,
+                            params: {
+                              ...connectorState.params,
                               client_id: "[YOUR_CLIENT_ID]",
                               client_secret: "[YOUR_CLIENT_SECRET]",
-                              tenant_id: connectorState.dataSource === 'sharepoint' ? "[YOUR_TENANT_ID]" : undefined,
-                              instance_id: connectorState.dataSource === 'jira' ? "[YOUR_INSTANCE_ID]" : undefined
-                            }
-                          } : undefined,
-                          bapConfig: connectorState.bapConfig,
-                          destinationConfigs: connectorState.destinationConfigs
-                        };
+                              refresh_token: (connectorState.dataSource === 'sharepoint' || connectorState.dataSource === 'jira') ? "[YOUR_REFRESH_TOKEN]" : undefined
+                            },
+                            entities: cleanEntities,
+                            refreshInterval: connectorState.refreshInterval,
+                            connectorType: connectorState.connectorType,
+                            connectorModes: connectorState.connectorModes,
+                            actionConfig: connectorState.actionConfig ? {
+                              ...connectorState.actionConfig,
+                              actionParams: {
+                                ...connectorState.actionConfig.actionParams,
+                                client_id: "[YOUR_CLIENT_ID]",
+                                client_secret: "[YOUR_CLIENT_SECRET]",
+                                tenant_id: connectorState.dataSource === 'sharepoint' ? "[YOUR_TENANT_ID]" : undefined,
+                                instance_id: connectorState.dataSource === 'jira' ? "[YOUR_INSTANCE_ID]" : undefined
+                              }
+                            } : undefined,
+                            bapConfig: connectorState.bapConfig,
+                            destinationConfigs: connectorState.destinationConfigs
+                          };
 
-                        const fullPayload = {
-                          collectionId: `${collectionId}-clone`,
-                          collectionDisplayName: `Cloned ${collectionId}`,
-                          dataConnector: dataConnectorTemplate
-                        };
+                          const fullPayload = {
+                            collectionId: `${collectionId}-clone`,
+                            collectionDisplayName: `Cloned ${collectionId}`,
+                            dataConnector: dataConnectorTemplate
+                          };
 
-                        const curl = `curl -X POST \\
-    -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
-    -H "Content-Type: application/json" \\
-    -H "X-Goog-User-Project: PROJECT_ID" \\
-    "https://${host}/v1alpha/projects/PROJECT_ID/locations/${location}:setUpDataConnector" \\
-    -d '${JSON.stringify(fullPayload, null, 2).replace(/'/g, "'\\''")}'`;
-                        
-                        navigator.clipboard.writeText(curl);
-                        alert('cURL command copied to clipboard!');
-                      }}
-                      className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-700 transition-colors flex items-center gap-1"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-2M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-6 9h6m-6 4h6" /></svg>
-                      Copy cURL
-                    </button>
-                  </div>
+                          const curl = `curl -X POST \\
+      -H "Authorization: Bearer $(gcloud auth print-access-token)" \\
+      -H "Content-Type: application/json" \\
+      -H "X-Goog-User-Project: PROJECT_ID" \\
+      "https://${host}/v1alpha/projects/PROJECT_ID/locations/${location}:setUpDataConnector" \\
+      -d '${JSON.stringify(fullPayload, null, 2).replace(/'/g, "'\\''")}'`;
+                          
+                          navigator.clipboard.writeText(curl);
+                          alert('cURL command copied to clipboard!');
+                        }}
+                        className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-700 transition-colors flex items-center gap-1"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-2M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-6 9h6m-6 4h6" /></svg>
+                        Copy cURL
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <pre className="text-xs bg-gray-950 p-4 rounded overflow-x-auto border border-gray-800 text-gray-300 font-mono">
                   {JSON.stringify(connectorState, null, 2)}
