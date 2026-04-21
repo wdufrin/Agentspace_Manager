@@ -1,0 +1,241 @@
+import os
+import json
+import time
+import traceback
+from datetime import datetime, timezone
+from flask import Flask, request, jsonify
+import google.auth
+from google.auth.transport.requests import AuthorizedSession
+
+print("Container starting...") 
+
+app = Flask(__name__)
+
+PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
+LOCATION = os.environ.get("LOCATION", "global") 
+USER_STORE_ID = os.environ.get("USER_STORE_ID", "default_user_store")
+JOB_TYPE = os.environ.get("JOB_TYPE", "adder") # 'adder' or 'cleanup'
+PROJECT_NUMBER = os.environ.get("PROJECT_NUMBER")
+
+# Precedence Ranking (Highest to Lowest)
+PRECEDENCE = [
+    "internal_gemini_ent_plus",
+    "SUBSCRIPTION_TIER_SEARCH_AND_ASSISTANT",
+    "SUBSCRIPTION_TIER_ENTERPRISE",
+    "SUBSCRIPTION_TIER_SEARCH",
+    "SUBSCRIPTION_TIER_NOTEBOOK_LM",
+    "SUBSCRIPTION_TIER_AGENTSPACE_BUSINESS",
+    "SUBSCRIPTION_TIER_AGENTSPACE_STARTER",
+    "SUBSCRIPTION_TIER_FRONTLINE_WORKER",
+    "SUBSCRIPTION_TIER_FRONTLINE_STARTER",
+    "SUBSCRIPTION_TIER_ENTERPRISE_EMERGING",
+    "SUBSCRIPTION_TIER_EDU_PRO",
+    "SUBSCRIPTION_TIER_EDU",
+    "SUBSCRIPTION_TIER_EDU_PRO_EMERGING",
+    "SUBSCRIPTION_TIER_EDU_EMERGING"
+]
+
+def load_config(session):
+    gcs_uri = os.environ.get("CONFIG_GCS_URI")
+    if not gcs_uri:
+        raise Exception("CONFIG_GCS_URI environment variable is missing.")
+    if not gcs_uri.startswith("gs://"):
+        raise Exception("Invalid GCS URI. Must start with gs://")
+    parts = gcs_uri[5:].split("/", 1)
+    bucket = parts[0]
+    obj = parts[1] if len(parts) > 1 else ""
+    import urllib.parse
+    url = f"https://storage.googleapis.com/storage/v1/b/{bucket}/o/{urllib.parse.quote(obj, safe='')}?alt=media"
+    resp = session.get(url)
+    if resp.status_code != 200:
+        raise Exception(f"Failed to read config from GCS: {resp.text}")
+    return resp.json()
+
+def list_group_members(session, group_email):
+    url = f"https://admin.googleapis.com/admin/directory/v1/groups/{group_email}/members"
+    members = []
+    next_page_token = None
+    while True:
+        full_url = url
+        if next_page_token:
+            full_url += f"?pageToken={next_page_token}"
+        resp = session.get(full_url)
+        if resp.status_code != 200:
+            print(f"Error listing members for {group_email}: {resp.text}")
+            break
+        data = resp.json()
+        print(f"Fetched raw members data: {data}")
+        members.extend(data.get("members", []))
+        next_page_token = data.get("nextPageToken")
+        if not next_page_token:
+            break
+    emails = [m["email"] for m in members if "email" in m]
+    print(f"Resolved emails for {group_email}: {emails}")
+    return emails
+
+def has_member(session, group_email, user_email):
+    url = f"https://admin.googleapis.com/admin/directory/v1/groups/{group_email}/hasMember/{user_email}"
+    resp = session.get(url)
+    if resp.status_code == 200:
+        return resp.json().get("isMember", False)
+    return False
+
+def batch_update_licenses(session, base_url, parent, updates):
+    """Updates licenses in batches of up to 100"""
+    url = f"{base_url}/{parent}:batchUpdateUserLicenses"
+    
+    # Chunk updates into batches of 100
+    for i in range(0, len(updates), 100):
+        batch = updates[i:i+100]
+        payload = {
+            "inlineSource": {
+                "userLicenses": batch
+            }
+        }
+        resp = session.post(url, json=payload)
+        if resp.status_code not in [200, 201]:
+            print(f"Failed to update batch: {resp.text}")
+        else:
+            print(f"Successfully updated batch of {len(batch)} users.")
+
+def get_highest_tier(tiers):
+    for t in PRECEDENCE:
+        if t in tiers:
+            return t
+    return None
+
+def run_adder(session, base_url, parent, config):
+    print("Running Joiner workflow...")
+    projects_config = config.get("projects", {})
+    
+    # Map user -> set of eligible tiers
+    user_entitlements = {}
+    
+    for proj_id, entitlements in projects_config.items():
+        if proj_id != PROJECT_ID:
+            continue # Sharding or project filtering
+            
+        for ent in entitlements:
+            tier = ent.get("subscription_tier")
+            groups = ent.get("groups", [])
+            
+            for group in groups:
+                print(f"Listing members for group: {group}")
+                members = list_group_members(session, group)
+                for member in members:
+                    if member not in user_entitlements:
+                        user_entitlements[member] = set()
+                    user_entitlements[member].add(tier)
+                    
+    updates = []
+    for user, tiers in user_entitlements.items():
+        highest_tier = get_highest_tier(tiers)
+        if highest_tier:
+            license_config = f"projects/{PROJECT_NUMBER}/locations/{LOCATION}/licenseConfigs/{highest_tier}"
+            updates.append({
+                "userPrincipal": user,
+                "licenseConfig": license_config
+            })
+            
+    if updates:
+        print(f"Applying {len(updates)} license assignments...")
+        batch_update_licenses(session, base_url, parent, updates)
+    else:
+        print("No assignments to make.")
+
+def run_cleanup(session, base_url, parent, config):
+    print("Running Garbage Collection workflow...")
+    # 1. List all licensed users
+    url = f"{base_url}/{parent}/userLicenses"
+    licensed_users = []
+    next_page_token = None
+    while True:
+        full_url = url
+        if next_page_token:
+            full_url += f"?pageToken={next_page_token}"
+        resp = session.get(full_url)
+        if resp.status_code != 200:
+            print(f"Failed to list user licenses: {resp.text}")
+            break
+        data = resp.json()
+        licensed_users.extend(data.get("userLicenses", []))
+        next_page_token = data.get("nextPageToken")
+        if not next_page_token:
+            break
+            
+    # 2. Check entitlement for each user
+    projects_config = config.get("projects", {})
+    entitled_groups = []
+    for proj_id, entitlements in projects_config.items():
+        if proj_id != PROJECT_ID:
+            continue
+        for ent in entitlements:
+            entitled_groups.extend(ent.get("groups", []))
+            
+    updates = []
+    for ul in licensed_users:
+        user = ul.get("userPrincipal")
+        current_config = ul.get("licenseConfig")
+        
+        # Check if user is in ANY entitled group
+        is_entitled = False
+        for group in entitled_groups:
+            if has_member(session, group, user):
+                is_entitled = True
+                break
+                
+        if not is_entitled:
+            print(f"User {user} is no longer entitled. Revoking license.")
+            updates.append({
+                "userPrincipal": user,
+                "licenseConfig": "" # Empty means revoke or NO_LICENSE depending on API
+                # TDD says: "batchUpdateUserLicenses to revoke the license"
+                # Usually setting licenseConfig to empty or a specific revoke value.
+                # Let's assume empty string or omit it if the API deletes it.
+                # TDD says: "deleteUnassignedUserLicenses: false" in revokeUserLicenses example in apiService.ts!
+                # Let's look at revokeUserLicenses in apiService.ts (line 1700 approx):
+                # userLicenses: userPrincipals.map(p => ({ userPrincipal: p }))
+                # It omits licenseConfig!
+            })
+            
+    if updates:
+        print(f"Applying {len(updates)} license revocations...")
+        batch_update_licenses(session, base_url, parent, updates)
+    else:
+        print("No revocations to make.")
+
+@app.route("/", methods=["POST"])
+def handle_trigger():
+    try:
+        scopes = [
+            'https://www.googleapis.com/auth/cloud-platform',
+            'https://www.googleapis.com/auth/admin.directory.group.member.readonly'
+        ]
+        credentials, project = google.auth.default(scopes=scopes)
+        authed_session = AuthorizedSession(credentials)
+        authed_session.headers.update({"X-Goog-User-Project": str(PROJECT_ID)})
+        
+        config = load_config(authed_session)
+        
+        v1_base = "https://discoveryengine.googleapis.com/v1"
+        if LOCATION != "global":
+            v1_base = f"https://{LOCATION}-discoveryengine.googleapis.com/v1"
+            
+        parent = f"projects/{PROJECT_ID}/locations/{LOCATION}/userStores/{USER_STORE_ID}"
+
+        if JOB_TYPE == "adder":
+            run_adder(authed_session, v1_base, parent, config)
+        elif JOB_TYPE == "cleanup":
+            run_cleanup(authed_session, v1_base, parent, config)
+        else:
+            return jsonify({"status": "error", "message": f"Unknown JOB_TYPE: {JOB_TYPE}"}), 400
+
+        return jsonify({"status": "success", "message": f"Job {JOB_TYPE} completed."}), 200
+
+    except Exception as e:
+        print(f"FATAL ERROR: {e}")
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

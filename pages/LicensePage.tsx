@@ -27,6 +27,7 @@ import PrunerDeploymentModal from '../components/license/PrunerDeploymentModal';
 import CloudConsoleButton from '../components/CloudConsoleButton';
 import DistributeLicenseModal from '../components/license/DistributeLicenseModal';
 import RetractLicenseModal from '../components/license/RetractLicenseModal';
+import GroupLicenseDeploymentModal from '../components/license/GroupLicenseDeploymentModal';
 
 interface LicensePageProps {
   projectNumber: string;
@@ -63,6 +64,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
   const [jsonModalData, setJsonModalData] = useState<any | null>(null);
   const [isPruneModalOpen, setIsPruneModalOpen] = useState(false);
   const [isDeploymentModalOpen, setIsDeploymentModalOpen] = useState(false);
+  const [isGroupDeploymentModalOpen, setIsGroupDeploymentModalOpen] = useState(false);
   
   // Single Delete State
   const [licenseToDelete, setLicenseToDelete] = useState<any | null>(null);
@@ -85,7 +87,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
   const [inputDateValue, setInputDateValue] = useState<string>('');
 
     // --- Billing Account State ---
-    const [activeTab, setActiveTab] = useState<'user_licenses' | 'allocations'>('user_licenses');
+    const [activeTab, setActiveTab] = useState<'user_licenses' | 'allocations' | 'group_assignments'>('user_licenses');
     const [billingAccountId, setBillingAccountId] = useState('');
     const [billingConfigs, setBillingConfigs] = useState<any[]>([]);
     const [isBillingLoading, setIsBillingLoading] = useState(false);
@@ -113,6 +115,13 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
     const [bulkActionConfig, setBulkActionConfig] = useState<string>('');
     const [isBulkActionLoading, setIsBulkActionLoading] = useState(false);
 
+    // Cloud Run Services State for Group Assignments
+    const [groupServices, setGroupServices] = useState<any[]>([]);
+    const [isServicesLoading, setIsServicesLoading] = useState(false);
+    const [servicesError, setServicesError] = useState<string | null>(null);
+    const [selectedServiceForEdit, setSelectedServiceForEdit] = useState<any | null>(null);
+    const [lastRunTimes, setLastRunTimes] = useState<Record<string, string>>({});
+
   // --- Auto Fetch Data ---
   useEffect(() => {
       if (projectNumber) {
@@ -120,6 +129,110 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
           fetchApiLicenseConfigs();
       }
   }, [projectNumber, apiConfig.appLocation, apiConfig.userStoreId]);
+
+  const fetchGroupServices = async () => {
+      if (!projectNumber) return;
+      setIsServicesLoading(true);
+      setServicesError(null);
+      try {
+          const config: Config = {
+              projectId: projectNumber,
+              appLocation: apiConfig.appLocation,
+              collectionId: '', appId: '', assistantId: ''
+          } as any;
+          
+          const region = 'us-central1'; 
+          const res = await api.listCloudRunServices(config, region);
+          const items = res.services || [];
+          
+          const filtered = items.filter((s: any) => {
+              const name = s.name || '';
+              const parts = name.split('/');
+              const id = parts[parts.length - 1];
+              return id.startsWith('group-licensing-');
+          });
+          setGroupServices(filtered);
+          
+          // Fetch last run logs for filtered services
+          filtered.forEach(async (service: any) => {
+              const name = service.name || '';
+              const parts = name.split('/');
+              const id = parts[parts.length - 1];
+              try {
+                  const logRes = await api.fetchLastRunLog(config, id);
+                  const entries = logRes.entries || [];
+                  if (entries.length > 0) {
+                      const timestamp = entries[0].timestamp;
+                      setLastRunTimes(prev => ({ ...prev, [id]: timestamp }));
+                  }
+              } catch (e) {
+                  console.error("Failed to fetch last run log for", id, e);
+              }
+          });
+      } catch (e: any) {
+          console.error("Failed to fetch group services", e);
+          setServicesError("Failed to fetch group services: " + e.message);
+      } finally {
+          setIsServicesLoading(false);
+      }
+  };
+
+  useEffect(() => {
+      if (activeTab === 'group_assignments' && projectNumber) {
+          fetchGroupServices();
+      }
+  }, [activeTab, projectNumber]);
+
+  const handleEditService = async (service: any) => {
+      console.log("handleEditService called for", service.name);
+      const containers = service.template?.containers || [];
+      if (containers.length > 0) {
+          const env = containers[0].env || [];
+          const configGcsUriEnv = env.find((e: any) => e.name === 'CONFIG_GCS_URI');
+          console.log("CONFIG_GCS_URI env var:", configGcsUriEnv);
+          if (configGcsUriEnv && configGcsUriEnv.value) {
+              const gcsUri = configGcsUriEnv.value;
+              console.log("gcsUri value:", gcsUri);
+              if (gcsUri.startsWith("gs://")) {
+                  const parts = gcsUri.substring(5).split('/');
+                  const bucket = parts[0];
+                  const objectName = parts.slice(1).join('/');
+                  console.log("Parsing GCS URI - Bucket:", bucket, "Object:", objectName);
+                  
+                  try {
+                      console.log("Fetching config from GCS...");
+                      const content = await api.getGcsObjectContent(bucket, objectName, projectNumber);
+                      console.log("Fetched config content:", content);
+                      const parsedConfig = JSON.parse(content);
+                      setSelectedServiceForEdit(parsedConfig);
+                      setIsGroupDeploymentModalOpen(true);
+                  } catch (e) {
+                      console.error("Failed to fetch or parse config from GCS", e);
+                      alert("Failed to fetch or parse config from GCS.");
+                  }
+              } else {
+                  alert("Invalid CONFIG_GCS_URI in service: \"" + gcsUri + "\". It must start with \"gs://\".");
+              }
+          } else {
+              alert("No CONFIG_GCS_URI found in service environment variables.");
+          }
+      } else {
+          console.warn("No containers found in service template.");
+      }
+  };
+
+  const handleRunService = async (serviceUrl: string, projectId: string) => {
+      if (!serviceUrl) {
+          alert("Service URL is not available.");
+          return;
+      }
+      try {
+          const resp = await api.gapiRequest<any>(serviceUrl, 'POST', projectId);
+          alert(`Success: ${resp.message || 'Job triggered.'}`);
+      } catch (err: any) {
+          alert(`Error triggering service: ${err.message}`);
+      }
+  };
 
   // --- Cloud License Logic ---
   const handleApiConfigChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
@@ -784,6 +897,15 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                   >
                       Allocation Management (Billing Account)
                   </button>
+                  <button
+                      onClick={() => setActiveTab('group_assignments')}
+                      className={`${activeTab === 'group_assignments'
+                          ? 'border-blue-500 text-blue-400'
+                          : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+                          } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-150`}
+                  >
+                      Group License Assignments
+                  </button>
                   <div className="flex-grow"></div>
                   <div className="py-2">
                   </div>
@@ -1092,7 +1214,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
         )}
       </div>
               </>
-          ) : (
+          ) : activeTab === 'allocations' ? (
               /* --- Allocation Management View --- */
               <div className="space-y-6">
                   <div className="bg-gray-800 p-6 rounded-lg shadow-md border border-gray-700">
@@ -1250,6 +1372,117 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
                       !isBillingLoading && billingAccountId && <div className="text-center p-8 bg-gray-800 rounded-lg border border-gray-700 text-gray-400">No configs found for this billing account.</div>
                   )}
               </div>
+          ) : (
+              /* --- Group Assignments View --- */
+              <div className="space-y-6">
+                  <div className="bg-gray-800 p-6 rounded-lg shadow-md border border-gray-700">
+                      <div className="flex justify-between items-center mb-4">
+                          <div>
+                              <h3 className="text-lg font-semibold text-white">Group License Assignments</h3>
+                              <p className="text-gray-400 text-sm">Configure and deploy services to automate license assignment based on group membership.</p>
+                          </div>
+                          <button
+                              onClick={() => {
+                                  setSelectedServiceForEdit(null);
+                                  setIsGroupDeploymentModalOpen(true);
+                              }}
+                              className="px-4 py-2 bg-blue-600 text-white font-semibold rounded hover:bg-blue-700 flex items-center"
+                          >
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                              New Assignment
+                          </button>
+                      </div>
+
+                      {isServicesLoading ? (
+                          <div className="text-center p-4"><Spinner /> Loading services...</div>
+                      ) : servicesError ? (
+                          <div className="text-red-400 text-center p-4">{servicesError}</div>
+                      ) : groupServices.length > 0 ? (
+                          <div className="overflow-x-auto">
+                              <table className="min-w-full divide-y divide-gray-700 bg-gray-900 rounded-lg overflow-hidden">
+                                  <thead className="bg-gray-700/50">
+                                      <tr>
+                                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Service Name</th>
+                                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Run Region</th>
+                                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">GE Region</th>
+                                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Subscription ID</th>
+                                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Job Type</th>
+                                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Last Run</th>
+                                          <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
+                                      </tr>
+                                  </thead>
+                                  <tbody className="bg-gray-800 divide-y divide-gray-700">
+                                      {groupServices.map((service, idx) => {
+                                          const name = service.name || '';
+                                          const parts = name.split('/');
+                                          const id = parts[parts.length - 1];
+                                          const runRegion = parts[3] || 'N/A';
+                                          const labels = service.labels || {};
+                                          const geRegion = labels['ge-region'] || 'N/A';
+                                          const geSku = labels['ge-sku'] || 'N/A';
+                                          const jobType = labels['job-type'] || 'N/A';
+                                          const lastRun = lastRunTimes[id] ? new Date(lastRunTimes[id]).toLocaleString() : 'N/A';
+                                          
+                                          return (
+                                              <tr key={idx} className="hover:bg-gray-700/50 transition-colors">
+                                                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{id}</td>
+                                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{runRegion}</td>
+                                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{geRegion}</td>
+                                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{geSku}</td>
+                                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{jobType}</td>
+                                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{lastRun}</td>
+                                                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                      <button
+                                                          onClick={() => handleRunService(service.status?.url, projectNumber)}
+                                                          className="text-green-400 hover:text-green-300 mr-4"
+                                                      >
+                                                          Run
+                                                      </button>
+                                                      <button
+                                                          onClick={() => handleEditService(service)}
+                                                          className="text-blue-400 hover:text-blue-300 mr-4"
+                                                      >
+                                                          Edit
+                                                      </button>
+                                                      <button
+                                                          onClick={() => {
+                                                              if (window.confirm("Are you sure you want to delete this service?")) {
+                                                                  api.deleteCloudRunService(name, { projectId: projectNumber } as any)
+                                                                      .then(() => fetchGroupServices())
+                                                                      .catch(err => alert("Failed to delete service: " + err.message));
+                                                              }
+                                                          }}
+                                                          className="text-red-400 hover:text-red-300"
+                                                      >
+                                                          Delete
+                                                      </button>
+                                                  </td>
+                                              </tr>
+                                          );
+                                      })}
+                                  </tbody>
+                              </table>
+                          </div>
+                      ) : (
+                          <div className="text-gray-500 text-center p-8 bg-gray-800 rounded-lg">No group licensing services found.</div>
+                      )}
+                  </div>
+              </div>
+          )}
+
+          {isGroupDeploymentModalOpen && (
+              <GroupLicenseDeploymentModal 
+                isOpen={isGroupDeploymentModalOpen}
+                onClose={() => {
+                    setIsGroupDeploymentModalOpen(false);
+                    setSelectedServiceForEdit(null);
+                }}
+                projectNumber={projectNumber}
+                currentConfig={apiConfig}
+                apiLicenseConfigs={apiLicenseConfigs}
+                editConfig={selectedServiceForEdit}
+                onBuildTriggered={onBuildTriggered}
+              />
           )}
 
 

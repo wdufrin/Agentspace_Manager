@@ -1532,6 +1532,16 @@ export const fetchConnectorLogs = async (config: Config, connectorName: string, 
     });
 };
 
+export const fetchLastRunLog = async (config: Config, serviceName: string) => {
+    const filter = `resource.type="cloud_run_revision" AND resource.labels.service_name="${serviceName}"`;
+    return gapiRequest<any>("https://logging.googleapis.com/v2/entries:list", "POST", config.projectId, undefined, {
+        resourceNames: [`projects/${config.projectId}`],
+        filter: filter,
+        orderBy: "timestamp desc",
+        pageSize: 1
+    });
+};
+
 // --- Dialogflow CX ---
 
 export const listDialogflowAgents = async (config: Config) => {
