@@ -45,6 +45,13 @@ It is built with **React**, **Vite**, and **Tailwind CSS**, and communicates dir
     *   **Policy Generator**: Create Model Armor templates to filter Hate Speech, PII, and Prompt Injection.
 *   **IAM Policies**: View and edit IAM policies for specific agents directly from the UI.
 
+### 📊 Observability
+*   **Live Dashboard**: Monitor request volume, messages by role, and messages by agent.
+*   **BigQuery Integration**: Queries live audit logs stored in BigQuery.
+*   **Custom X-Axis Labels**: Displays both agent name and ID, helping identify duplicate names.
+*   **Name Recovery**: Automatically recovers agent names from other log entries if missing in some.
+*   **Query Tooltips**: View and copy the exact BigQuery queries used for metrics.
+
 ### 🔧 Operations
 *   **Discovery Engine & Conversation Management**:
     *   **Share Session**: Clone a session to another user's history by User ID (email or numeric).

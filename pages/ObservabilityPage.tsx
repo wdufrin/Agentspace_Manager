@@ -53,7 +53,31 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                     const startTimeStr = startTime.toISOString();
                     
                     // Query 1: Messages by Role
-                    const roleQuery = `SELECT jsonPayload.content.role as role, COUNT(*) as count FROM \`${messageTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}') GROUP BY role`;
+                    const roleQuery = `
+                        SELECT role, COUNT(*) as count FROM (
+                          -- Source 1: Standard Message Logs
+                          SELECT jsonPayload.content.role as role
+                          FROM \`${messageTablePrefix}\`
+                          WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+                          
+                          UNION ALL
+                          
+                          -- Source 2: Enterprise Activity - User Side
+                          SELECT 'user' as role
+                          FROM \`${activityTablePrefix}\`
+                          WHERE jsonPayload.request.query.parts IS NOT NULL
+                            AND timestamp >= TIMESTAMP('${startTimeStr}')
+                          
+                          UNION ALL
+                          
+                          -- Source 3: Enterprise Activity - AI Side
+                          SELECT 'model' as role
+                          FROM \`${activityTablePrefix}\`
+                          WHERE jsonPayload.response.answer.replies IS NOT NULL
+                            AND timestamp >= TIMESTAMP('${startTimeStr}')
+                        )
+                        GROUP BY role
+                    `;
                     
                     // Query 2: Request Volume with dynamic grouping based on timeRange
                     let volumeQuery = '';
@@ -112,16 +136,28 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                             COALESCE(
                               jsonPayload.request.userevent.agentspaceinfo.agentinfo.name,
                               jsonPayload.request.agent.displayname,
+                              jsonPayload.request.agent.displayName,
                               jsonPayload.response.displayname,
+                              jsonPayload.response.displayName,
                               jsonPayload.request.userevent.agentspaceinfo.agentinfo.agentid
                             ) as agent_name
                           FROM \`${activityTablePrefix}\`
                           WHERE jsonPayload.request.userevent.agentspaceinfo.agentinfo.agentid IS NOT NULL AND timestamp >= TIMESTAMP('${startTimeStr}')
+                        ),
+                        agent_real_names AS (
+                          SELECT agent_id, MAX(agent_name) as real_name
+                          FROM all_agents
+                          WHERE agent_name != agent_id
+                          GROUP BY agent_id
                         )
-                        SELECT agent_name, COUNT(*) as count
-                        FROM all_agents
-                        WHERE agent_name IS NOT NULL
-                        GROUP BY agent_name
+                        SELECT 
+                          COALESCE(n.real_name, a.agent_name) as agent_name, 
+                          a.agent_id, 
+                          COUNT(*) as count
+                        FROM all_agents a
+                        LEFT JOIN agent_real_names n ON a.agent_id = n.agent_id
+                        WHERE a.agent_name IS NOT NULL
+                        GROUP BY agent_name, a.agent_id
                         ORDER BY count DESC
                     `;
 
@@ -175,10 +211,15 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                         }
 
                         if (agentResult && agentResult.rows) {
-                            newData.agentData = agentResult.rows.map((row: any) => ({
-                                name: row.f[0].v.length > 20 ? row.f[0].v.substring(0, 20) + '...' : row.f[0].v,
-                                count: parseInt(row.f[1].v, 10)
-                            }));
+                            newData.agentData = agentResult.rows.map((row: any) => {
+                                const name = row.f[0].v;
+                                const id = row.f[1].v;
+                                const truncatedName = name.length > 20 ? name.substring(0, 20) + '...' : name;
+                                return {
+                                    name: `${truncatedName}|${id}`,
+                                    count: parseInt(row.f[2].v, 10)
+                                };
+                            });
                         }
 
                         if (summaryResult && summaryResult.rows && summaryResult.rows[0]) {

@@ -97,6 +97,24 @@ const QueryTooltip: React.FC<{ query: string }> = ({ query }) => {
     );
 };
 
+const CustomXAxisTick = (props: any) => {
+    const { x, y, payload } = props;
+    if (x === null || y === null || isNaN(x) || isNaN(y) || !payload) return null;
+    const parts = (payload.value || '').split('|');
+    return (
+        <g transform={`translate(${x},${y})`}>
+            <text x={0} y={0} dy={16} textAnchor="middle" fill="#9CA3AF" fontSize={11}>
+                {parts[0] || ''}
+            </text>
+            {parts[1] && (
+                <text x={0} y={0} dy={30} textAnchor="middle" fill="#6B7280" fontSize={9}>
+                    {parts[1]}
+                </text>
+            )}
+        </g>
+    );
+};
+
 const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRange, setTimeRange }) => {
     // Mock data for Request Volume over time (fallback)
     const defaultVolumeData = useMemo(() => [
@@ -160,23 +178,7 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                         <p className="text-sm text-gray-400">No specific dataset identified. Showing example data.</p>
                     )}
                 </div>
-                <div className="flex items-center gap-3">
-                    {queries?.summaryQuery && (
-                        <QueryTooltip query={queries.summaryQuery} />
-                    )}
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-400">Time Range:</span>
-                        <select
-                            value={timeRange}
-                            onChange={(e) => setTimeRange(parseInt(e.target.value, 10))}
-                            className="text-xs bg-blue-900 text-blue-200 border border-blue-700 rounded px-2 py-1 focus:outline-none focus:border-blue-500 font-bold"
-                        >
-                            <option value={1}>Past 24 Hours</option>
-                            <option value={7}>Past 7 Days</option>
-                            <option value={30}>Past 30 Days</option>
-                        </select>
-                    </div>
-                </div>
+
             </div>
 
             {/* Summary Cards */}
@@ -209,7 +211,12 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                     {(!isUsersLive || customData?.totalRequests === undefined) && (
                         <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
                     )}
-                    <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Avg Messages / Session</div>
+                    <div className="flex justify-between items-center">
+                        <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Avg Messages / Session</div>
+                        {queries?.summaryQuery && queries?.userCountQuery && (
+                            <QueryTooltip query={`Derived Metric: Total Requests / Unique Users\n\n-- Total Requests Query:\n${queries.summaryQuery}\n\n-- Unique Users Query:\n${queries.userCountQuery}`} />
+                        )}
+                    </div>
                     <div className="text-3xl font-light text-white">
                         {isUsersLive && customData?.totalRequests !== undefined && uniqueUsers > 0
                             ? (totalRequests / uniqueUsers).toFixed(1)
@@ -305,9 +312,9 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                     <div className="h-64 w-full">
                         <ResponsiveContainer width="100%" height="100%">
                             {agentData ? (
-                                <BarChart data={agentData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                <BarChart data={agentData} margin={{ top: 5, right: 30, left: 20, bottom: 40 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                                    <XAxis dataKey="name" stroke="#9CA3AF" fontSize={12} />
+                                    <XAxis dataKey="name" stroke="#9CA3AF" fontSize={12} tick={<CustomXAxisTick />} interval={0} height={60} />
                                     <YAxis stroke="#9CA3AF" fontSize={12} />
                                     <Tooltip 
                                         contentStyle={{ backgroundColor: '#1F2937', borderColor: '#4B5563', borderRadius: '0.375rem', color: '#F3F4F6' }}
@@ -316,9 +323,9 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                                     <Bar dataKey="count" name="Messages" fill="#10B981" radius={[4, 4, 0, 0]} />
                                 </BarChart>
                             ) : (
-                                <BarChart data={defaultLatencyData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                <BarChart data={defaultLatencyData} margin={{ top: 5, right: 30, left: 20, bottom: 40 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                                    <XAxis dataKey="name" stroke="#9CA3AF" fontSize={12} />
+                                    <XAxis dataKey="name" stroke="#9CA3AF" fontSize={12} tick={<CustomXAxisTick />} interval={0} height={60} />
                                     <YAxis stroke="#9CA3AF" fontSize={12} />
                                     <Tooltip 
                                         contentStyle={{ backgroundColor: '#1F2937', borderColor: '#4B5563', borderRadius: '0.375rem', color: '#F3F4F6' }}

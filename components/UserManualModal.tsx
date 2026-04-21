@@ -33,6 +33,7 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
         { id: 'builder', title: 'Builder & Catalog' },
         { id: 'dataStores', title: 'Knowledge & Data' },
         { id: 'security', title: 'Security & Governance' },
+        { id: 'observability', title: 'Observability' },
         { id: 'operations', title: 'Operations' },
         { id: 'setup', title: 'Setup & Configuration' },
         { id: 'api', title: 'API Reference' },
@@ -134,6 +135,21 @@ const UserManualModal: React.FC<UserManualModalProps> = ({ isOpen, onClose }) =>
                                     </ul>
                                 </li>
                                 <li><strong>IAM Policies</strong>: View and edit IAM policies for specific agents directly from the UI.</li>
+                            </ul>
+                        </section>
+                    </div>
+                );
+            case 'observability':
+                return (
+                    <div className="space-y-4">
+                        <section>
+                            <h3 className="text-lg font-bold text-white mb-2">Observability</h3>
+                            <ul className="list-disc pl-5 space-y-1 text-gray-300">
+                                <li><strong>Live Dashboard</strong>: Monitor request volume, messages by role, and messages by agent.</li>
+                                <li><strong>BigQuery Integration</strong>: Queries live audit logs stored in BigQuery.</li>
+                                <li><strong>Custom Labels</strong>: X-axis labels show both name and ID to identify duplicates.</li>
+                                <li><strong>Name Recovery</strong>: Automatically groups logs under the real name if available.</li>
+                                <li><strong>Query Tooltips</strong>: Click the question mark to view the exact BigQuery query used.</li>
                             </ul>
                         </section>
                     </div>
