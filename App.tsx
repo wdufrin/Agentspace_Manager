@@ -25,6 +25,7 @@ import AgentEnginesPage from './pages/AgentEnginesPage';
 import DataStoresPage from './pages/DataStoresPage';
 import BackupPage from './pages/BackupPage';
 import ModelArmorPage from './pages/ModelArmorPage';
+import ObservabilityPage from './pages/ObservabilityPage';
 import AgentBuilderPage from './pages/AgentBuilderPage';
 import A2aTesterPage from './pages/A2aTesterPage';
 import McpServersPage from './pages/McpServersPage';
@@ -745,6 +746,8 @@ const InnerApp: React.FC = () => {
         return <McpServersPage {...commonProps} />;
       case Page.MODEL_ARMOR:
         return <ModelArmorPage {...projectProps} />;
+      case Page.OBSERVABILITY:
+        return <ObservabilityPage {...projectProps} projectId={projectId} />;
       case Page.BACKUP_RECOVERY:
         return <BackupPage {...projectProps} accessToken={accessToken} />;
       case Page.LICENSE:

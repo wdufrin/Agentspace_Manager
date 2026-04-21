@@ -301,6 +301,11 @@ export const getLoggingSink = async (projectId: string, sinkName: string): Promi
     return gapiRequest<any>(url, 'GET', projectId);
 };
 
+export const listLoggingSinks = async (projectId: string): Promise<any> => {
+    const url = `https://logging.googleapis.com/v2/projects/${projectId}/sinks`;
+    return gapiRequest<any>(url, 'GET', projectId);
+};
+
 
 // --- Discovery Engine Resources ---
 

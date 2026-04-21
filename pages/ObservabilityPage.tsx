@@ -1,0 +1,300 @@
+import React, { useState, useEffect } from 'react';
+import CloudConsoleButton from '../components/CloudConsoleButton';
+import { listLoggingSinks, listBigQueryTables, runBigQueryQuery } from '../services/apiService';
+import ObservabilityDashboard from '../components/dashboard/ObservabilityDashboard';
+
+interface Props {
+    projectNumber: string;
+    projectId: string;
+}
+
+const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
+    const [sinks, setSinks] = useState<any[]>([]);
+    const [tables, setTables] = useState<any[]>([]);
+    const [dashboardData, setDashboardData] = useState<any>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [showAllSinks, setShowAllSinks] = useState(false);
+    const [timeRange, setTimeRange] = useState(1);
+
+    useEffect(() => {
+        const fetchData = async () => {
+            if (!projectNumber || !projectId) return;
+            setLoading(true);
+            setError(null);
+            try {
+                // 1. List log sinks
+                const sinksResponse = await listLoggingSinks(projectNumber);
+                const allSinks = sinksResponse.sinks || [];
+                setSinks(allSinks);
+
+                // 2. Find the sink for user logs
+                const userLogFilter = `logName="projects/${projectId}/logs/discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity" OR logName=~"projects/${projectId}/logs/discoveryengine.googleapis.com%2Fgen_ai.*"`;
+                const userLogSink = allSinks.find((sink: any) => 
+                    sink.filter && sink.filter === userLogFilter
+                );
+
+                if (userLogSink && userLogSink.destination) {
+                    const destParts = userLogSink.destination.split('/');
+                    const dataset = destParts[destParts.length - 1];
+                    
+                    // 3. List tables in the dataset
+                    const tablesResponse = await listBigQueryTables(projectNumber, dataset);
+                    const allTables = tablesResponse.tables || [];
+                    setTables(allTables);
+
+                    // 4. Fetch real data for charts
+                    const messageTablePrefix = `${projectId}.${dataset}.discoveryengine_googleapis_com_gen_ai_user_message_*`;
+                    const activityTablePrefix = `${projectId}.${dataset}.discoveryengine_googleapis_com_gemini_enterprise_user_activity_*`;
+                    const errorTablePrefix = `${projectId}.${dataset}.export_errors_*`;
+                    
+                    // Calculate start time based on timeRange
+                    const startTime = new Date();
+                    startTime.setDate(startTime.getDate() - timeRange);
+                    const startTimeStr = startTime.toISOString();
+                    
+                    // Query 1: Messages by Role
+                    const roleQuery = `SELECT jsonPayload.content.role as role, COUNT(*) as count FROM \`${messageTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}') GROUP BY role`;
+                    
+                    // Query 2: Request Volume by Hour
+                    const volumeQuery = `SELECT FORMAT_TIMESTAMP('%H:00', timestamp) as hour, COUNT(*) as requests FROM \`${messageTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}') GROUP BY hour ORDER BY hour`;
+                    
+                    // Query 3: Combined Agent Breakdown with Names
+                    const agentQuery = `
+                        WITH all_agents AS (
+                          SELECT 
+                            resource.labels.agent_id as agent_id,
+                            resource.labels.agent_id as agent_name
+                          FROM \`${messageTablePrefix}\`
+                          WHERE resource.labels.agent_id IS NOT NULL AND timestamp >= TIMESTAMP('${startTimeStr}')
+                          UNION ALL
+                          SELECT 
+                            jsonPayload.request.userevent.agentspaceinfo.agentinfo.agentid as agent_id,
+                            COALESCE(
+                              jsonPayload.request.userevent.agentspaceinfo.agentinfo.name,
+                              jsonPayload.request.agent.displayname,
+                              jsonPayload.response.displayname,
+                              jsonPayload.request.userevent.agentspaceinfo.agentinfo.agentid
+                            ) as agent_name
+                          FROM \`${activityTablePrefix}\`
+                          WHERE jsonPayload.request.userevent.agentspaceinfo.agentinfo.agentid IS NOT NULL AND timestamp >= TIMESTAMP('${startTimeStr}')
+                        )
+                        SELECT agent_name, COUNT(*) as count
+                        FROM all_agents
+                        WHERE agent_name IS NOT NULL
+                        GROUP BY agent_name
+                        ORDER BY count DESC
+                    `;
+
+                    // Query 4: Summary Metrics (Totals and Error Rate)
+                    const summaryQuery = `
+                        WITH all_activity AS (
+                          SELECT trace AS session_id, insertId AS request_id, 'SUCCESS' AS status
+                          FROM \`${messageTablePrefix}\`
+                          WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+                          UNION ALL
+                          SELECT COALESCE(jsonPayload.request.userevent.userpseudoid, trace) AS session_id, insertId AS request_id, 'SUCCESS' AS status
+                          FROM \`${activityTablePrefix}\`
+                          WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+                          UNION ALL
+                          SELECT trace AS session_id, insertId AS request_id, 'FAILED' AS status
+                          FROM \`${errorTablePrefix}\`
+                          WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+                        )
+                        SELECT
+                          COUNT(request_id) AS total_requests,
+                          SAFE_DIVIDE(COUNTIF(status = 'FAILED'), COUNT(request_id)) * 100 AS failure_rate_percentage
+                        FROM all_activity
+                    `;
+
+                    // Query 5: True Unique Users
+                    const userCountQuery = `
+                        SELECT COUNT(DISTINCT jsonPayload.useriamprincipal) as unique_users
+                        FROM \`${activityTablePrefix}\`
+                        WHERE jsonPayload.useriamprincipal IS NOT NULL AND timestamp >= TIMESTAMP('${startTimeStr}')
+                    `;
+
+                    try {
+                        const [roleResult, volumeResult, agentResult, summaryResult, userCountResult] = await Promise.all([
+                            runBigQueryQuery(projectId, roleQuery),
+                            runBigQueryQuery(projectId, volumeQuery),
+                            runBigQueryQuery(projectId, agentQuery),
+                            runBigQueryQuery(projectId, summaryQuery),
+                            runBigQueryQuery(projectId, userCountQuery)
+                        ]);
+
+                        const newData: any = {};
+
+                        if (roleResult && roleResult.rows) {
+                            newData.roleData = roleResult.rows.map((row: any) => ({
+                                name: row.f[0].v,
+                                value: parseInt(row.f[1].v, 10)
+                            }));
+                        }
+
+                        if (volumeResult && volumeResult.rows) {
+                            newData.volumeData = volumeResult.rows.map((row: any) => ({
+                                time: row.f[0].v,
+                                requests: parseInt(row.f[1].v, 10),
+                                errors: 0
+                            }));
+                        }
+
+                        if (agentResult && agentResult.rows) {
+                            newData.agentData = agentResult.rows.map((row: any) => ({
+                                name: row.f[0].v.length > 20 ? row.f[0].v.substring(0, 20) + '...' : row.f[0].v,
+                                count: parseInt(row.f[1].v, 10)
+                            }));
+                        }
+
+                        if (summaryResult && summaryResult.rows && summaryResult.rows[0]) {
+                            const row = summaryResult.rows[0];
+                            newData.totalRequests = parseInt(row.f[0].v, 10);
+                            newData.errorRate = parseFloat(row.f[1].v);
+                        }
+
+                        if (userCountResult && userCountResult.rows && userCountResult.rows[0]) {
+                            newData.uniqueUsers = parseInt(userCountResult.rows[0].f[0].v, 10);
+                        }
+
+                        newData.queries = { roleQuery, volumeQuery, agentQuery, summaryQuery, userCountQuery };
+
+                        setDashboardData(newData);
+                    } catch (queryErr) {
+                        console.warn("Failed to query live data, falling back to mock data.", queryErr);
+                    }
+                }
+            } catch (err: any) {
+                setError(err.message || 'Failed to fetch data');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchData();
+    }, [projectNumber, projectId, timeRange]);
+
+    const bqSinks = sinks.filter(sink => sink.destination && sink.destination.startsWith('bigquery.googleapis.com/'));
+    
+    // Find the specific dataset from the user log sink
+    const userLogFilter = `logName="projects/${projectId}/logs/discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity" OR logName=~"projects/${projectId}/logs/discoveryengine.googleapis.com%2Fgen_ai.*"`;
+    const userLogSink = sinks.find((sink: any) => 
+        sink.filter && sink.filter === userLogFilter
+    );
+    const datasetId = userLogSink ? userLogSink.destination.split('/').pop() : undefined;
+
+    return (
+        <div className="flex-1 overflow-auto bg-gray-900 border-l border-gray-800 custom-scrollbar">
+            <div className="p-8 max-w-7xl mx-auto">
+                <div className="mb-8 flex justify-between items-start">
+                    <div>
+                        <h1 className="text-3xl font-bold text-white tracking-tight">Observability</h1>
+                        <p className="mt-2 text-sm text-gray-400">
+                            Monitor and analyze your agent activities and performance.
+                        </p>
+                    </div>
+                    <CloudConsoleButton url={`https://console.cloud.google.com/logs/query?project=${projectNumber}`} />
+                </div>
+                
+                <div className="mt-6 bg-gray-800 p-6 rounded-lg border border-gray-700">
+                    <h2 className="text-xl font-semibold text-white mb-4">Log Router Sinks & Tables</h2>
+                    
+                    {loading && (
+                        <div className="flex items-center justify-center p-4 text-sm text-blue-300">
+                            <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-400 mr-3"></div>
+                            Loading data...
+                        </div>
+                    )}
+                    
+                    {error && (
+                        <div className="p-4 text-sm text-red-300 bg-red-900/30 rounded-lg border border-red-800">
+                            {error}
+                        </div>
+                    )}
+                    
+                    {!loading && !error && (
+                        <div className="space-y-6">
+                            {/* Sinks Section */}
+                            <div>
+                                <div className="flex justify-between items-center mb-2">
+                                    <h3 className="text-lg font-medium text-white">BigQuery Sinks</h3>
+                                    <button
+                                        onClick={() => setShowAllSinks(!showAllSinks)}
+                                        className="text-xs text-blue-400 hover:text-blue-300 underline"
+                                    >
+                                        {showAllSinks ? 'Hide Other Sinks' : 'Show All Sinks'}
+                                    </button>
+                                </div>
+                                {bqSinks.length === 0 ? (
+                                    <p className="text-gray-400 text-sm">No BigQuery log sinks found.</p>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {bqSinks.map(sink => {
+                                            const isUserLogSink = sink === userLogSink;
+                                            if (!showAllSinks && !isUserLogSink) return null;
+                                            
+                                            return (
+                                                <div key={sink.name} className={`p-3 bg-gray-900 rounded-md border ${isUserLogSink ? 'border-green-700' : 'border-gray-700'}`}>
+                                                    <div className="flex justify-between items-start">
+                                                        <div>
+                                                            <span className="text-sm font-semibold text-white">{sink.name}</span>
+                                                            <p className="text-xs text-gray-500 mt-0.5">Dataset: <code className="text-green-400">{sink.destination.split('/').pop()}</code></p>
+                                                        </div>
+                                                        {isUserLogSink && (
+                                                            <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-green-900 text-green-200">User Logs</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                        {!showAllSinks && bqSinks.length > 1 && (
+                                            <p className="text-xs text-gray-500 mt-1 italic">
+                                                Other sinks are hidden. Click "Show All Sinks" to view them.
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Tables Section */}
+                            {datasetId && (
+                                <div>
+                                    <h3 className="text-lg font-medium text-white mb-2">Tables in <code className="text-green-400">{datasetId}</code></h3>
+                                    {tables.length === 0 ? (
+                                        <p className="text-gray-400 text-sm">No tables found or unable to list.</p>
+                                    ) : (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                            {Array.from(new Set(tables.map(table => {
+                                                const tableId = table.tableReference.tableId;
+                                                return tableId.replace(/_\d{8}$/, '');
+                                            }))).map(baseTableId => (
+                                                <div key={baseTableId} className="p-2 bg-gray-900 rounded-md border border-gray-700 text-sm text-gray-300 font-mono flex justify-between items-center">
+                                                    <span>{baseTableId}</span>
+                                                    <span className="text-xs text-gray-500 bg-gray-800 px-1 rounded">Partitioned</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                <div className="mt-6">
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-xl font-semibold text-white">Live Dashboard</h2>
+                    </div>
+                    <ObservabilityDashboard 
+                        datasetId={datasetId} 
+                        customData={dashboardData} 
+                        timeRange={timeRange}
+                        setTimeRange={setTimeRange}
+                    />
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default ObservabilityPage;

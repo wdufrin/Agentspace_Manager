@@ -31,6 +31,7 @@ export enum Page {
   DATA_STORES = 'Data Stores',
   MCP_SERVERS = 'MCP Servers',
   MODEL_ARMOR = 'Model Armor',
+  OBSERVABILITY = 'Observability',
   BACKUP_RECOVERY = 'Backup & Recovery',
   ARCHITECTURE = 'Architecture',
   LICENSE = 'Licenses',
