@@ -46,7 +46,6 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                     // 4. Fetch real data for charts
                     const messageTablePrefix = `${projectId}.${dataset}.discoveryengine_googleapis_com_gen_ai_user_message_*`;
                     const activityTablePrefix = `${projectId}.${dataset}.discoveryengine_googleapis_com_gemini_enterprise_user_activity_*`;
-                    const errorTablePrefix = `${projectId}.${dataset}.export_errors_*`;
                     
                     // Calculate start time based on timeRange
                     const startTime = new Date();
@@ -56,8 +55,48 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                     // Query 1: Messages by Role
                     const roleQuery = `SELECT jsonPayload.content.role as role, COUNT(*) as count FROM \`${messageTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}') GROUP BY role`;
                     
-                    // Query 2: Request Volume by Hour
-                    const volumeQuery = `SELECT FORMAT_TIMESTAMP('%H:00', timestamp) as hour, COUNT(*) as requests FROM \`${messageTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}') GROUP BY hour ORDER BY hour`;
+                    // Query 2: Request Volume with dynamic grouping based on timeRange
+                    let volumeQuery = '';
+                    if (timeRange === 30) {
+                        volumeQuery = `
+                            SELECT 
+                                FORMAT_TIMESTAMP('%Y-%m-%d', timestamp) as event_time, 
+                                COUNT(*) as requests
+                            FROM (
+                              SELECT timestamp FROM \`${messageTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+                              UNION ALL
+                              SELECT timestamp FROM \`${activityTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+                            )
+                            GROUP BY event_time
+                            ORDER BY event_time
+                        `;
+                    } else if (timeRange === 7) {
+                        volumeQuery = `
+                            SELECT 
+                                FORMAT_TIMESTAMP('%m-%d %H:00', timestamp) as event_time, 
+                                COUNT(*) as requests
+                            FROM (
+                              SELECT timestamp FROM \`${messageTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+                              UNION ALL
+                              SELECT timestamp FROM \`${activityTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+                            )
+                            GROUP BY event_time
+                            ORDER BY event_time
+                        `;
+                    } else { // 1 day
+                        volumeQuery = `
+                            SELECT 
+                                FORMAT_TIMESTAMP('%H:%M', TIMESTAMP_SECONDS(DIV(UNIX_SECONDS(timestamp), 900) * 900)) as event_time, 
+                                COUNT(*) as requests
+                            FROM (
+                              SELECT timestamp FROM \`${messageTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+                              UNION ALL
+                              SELECT timestamp FROM \`${activityTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}')
+                            )
+                            GROUP BY event_time
+                            ORDER BY event_time
+                        `;
+                    }
                     
                     // Query 3: Combined Agent Breakdown with Names
                     const agentQuery = `
@@ -86,24 +125,19 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                         ORDER BY count DESC
                     `;
 
-                    // Query 4: Summary Metrics (Totals and Error Rate)
+                    // Query 4: Summary Metrics (Totals)
                     const summaryQuery = `
                         WITH all_activity AS (
-                          SELECT trace AS session_id, insertId AS request_id, 'SUCCESS' AS status
+                          SELECT trace AS session_id, insertId AS request_id
                           FROM \`${messageTablePrefix}\`
                           WHERE timestamp >= TIMESTAMP('${startTimeStr}')
                           UNION ALL
-                          SELECT COALESCE(jsonPayload.request.userevent.userpseudoid, trace) AS session_id, insertId AS request_id, 'SUCCESS' AS status
+                          SELECT COALESCE(jsonPayload.request.userevent.userpseudoid, trace) AS session_id, insertId AS request_id
                           FROM \`${activityTablePrefix}\`
-                          WHERE timestamp >= TIMESTAMP('${startTimeStr}')
-                          UNION ALL
-                          SELECT trace AS session_id, insertId AS request_id, 'FAILED' AS status
-                          FROM \`${errorTablePrefix}\`
                           WHERE timestamp >= TIMESTAMP('${startTimeStr}')
                         )
                         SELECT
-                          COUNT(request_id) AS total_requests,
-                          SAFE_DIVIDE(COUNTIF(status = 'FAILED'), COUNT(request_id)) * 100 AS failure_rate_percentage
+                          COUNT(request_id) AS total_requests
                         FROM all_activity
                     `;
 
@@ -150,7 +184,6 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                         if (summaryResult && summaryResult.rows && summaryResult.rows[0]) {
                             const row = summaryResult.rows[0];
                             newData.totalRequests = parseInt(row.f[0].v, 10);
-                            newData.errorRate = parseFloat(row.f[1].v);
                         }
 
                         if (userCountResult && userCountResult.rows && userCountResult.rows[0]) {
@@ -284,13 +317,20 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                 <div className="mt-6">
                     <div className="flex justify-between items-center mb-4">
                         <h2 className="text-xl font-semibold text-white">Live Dashboard</h2>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-400">Time Range:</span>
+                            <select
+                                value={timeRange}
+                                onChange={(e) => setTimeRange(parseInt(e.target.value, 10))}
+                                className="text-xs bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+                            >
+                                <option value={1}>1 Day</option>
+                                <option value={7}>7 Days</option>
+                                <option value={30}>30 Days</option>
+                            </select>
+                        </div>
                     </div>
-                    <ObservabilityDashboard 
-                        datasetId={datasetId} 
-                        customData={dashboardData} 
-                        timeRange={timeRange}
-                        setTimeRange={setTimeRange}
-                    />
+                    <ObservabilityDashboard datasetId={datasetId} customData={dashboardData} timeRange={timeRange} setTimeRange={setTimeRange} />
                 </div>
             </div>
         </div>

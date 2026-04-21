@@ -100,14 +100,14 @@ const QueryTooltip: React.FC<{ query: string }> = ({ query }) => {
 const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRange, setTimeRange }) => {
     // Mock data for Request Volume over time (fallback)
     const defaultVolumeData = useMemo(() => [
-        { time: '00:00', requests: 2, errors: 0 },
-        { time: '04:00', requests: 1, errors: 0 },
-        { time: '08:00', requests: 5, errors: 0 },
-        { time: '12:00', requests: 8, errors: 1 },
-        { time: '16:00', requests: 4, errors: 0 },
-        { time: '18:00', requests: 12, errors: 0 },
-        { time: '20:00', requests: 3, errors: 0 },
-        { time: '24:00', requests: 1, errors: 0 },
+        { time: '00:00', requests: 2 },
+        { time: '04:00', requests: 1 },
+        { time: '08:00', requests: 5 },
+        { time: '12:00', requests: 8 },
+        { time: '16:00', requests: 4 },
+        { time: '18:00', requests: 12 },
+        { time: '20:00', requests: 3 },
+        { time: '24:00', requests: 1 },
     ], []);
 
     const volumeData = customData?.volumeData || defaultVolumeData;
@@ -209,12 +209,7 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                     {(!isUsersLive || customData?.totalRequests === undefined) && (
                         <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-200">Fallback</span>
                     )}
-                    <div className="flex justify-between items-center">
-                        <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Avg Messages / Session</div>
-                        {queries?.summaryQuery && queries?.userCountQuery && (
-                            <QueryTooltip query={`Derived Metric: Total Requests / Unique Users\n\n-- Total Requests Query:\n${queries.summaryQuery}\n\n-- Unique Users Query:\n${queries.userCountQuery}`} />
-                        )}
-                    </div>
+                    <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Avg Messages / Session</div>
                     <div className="text-3xl font-light text-white">
                         {isUsersLive && customData?.totalRequests !== undefined && uniqueUsers > 0
                             ? (totalRequests / uniqueUsers).toFixed(1)
@@ -257,7 +252,6 @@ const ObservabilityDashboard: React.FC<Props> = ({ datasetId, customData, timeRa
                                     contentStyle={{ backgroundColor: '#1F2937', borderColor: '#4B5563', borderRadius: '0.375rem', color: '#F3F4F6' }}
                                 />
                                 <Area type="monotone" dataKey="requests" name="Requests" stroke="#3B82F6" fill="#3B82F6" fillOpacity={0.3} />
-                                <Area type="monotone" dataKey="errors" name="Errors" stroke="#EF4444" fill="#EF4444" fillOpacity={0.3} />
                                 <Legend />
                             </AreaChart>
                         </ResponsiveContainer>
