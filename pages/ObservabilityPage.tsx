@@ -52,17 +52,15 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                     startTime.setDate(startTime.getDate() - timeRange);
                     const startTimeStr = startTime.toISOString();
                     
-                    // Query 1: Messages by Role
+                    // Query 1: Messages by Role (with fix for mixed data types)
                     const roleQuery = `
                         SELECT role, COUNT(*) as count FROM (
-                          -- Source 1: Standard Message Logs
-                          SELECT jsonPayload.content.role as role
+                          SELECT 'model' as role
                           FROM \`${messageTablePrefix}\`
                           WHERE timestamp >= TIMESTAMP('${startTimeStr}')
                           
                           UNION ALL
                           
-                          -- Source 2: Enterprise Activity - User Side
                           SELECT 'user' as role
                           FROM \`${activityTablePrefix}\`
                           WHERE jsonPayload.request.query.parts IS NOT NULL
@@ -70,7 +68,6 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                           
                           UNION ALL
                           
-                          -- Source 3: Enterprise Activity - AI Side
                           SELECT 'model' as role
                           FROM \`${activityTablePrefix}\`
                           WHERE jsonPayload.response.answer.replies IS NOT NULL
@@ -79,12 +76,12 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                         GROUP BY role
                     `;
                     
-                    // Query 2: Request Volume with dynamic grouping based on timeRange
+                    // Query 2: Request Volume
                     let volumeQuery = '';
                     if (timeRange === 30) {
                         volumeQuery = `
                             SELECT 
-                                FORMAT_TIMESTAMP('%Y-%m-%d', timestamp) as event_time, 
+                                FORMAT_TIMESTAMP('%Y-%m-%d', TIMESTAMP_TRUNC(timestamp, DAY)) as event_time, 
                                 COUNT(*) as requests
                             FROM (
                               SELECT timestamp FROM \`${messageTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}')
@@ -97,7 +94,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                     } else if (timeRange === 7) {
                         volumeQuery = `
                             SELECT 
-                                FORMAT_TIMESTAMP('%m-%d %H:00', timestamp) as event_time, 
+                                FORMAT_TIMESTAMP('%m-%d %H:00', TIMESTAMP_TRUNC(timestamp, HOUR)) as event_time, 
                                 COUNT(*) as requests
                             FROM (
                               SELECT timestamp FROM \`${messageTablePrefix}\` WHERE timestamp >= TIMESTAMP('${startTimeStr}')
@@ -122,7 +119,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                         `;
                     }
                     
-                    // Query 3: Combined Agent Breakdown with Names
+                    // Query 3: Combined Agent Breakdown
                     const agentQuery = `
                         WITH all_agents AS (
                           SELECT 
@@ -161,7 +158,7 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                         ORDER BY count DESC
                     `;
 
-                    // Query 4: Summary Metrics (Totals)
+                    // Query 4: Summary Metrics
                     const summaryQuery = `
                         WITH all_activity AS (
                           SELECT trace AS session_id, insertId AS request_id
@@ -184,59 +181,53 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                         WHERE jsonPayload.useriamprincipal IS NOT NULL AND timestamp >= TIMESTAMP('${startTimeStr}')
                     `;
 
-                    try {
-                        const [roleResult, volumeResult, agentResult, summaryResult, userCountResult] = await Promise.all([
-                            runBigQueryQuery(projectId, roleQuery),
-                            runBigQueryQuery(projectId, volumeQuery),
-                            runBigQueryQuery(projectId, agentQuery),
-                            runBigQueryQuery(projectId, summaryQuery),
-                            runBigQueryQuery(projectId, userCountQuery)
-                        ]);
+                    const [roleResult, volumeResult, agentResult, summaryResult, userCountResult] = await Promise.all([
+                        runBigQueryQuery(projectId, roleQuery),
+                        runBigQueryQuery(projectId, volumeQuery),
+                        runBigQueryQuery(projectId, agentQuery),
+                        runBigQueryQuery(projectId, summaryQuery),
+                        runBigQueryQuery(projectId, userCountQuery)
+                    ]);
 
-                        const newData: any = {};
+                    const newData: any = {};
 
-                        if (roleResult && roleResult.rows) {
-                            newData.roleData = roleResult.rows.map((row: any) => ({
-                                name: row.f[0].v,
-                                value: parseInt(row.f[1].v, 10)
-                            }));
-                        }
-
-                        if (volumeResult && volumeResult.rows) {
-                            newData.volumeData = volumeResult.rows.map((row: any) => ({
-                                time: row.f[0].v,
-                                requests: parseInt(row.f[1].v, 10),
-                                errors: 0
-                            }));
-                        }
-
-                        if (agentResult && agentResult.rows) {
-                            newData.agentData = agentResult.rows.map((row: any) => {
-                                const name = row.f[0].v;
-                                const id = row.f[1].v;
-                                const truncatedName = name.length > 20 ? name.substring(0, 20) + '...' : name;
-                                return {
-                                    name: `${truncatedName}|${id}`,
-                                    count: parseInt(row.f[2].v, 10)
-                                };
-                            });
-                        }
-
-                        if (summaryResult && summaryResult.rows && summaryResult.rows[0]) {
-                            const row = summaryResult.rows[0];
-                            newData.totalRequests = parseInt(row.f[0].v, 10);
-                        }
-
-                        if (userCountResult && userCountResult.rows && userCountResult.rows[0]) {
-                            newData.uniqueUsers = parseInt(userCountResult.rows[0].f[0].v, 10);
-                        }
-
-                        newData.queries = { roleQuery, volumeQuery, agentQuery, summaryQuery, userCountQuery };
-
-                        setDashboardData(newData);
-                    } catch (queryErr) {
-                        console.warn("Failed to query live data, falling back to mock data.", queryErr);
+                    if (roleResult && roleResult.rows) {
+                        newData.roleData = roleResult.rows.map((row: any) => ({
+                            name: row.f[0].v,
+                            value: parseInt(row.f[1].v, 10)
+                        }));
                     }
+
+                    if (volumeResult && volumeResult.rows) {
+                        newData.volumeData = volumeResult.rows.map((row: any) => ({
+                            time: row.f[0].v,
+                            requests: parseInt(row.f[1].v, 10),
+                            errors: 0
+                        }));
+                    }
+
+                    if (agentResult && agentResult.rows) {
+                        newData.agentData = agentResult.rows.map((row: any) => {
+                            const name = row.f[0].v;
+                            const id = row.f[1].v;
+                            const truncatedName = name.length > 20 ? name.substring(0, 20) + '...' : name;
+                            return {
+                                name: `${truncatedName}|${id}`,
+                                count: parseInt(row.f[2].v, 10)
+                            };
+                        });
+                    }
+
+                    if (summaryResult && summaryResult.rows && summaryResult.rows[0]) {
+                        newData.totalRequests = parseInt(summaryResult.rows[0].f[0].v, 10);
+                    }
+
+                    if (userCountResult && userCountResult.rows && userCountResult.rows[0]) {
+                        newData.uniqueUsers = parseInt(userCountResult.rows[0].f[0].v, 10);
+                    }
+
+                    newData.queries = { roleQuery, volumeQuery, agentQuery, summaryQuery, userCountQuery };
+                    setDashboardData(newData);
                 }
             } catch (err: any) {
                 setError(err.message || 'Failed to fetch data');
@@ -250,7 +241,6 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
 
     const bqSinks = sinks.filter(sink => sink.destination && sink.destination.startsWith('bigquery.googleapis.com/'));
     
-    // Find the specific dataset from the user log sink
     const userLogFilter = `logName="projects/${projectId}/logs/discoveryengine.googleapis.com%2Fgemini_enterprise_user_activity" OR logName=~"projects/${projectId}/logs/discoveryengine.googleapis.com%2Fgen_ai.*"`;
     const userLogSink = sinks.find((sink: any) => 
         sink.filter && sink.filter === userLogFilter
@@ -288,7 +278,6 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                     
                     {!loading && !error && (
                         <div className="space-y-6">
-                            {/* Sinks Section */}
                             <div>
                                 <div className="flex justify-between items-center mb-2">
                                     <h3 className="text-lg font-medium text-white">BigQuery Sinks</h3>
@@ -321,16 +310,10 @@ const ObservabilityPage: React.FC<Props> = ({ projectNumber, projectId }) => {
                                                 </div>
                                             );
                                         })}
-                                        {!showAllSinks && bqSinks.length > 1 && (
-                                            <p className="text-xs text-gray-500 mt-1 italic">
-                                                Other sinks are hidden. Click "Show All Sinks" to view them.
-                                            </p>
-                                        )}
                                     </div>
                                 )}
                             </div>
 
-                            {/* Tables Section */}
                             {datasetId && (
                                 <div>
                                     <h3 className="text-lg font-medium text-white mb-2">Tables in <code className="text-green-400">{datasetId}</code></h3>
