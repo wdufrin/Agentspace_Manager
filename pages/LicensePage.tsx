@@ -90,6 +90,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
     const [activeTab, setActiveTab] = useState<'user_licenses' | 'allocations' | 'group_assignments'>('user_licenses');
     const [billingAccountId, setBillingAccountId] = useState('');
     const [billingConfigs, setBillingConfigs] = useState<any[]>([]);
+    const [projectNames, setProjectNames] = useState<Record<string, string>>({});
     const [isBillingLoading, setIsBillingLoading] = useState(false);
     const [hasBillingPermission, setHasBillingPermission] = useState<boolean | null>(null);
 
@@ -369,6 +370,34 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
             setStatsProjectId(projectNumber);
         }
     }, [projectNumber]);
+
+    useEffect(() => {
+        const fetchNames = async () => {
+            const projectsToFetch = new Set<string>();
+            billingConfigs.forEach(config => {
+                if (config.licenseConfigDistributions) {
+                    Object.keys(config.licenseConfigDistributions).forEach(resourceKey => {
+                        const project = resourceKey.includes('projects/') ? resourceKey.split('projects/')[1].split('/')[0] : null;
+                        if (project && !projectNames[project]) {
+                            projectsToFetch.add(project);
+                        }
+                    });
+                }
+            });
+
+            for (const project of projectsToFetch) {
+                 try {
+                     const proj = await api.getProject(project);
+                     if (proj.name) {
+                         setProjectNames(prev => ({ ...prev, [project]: proj.name }));
+                     }
+                 } catch (e) {
+                     console.warn("Failed to resolve project name for", project, e);
+                 }
+            }
+        };
+        fetchNames();
+    }, [billingConfigs]);
 
     const fetchProjectStats = async () => {
         if (!statsProjectId) return;
@@ -1338,7 +1367,7 @@ const LicensePage: React.FC<LicensePageProps> = ({ projectNumber, setProjectNumb
 
                                                           return (
                                                               <tr key={resourceKey} className="hover:bg-gray-800/50">
-                                                                  <td className="px-4 py-2 text-white font-mono">{project}</td>
+                                                                  <td className="px-4 py-2 text-white font-mono">{projectNames[project] ? `${projectNames[project]} (${project})` : project}</td>
                                                                   <td className="px-4 py-2 text-gray-400">{loc}</td>
                                                                   <td className="px-4 py-2 text-white font-bold">{count}</td>
                                                                   <td className="px-4 py-2 text-right">

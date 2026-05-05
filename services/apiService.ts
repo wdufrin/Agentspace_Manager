@@ -153,9 +153,9 @@ export const getProjectNumber = async (projectId: string): Promise<string> => {
     return response.projectNumber;
 };
 
-export const getProject = async (projectNumberOrId: string): Promise<{ projectId: string, projectNumber: string }> => {
+export const getProject = async (projectNumberOrId: string): Promise<{ projectId: string, projectNumber: string, name?: string }> => {
     const response = await gapiRequest<any>(`https://cloudresourcemanager.googleapis.com/v1/projects/${projectNumberOrId}`, 'GET', projectNumberOrId.match(/^\d+$/) ? undefined : projectNumberOrId);
-    return { projectId: response.projectId, projectNumber: response.projectNumber };
+    return { projectId: response.projectId, projectNumber: response.projectNumber, name: response.name };
 };
 
 export const validateEnabledApis = async (projectId: string): Promise<{ enabled: string[], disabled: string[] }> => {

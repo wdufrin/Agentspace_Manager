@@ -24,6 +24,7 @@ import EngineDetails from '../components/agent-engines/EngineDetails';
 import McpServerDetails from '../components/mcp-servers/McpServerDetails';
 import CloudRunQueryModal from '../components/agent-engines/CloudRunQueryModal';
 import CloudConsoleButton from '../components/CloudConsoleButton';
+import DataInsightsAgentWizardModal from '../components/agent-engines/DataInsightsAgentWizardModal';
 
 interface AgentEnginesPageProps {
   projectNumber: string;
@@ -81,6 +82,9 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+  // State for Data Insights Wizard
+  const [isWizardModalOpen, setIsWizardModalOpen] = useState(false);
   
   // State for clearing sessions (RE only)
   const [engineToClearSessions, setEngineToClearSessions] = useState<ReasoningEngine | null>(null);
@@ -391,6 +395,16 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
                 <h2 className="text-xl font-bold text-white">Available Agents</h2>
                 <div className="flex items-center gap-4">
+                    <button
+                        onClick={() => setIsWizardModalOpen(true)}
+                        className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 shadow-sm transition-colors flex items-center gap-2"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                        </svg>
+                        New Data Insights Agent
+                    </button>
+
                      {selectedIds.size > 0 && (
                         <div className="flex items-center gap-4 border-l border-gray-700 pl-4">
                             <span className="text-sm text-gray-300">{selectedIds.size} selected</span>
@@ -620,6 +634,13 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
             accessToken={accessToken}
           />
       )}
+
+      <DataInsightsAgentWizardModal 
+        isOpen={isWizardModalOpen}
+        onClose={() => setIsWizardModalOpen(false)}
+        initialProjectId={projectNumber}
+        onAgentCreated={fetchResources}
+      />
     </div>
   );
 };
