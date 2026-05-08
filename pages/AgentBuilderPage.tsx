@@ -506,6 +506,7 @@ echo "Your A2A function is now available at: $SERVICE_URL"
 const generateAuthPy = (): string => {
     return `import os
 import logging
+import json
 from typing import Optional
 from google.oauth2.credentials import Credentials
 from google.adk.tools import ToolContext
@@ -520,7 +521,14 @@ def get_user_credentials(tool_context: ToolContext) -> Optional[Credentials]:
     if auth_id and tool_context.state:
         access_token = tool_context.state.get(auth_id)
         if access_token:
-            logger.info(f"Successfully retrieved access token for AUTH_ID: {auth_id}")
+            logger.info(f"Successfully retrieved token for AUTH_ID: {auth_id}")
+            try:
+                token_data = json.loads(access_token)
+                if isinstance(token_data, dict) and "access_token" in token_data:
+                    logger.info("Token is JSON, extracting access_token")
+                    return Credentials(token=token_data["access_token"])
+            except json.JSONDecodeError:
+                pass
             return Credentials(token=access_token)
 
     # Check environment variable matching AUTH_ID (for local testing)
