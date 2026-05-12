@@ -240,12 +240,32 @@ gcloud projects add-iam-policy-binding "${projectId}" \\
 
 gcloud projects add-iam-policy-binding "${projectId}" \\
   --member="serviceAccount:$SERVICE_ACCOUNT" \\
+  --role="roles/storage.objectViewer"
+
+gcloud projects add-iam-policy-binding "${projectId}" \\
+  --member="serviceAccount:$SERVICE_ACCOUNT" \\
   --role="roles/discoveryengine.editor"
   
 gcloud iam service-accounts add-iam-policy-binding $SERVICE_ACCOUNT \\
   --project="${projectId}" \\
   --role="roles/iam.workloadIdentityUser" \\
   --member="principalSet://iam.googleapis.com/$WORKLOAD_IDENTITY_POOL_ID/attribute.repository_owner/$OWNER"
+
+# Optional: Grant Roles to Cloud Build Service Account (If using Cloud Build)
+export PROJECT_NUMBER=$(gcloud projects describe "${projectId}" --format="value(projectNumber)")
+export CLOUD_BUILD_SA="$PROJECT_NUMBER@cloudbuild.gserviceaccount.com"
+
+gcloud projects add-iam-policy-binding "${projectId}" \\
+  --member="serviceAccount:$CLOUD_BUILD_SA" \\
+  --role="roles/run.admin"
+
+gcloud projects add-iam-policy-binding "${projectId}" \\
+  --member="serviceAccount:$CLOUD_BUILD_SA" \\
+  --role="roles/iam.serviceAccountUser"
+
+gcloud projects add-iam-policy-binding "${projectId}" \\
+  --member="serviceAccount:$CLOUD_BUILD_SA" \\
+  --role="roles/artifactregistry.admin"
 
 # 6. Set the newly created Provider and Service Account locally in your App Settings 
 echo "WIF Provider: $WORKLOAD_IDENTITY_PROVIDER"
