@@ -446,9 +446,6 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                                         {sortColumn === 'type' && <span className="text-gray-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>}
                                     </div>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                                    Agent Framework
-                                </th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-600/50 transition-colors" onClick={() => handleSort('shortId')}>
                                     <div className="flex items-center gap-1">
                                         Resource ID
@@ -481,9 +478,6 @@ const AgentEnginesPage: React.FC<AgentEnginesPageProps> = ({ projectNumber, acce
                                             <span className={`px-2 py-1 rounded text-xs font-semibold ${badgeClass}`}>
                                                 {res.type}
                                             </span>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                                            {res.type === 'Agent Engine' ? (res.data as ReasoningEngine).spec?.agentFramework || 'N/A' : 'N/A'}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">{res.shortId}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
