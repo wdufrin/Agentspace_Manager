@@ -480,7 +480,7 @@ export const getEngineIamPolicy = async (name: string, config: Config) => {
     const resourcePath = name.startsWith('projects/') 
         ? name 
         : `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${name}`;
-    const url = `${baseUrl}/v1/${resourcePath}:getIamPolicy`;
+    const url = `${baseUrl}/${DISCOVERY_API_BETA}/${resourcePath}:getIamPolicy`;
     return gapiRequest<any>(url, 'GET', projectId);
 };
 
@@ -490,7 +490,7 @@ export const setEngineIamPolicy = async (name: string, policy: any, config: Conf
     const resourcePath = name.startsWith('projects/') 
         ? name 
         : `projects/${projectId}/locations/${appLocation}/collections/${collectionId}/engines/${name}`;
-    const url = `${baseUrl}/v1/${resourcePath}:setIamPolicy`;
+    const url = `${baseUrl}/${DISCOVERY_API_BETA}/${resourcePath}:setIamPolicy`;
     return gapiRequest<any>(url, 'POST', projectId, undefined, { policy });
 };
 
